@@ -17,10 +17,7 @@ from calligraph.server.app import WORKSPACE_ENV_VAR
 
 @click.command()
 @click.argument(
-    "path",
-    type=click.Path(exists=True, path_type=Path),
-    required=False,
-    default=".",
+    "path", type=click.Path(exists=True, path_type=Path), required=False, default="."
 )
 @click.option("--host", default="127.0.0.1", show_default=True, help="Host to bind to.")
 @click.option(

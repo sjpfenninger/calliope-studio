@@ -8,9 +8,13 @@ its workspace from the `CALLIGRAPH_WORKSPACE` environment variable.
 import os
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, status
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+
+from calligraph.runs.manager import RunManager
+from calligraph.server.routes import api_router
+from calligraph.server.storage import LocalStorage
 
 WORKSPACE_ENV_VAR = "CALLIGRAPH_WORKSPACE"
 
@@ -20,13 +24,17 @@ WORKSPACE_ENV_VAR = "CALLIGRAPH_WORKSPACE"
 STATIC_DIR = Path(__file__).parent / "static"
 
 
-def create_app(workspace: Path | None = None) -> FastAPI:
+def create_app(
+    workspace: Path | None = None, storage: LocalStorage | None = None
+) -> FastAPI:
     """Builds the application.
 
     Args:
         workspace: Model definition folder or solved `.nc` file to open on
             start. Falls back to `$CALLIGRAPH_WORKSPACE`, then the working
             directory.
+        storage: Storage backend. Defaults to the local folder registry; tests
+            pass one pointed at a temporary directory.
 
     Returns:
         The configured FastAPI application.
@@ -37,11 +45,27 @@ def create_app(workspace: Path | None = None) -> FastAPI:
 
     app = FastAPI(title="Calligraph", version=_version())
     app.state.workspace = workspace.resolve()
+    app.state.storage = storage or LocalStorage()
+    app.state.runs = RunManager()
+
+    # Opening the app on a folder registers it, so the projects list always has
+    # at least the thing the user actually asked for.
+    if app.state.workspace.is_dir():
+        app.state.active_workspace = app.state.storage.open(app.state.workspace)
+    else:
+        app.state.active_workspace = None
 
     @app.get("/api/health")
     def health() -> dict:
-        return {"status": "ok", "workspace": str(app.state.workspace)}
+        active = app.state.active_workspace
+        return {
+            "status": "ok",
+            "workspace": str(app.state.workspace),
+            "workspace_id": active.id if active else None,
+            "calligraph_version": _version(),
+        }
 
+    app.include_router(api_router)
     _mount_frontend(app)
     return app
 
@@ -60,6 +84,13 @@ def _mount_frontend(app: FastAPI) -> None:
 
     @app.get("/{path:path}", include_in_schema=False)
     def spa(path: str) -> FileResponse:
+        # An unmatched /api path is a bug, not a client-side route. Serving
+        # index.html for it would hand the frontend HTML where it expects JSON
+        # and make a typo'd or withdrawn endpoint look like a success.
+        if path == "api" or path.startswith("api/"):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="No such endpoint."
+            )
         candidate = STATIC_DIR / path
         if path and candidate.is_file():
             return FileResponse(candidate)
@@ -72,4 +103,15 @@ def _version() -> str:
     return __version__
 
 
-app = create_app()
+def __getattr__(name: str):
+    """Builds the module-level `app` on first access, not at import.
+
+    `uvicorn calligraph.server.app:app` resolves this attribute when it starts
+    serving, by which point the CLI has set `$CALLIGRAPH_WORKSPACE`. Building it
+    eagerly at import time would instead capture whatever the workspace was when
+    something first imported this module — which, because the CLI imports it for
+    a constant, meant every run silently served the working directory.
+    """
+    if name == "app":
+        return create_app()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

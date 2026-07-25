@@ -1,0 +1,37 @@
+# Byte-compiled files
+__pycache__
+*.pyc
+
+# Build output
+build
+dist/
+site/
+*.egg-info
+
+# Caches
+.*[cC]ache*
+.pixi/
+
+# Scratch models: `pixi run example` creates example-model/ for the dev server
+# to open, and examples/ holds sample models and the solved .nc files the tests
+# read. Both are large and neither belongs in the repository.
+example-model/
+examples/
+
+# Frontend
+node_modules/
+# Vite builds the Vue bundle into the Python package; it is a build artefact
+# everywhere except in a released wheel, where setuptools picks it up.
+src/calliope_studio/server/static/
+
+# Claude Code. The guardrails in settings.json are shared, so they are tracked;
+# everything else under .claude/ is personal. Spelled out here rather than left
+# to whatever a developer has in their global excludes file, which is where
+# these were hidden before and does not travel with a clone.
+#
+# The first line is load-bearing: a global `.claude` pattern excludes the
+# directory itself, and git will not descend into an excluded directory to
+# re-include a file inside it.
+!.claude/
+.claude/*
+!.claude/settings.json

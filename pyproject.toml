@@ -1,0 +1,163 @@
+[build-system]
+requires = ["setuptools>=64", "setuptools-scm>=8"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "calligraph"
+authors = [
+  { name = "Stefan Pfenninger", email = "stefan@pfenninger.org" },
+]
+maintainers = [
+  { name = "Stefan Pfenninger", email = "stefan@pfenninger.org" },
+]
+description = "Web UI for defining, running and analysing Calliope models."
+readme = "README.md"
+requires-python = ">=3.10"
+keywords = ["energy systems", "visualisation", "optimisation"]
+license = { text = "AGPL-3.0-or-later" }
+classifiers = [
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
+  "Programming Language :: Python",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+]
+dynamic = ["version"]
+dependencies = [
+  "calliope>=0.7.0.dev7,<0.8.0",
+  "fastapi>=0.115",
+  "uvicorn>=0.34",
+  "pyarrow>=17",
+  "ruamel.yaml>=0.18",
+  "click>=8.2",
+  "platformdirs>=4",
+]
+
+[project.scripts]
+calligraph = "calligraph.cli:main"
+
+[project.urls]
+website = "https://www.callio.pe/"
+repository = "https://github.com/calliope-project/calligraph"
+
+[tool.setuptools_scm]
+# What the version is with no tags at all, which is this repository until
+# the first release is tagged. Without it setuptools-scm falls back to
+# 0.1.dev1.
+fallback_version = "0.1.0.dev0"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["calligraph*"]
+
+[tool.setuptools.package-data]
+# The Vue bundle is built from `web/` into here by `pixi run web-build`, so that
+# `calligraph` can serve the frontend from the same process as the API.
+calligraph = ["server/static/**"]
+
+[tool.setuptools]
+license-files = ["LICENSE"]
+
+[tool.pixi.workspace]
+channels = ["conda-forge"]
+platforms = ["linux-64", "osx-arm64"]
+
+[tool.pixi.dependencies]
+# Binary dependencies come from conda-forge; calliope (pre-release, PyPI-only)
+# and pure-Python deps are resolved by uv via the editable self-install below.
+python = ">=3.10,<3.13"
+fastapi = ">=0.115"
+uvicorn = ">=0.34"
+pyarrow = ">=17"
+"ruamel.yaml" = ">=0.18"
+click = ">=8.2"
+netcdf4 = "*"
+# calliope 0.7.0.dev7 pins xarray 2024.3, which pandas >=2.3 refuses to work with
+pandas = "<2.3"
+# Frontend toolchain, so `pixi run web-*` works without a separate Node install.
+nodejs = ">=22"
+# Solver for local runs: CBC is Calliope's default (`config.solve.solver`) and
+# is not pip-installable, so it has to come from conda-forge. Gurobi/CPLEX are
+# used instead if the user has them on PATH with a licence.
+coin-or-cbc = "*"
+
+[tool.pixi.pypi-dependencies]
+calligraph = { path = ".", editable = true }
+
+[tool.pixi.environments]
+default = { features = ["dev"], solve-group = "default" }
+build = { features = ["build"], solve-group = "default" }
+
+[tool.pixi.feature.dev.dependencies]
+ruff = "*"
+black = "*"
+pytest = "*"
+
+[tool.pixi.feature.build.dependencies]
+python-build = "*"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.pixi.tasks]
+lint = "ruff check src/ tests/"
+format = "black src/ tests/"
+test = "pytest"
+
+# Frontend. `web-build` compiles the Vue bundle into the Python package so that
+# a wheel serves the UI from the same process as the API.
+web-install = { cmd = "npm install", cwd = "web" }
+web-build = { cmd = "npm run build", cwd = "web", depends-on = ["web-install"] }
+web-dev = { cmd = "npm run dev", cwd = "web", depends-on = ["web-install"] }
+web-typecheck = { cmd = "npx vue-tsc --noEmit", cwd = "web", depends-on = ["web-install"] }
+
+# API only, with reload. Pair with `web-dev` (Vite proxies /api to this).
+serve = "uvicorn calligraph.server.app:app --reload --port 8000"
+
+build = { cmd = "python -m build", depends-on = ["web-build"] }
+
+[tool.black]
+line-length = 88
+skip-magic-trailing-comma = true
+target-version = ['py310', 'py311', 'py312']
+include = '\.pyi?$'
+exclude = '''
+/(
+    \.eggs
+  | \.git
+  | \.github
+  | \.mypy_cache
+  | \.pytest_cache
+  | \.vscode
+  | _build
+  | build
+  | dist
+  | .*\.egg-info
+)/
+'''
+
+[tool.ruff]
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "Q", "W"]
+# line too long; Black will handle these
+ignore = ["E501"]
+
+[tool.ruff.lint.mccabe]
+# Unlike Flake8, default to a complexity level of 10.
+max-complexity = 10
+
+# Ignore `E402` (import violations) and `F401` (unused imports) in all `__init__.py` files
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["E402", "F401"]
+
+[tool.ruff.lint.flake8-quotes]
+docstring-quotes = "double"
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.pycodestyle]
+max-doc-length = 200
+ignore-overlong-task-comments = true

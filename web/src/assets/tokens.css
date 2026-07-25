@@ -1,0 +1,143 @@
+/* Design tokens for the Calligraph UI.
+
+   The surface ramp is deliberately achromatic (oklch chroma 0) so that tech
+   colours in the plots are the only saturated thing on screen.
+
+   Palette values are kept consistent with the PlotTheme LIGHT/DARK constants in
+   calligraph/plots/theme.py — change them together. The sRGB hex equivalents
+   used there are noted next to each value below.
+
+   The theme attribute is set on <html> (see template.html), not <body>: the
+   --design-* hand-off below is declared on :root, and custom properties are
+   substituted at the element that declares them. If the dark overrides only
+   reached <body>, every --design-* value would stay stuck on its light value
+   and Panel's stock widgets would render light-on-dark. */
+
+@font-face {
+  font-family: "IBM Plex Sans";
+  src: url("/assets/fonts/ibm-plex-sans-400.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "IBM Plex Sans";
+  src: url("/assets/fonts/ibm-plex-sans-500.woff2") format("woff2");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "IBM Plex Sans";
+  src: url("/assets/fonts/ibm-plex-sans-600.woff2") format("woff2");
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  src: url("/assets/fonts/ibm-plex-mono-400.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  /* Surfaces, back to front */
+  --cg-bg: oklch(98% 0 0); /* #f8f8f8 */
+  --cg-surface-low: oklch(96% 0 0); /* #f2f2f2 — chrome: top bar, sidebar, footer */
+  --cg-surface: oklch(100% 0 0); /* #ffffff — cards, inputs */
+  --cg-surface-raised: oklch(97.5% 0 0); /* #f7f7f7 — hover, table stripes */
+  --cg-border: oklch(90% 0 0); /* #dedede */
+  --cg-border-strong: oklch(82% 0 0); /* #c4c4c4 */
+
+  /* Text. The ramp is kept dark on purpose: most of it sits on the grey chrome
+     surfaces rather than on white, where a lighter ramp loses legibility. */
+  --cg-text: oklch(14% 0 0); /* #090909 */
+  --cg-text-dim: oklch(30% 0 0); /* #2e2e2e */
+  --cg-text-muted: oklch(44% 0 0); /* #525252 */
+
+  /* Row/control hover wash */
+  --cg-hover: color-mix(in srgb, var(--cg-text) 6%, transparent);
+
+  /* Accent */
+  --cg-accent: oklch(54.6% 0.245 262.881); /* #155dfc */
+  --cg-accent-text: oklch(54.6% 0.245 262.881);
+  --cg-accent-soft: color-mix(in srgb, var(--cg-accent) 10%, transparent);
+  --cg-accent-border: color-mix(in srgb, var(--cg-accent) 45%, transparent);
+  --cg-focus-ring: color-mix(in srgb, var(--cg-accent) 35%, transparent);
+
+  /* Type */
+  --cg-font-ui: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --cg-font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --cg-text-sm: 12px;
+  --cg-text-xs: 11px;
+
+  /* Shape */
+  --cg-radius-sm: 4px;
+  --cg-radius: 6px;
+  --cg-radius-lg: 8px;
+
+  /* Space */
+  --cg-space-1: 4px;
+  --cg-space-2: 8px;
+  --cg-space-3: 12px;
+  --cg-space-4: 16px;
+  --cg-space-5: 24px;
+
+  /* Elevation */
+  --cg-shadow-1: 0 1px 2px rgb(0 0 0 / 0.05);
+  --cg-shadow-2: 0 1px 3px rgb(0 0 0 / 0.08), 0 1px 2px rgb(0 0 0 / 0.04);
+
+  /* Control metrics — one place to retune widget density */
+  --cg-control-height: 28px;
+  --cg-row-gap: 8px;
+  --cg-sidebar-pad: 12px;
+  --cg-sidebar-row: 24px;
+
+  /* Panel design-system hand-off: stock widgets pick up our tokens. Declared
+     here on :root, so the dark block below must also match :root. */
+  --design-primary-color: var(--cg-accent);
+  --design-secondary-color: var(--cg-surface-low);
+  --design-background-color: var(--cg-bg);
+  --design-surface-color: var(--cg-surface);
+  --design-primary-text-color: var(--cg-surface);
+  --design-secondary-text-color: var(--cg-text);
+  --design-background-text-color: var(--cg-text);
+  --design-surface-text-color: var(--cg-text);
+}
+
+[data-cg-theme="dark"] {
+  --cg-bg: oklch(15% 0 0); /* #0b0b0b */
+  --cg-surface-low: oklch(20% 0 0); /* #161616 */
+  --cg-surface: oklch(27% 0 0); /* #262626 */
+  --cg-surface-raised: oklch(33% 0 0); /* #353535 */
+  --cg-border: oklch(36% 0 0); /* #3d3d3d */
+  --cg-border-strong: oklch(45% 0 0); /* #555555 */
+
+  --cg-text: oklch(98% 0 0); /* #f8f8f8 */
+  --cg-text-dim: oklch(84% 0 0); /* #cacaca */
+  --cg-text-muted: oklch(70% 0 0); /* #9e9e9e */
+
+  --cg-hover: color-mix(in srgb, var(--cg-text) 10%, transparent);
+
+  --cg-accent: oklch(70% 0.15 255); /* #59a0f9 */
+  --cg-accent-text: oklch(80% 0.11 255);
+  --cg-accent-soft: color-mix(in srgb, var(--cg-accent) 18%, transparent);
+
+  --cg-shadow-1: 0 1px 2px rgb(0 0 0 / 0.4);
+  --cg-shadow-2: 0 1px 3px rgb(0 0 0 / 0.5), 0 1px 2px rgb(0 0 0 / 0.3);
+
+  --design-primary-text-color: oklch(15% 0 0);
+
+  color-scheme: dark;
+}
+
+body {
+  background: var(--cg-bg);
+  color: var(--cg-text);
+  font-family: var(--cg-font-ui);
+  font-size: 13px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}

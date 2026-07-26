@@ -1,143 +1,187 @@
-/* Design tokens for the Calligraph UI.
+/* Design tokens for the Calligraph UI — the primitive layer.
+ *
+ * Authored in oklch with the sRGB hex in a comment. This file is the only place
+ * in the codebase where a literal colour is written; the shadcn/Tailwind semantic
+ * aliases in style.css contain no values at all, only var() indirection.
+ *
+ * The surface ramp is deliberately achromatic (chroma 0) so that technology
+ * colours in plots are the only saturated thing on screen. That principle also
+ * governs the map basemap (components/map/ModelMap.vue desaturates the tiles) and
+ * chart gridlines. Status colours are the one exception, and only ever in areas
+ * smaller than a pill — never as a panel or page background.
+ *
+ * No color-mix(). ECharts, MapLibre and Monaco all render outside the DOM and
+ * cannot parse it, Tailwind's own opacity modifier wraps values in another
+ * color-mix() so nesting compounds, and mixing toward `transparent` produces a
+ * colour whose appearance depends on whatever is behind it — which fights having
+ * an explicit surface ramp at all. Hover is an opaque lightness step instead.
+ * See lib/cssColor.ts for how the non-DOM renderers read these.
+ *
+ * The theme is switched by `data-cg-theme` on <html>, set by stores/ui.ts and by
+ * a pre-paint guard in index.html. Both blocks target :root so that every token
+ * resolves at the element that declares it.
+ */
 
-   The surface ramp is deliberately achromatic (oklch chroma 0) so that tech
-   colours in the plots are the only saturated thing on screen.
-
-   Palette values are kept consistent with the PlotTheme LIGHT/DARK constants in
-   calligraph/plots/theme.py — change them together. The sRGB hex equivalents
-   used there are noted next to each value below.
-
-   The theme attribute is set on <html> (see template.html), not <body>: the
-   --design-* hand-off below is declared on :root, and custom properties are
-   substituted at the element that declares them. If the dark overrides only
-   reached <body>, every --design-* value would stay stuck on its light value
-   and Panel's stock widgets would render light-on-dark. */
-
+/* Only the Latin subsets are referenced, so only those two files ship. Vite
+ * resolves and fingerprints them out of node_modules; the previous hand-vendored
+ * woff2 files were referenced as `/assets/fonts/...`, which never resolved
+ * because Vite serves `public/` at `/` and `src/assets/` only through the module
+ * graph — so the app has never actually loaded its own fonts. */
 @font-face {
-  font-family: "IBM Plex Sans";
-  src: url("/assets/fonts/ibm-plex-sans-400.woff2") format("woff2");
-  font-weight: 400;
+  font-family: "Inter";
+  src: url("@fontsource-variable/inter/files/inter-latin-wght-normal.woff2")
+    format("woff2-variations");
+  font-weight: 100 900;
   font-style: normal;
   font-display: swap;
 }
-@font-face {
-  font-family: "IBM Plex Sans";
-  src: url("/assets/fonts/ibm-plex-sans-500.woff2") format("woff2");
-  font-weight: 500;
-  font-style: normal;
-  font-display: swap;
-}
-@font-face {
-  font-family: "IBM Plex Sans";
-  src: url("/assets/fonts/ibm-plex-sans-600.woff2") format("woff2");
-  font-weight: 600;
-  font-style: normal;
-  font-display: swap;
-}
+
 @font-face {
   font-family: "IBM Plex Mono";
-  src: url("/assets/fonts/ibm-plex-mono-400.woff2") format("woff2");
+  src: url("@fontsource/ibm-plex-mono/files/ibm-plex-mono-latin-400-normal.woff2")
+    format("woff2");
   font-weight: 400;
   font-style: normal;
   font-display: swap;
 }
 
 :root {
-  /* Surfaces, back to front */
-  --cg-bg: oklch(98% 0 0); /* #f8f8f8 */
-  --cg-surface-low: oklch(96% 0 0); /* #f2f2f2 — chrome: top bar, sidebar, footer */
-  --cg-surface: oklch(100% 0 0); /* #ffffff — cards, inputs */
-  --cg-surface-raised: oklch(97.5% 0 0); /* #f7f7f7 — hover, table stripes */
-  --cg-border: oklch(90% 0 0); /* #dedede */
-  --cg-border-strong: oklch(82% 0 0); /* #c4c4c4 */
+  /* ── Surfaces, back to front ─────────────────────────────────────────── */
+  --cg-bg: oklch(96.5% 0 0); /* #f3f3f3 — content area behind panels */
+  --cg-panel: oklch(100% 0 0); /* #ffffff — chrome: top bar, sidebar, tab strip */
+  --cg-surface: oklch(100% 0 0); /* #ffffff — cards, tables, inputs, popovers */
+  --cg-surface-2: oklch(97.8% 0 0); /* #f8f8f8 — table stripe, nested block, code well */
+  --cg-hover: oklch(95.5% 0 0); /* #f0f0f0 — row and control hover; opaque, not a wash */
+  --cg-active: oklch(93% 0 0); /* #e8e8e8 — pressed */
 
-  /* Text. The ramp is kept dark on purpose: most of it sits on the grey chrome
-     surfaces rather than on white, where a lighter ramp loses legibility. */
-  --cg-text: oklch(14% 0 0); /* #090909 */
-  --cg-text-dim: oklch(30% 0 0); /* #2e2e2e */
-  --cg-text-muted: oklch(44% 0 0); /* #525252 */
+  /* ── Hairlines. Three tiers, ~1.3:1 against the adjacent surface, which is
+        enough to read as a line and not as a rule. 1px at 1x, never 0.5px. ── */
+  --cg-border-subtle: oklch(93.5% 0 0); /* #e9e9e9 — row separators inside a list */
+  --cg-border: oklch(89.5% 0 0); /* #dcdcdc — panel dividers, input borders */
+  --cg-border-strong: oklch(80% 0 0); /* #bebebe — hovered splitter, resize handle */
 
-  /* Row/control hover wash */
-  --cg-hover: color-mix(in srgb, var(--cg-text) 6%, transparent);
+  /* ── Text ────────────────────────────────────────────────────────────── */
+  --cg-text: oklch(24% 0 0); /* #1f1f1f — 16.5:1 on surface */
+  --cg-text-dim: oklch(38% 0 0); /* #424242 — secondary values */
+  --cg-text-muted: oklch(53% 0 0); /* #6c6c6c — labels, placeholders; 5.3:1 on surface */
+  --cg-text-faint: oklch(65% 0 0); /* #8f8f8f — disabled; never for real text */
 
-  /* Accent */
-  --cg-accent: oklch(54.6% 0.245 262.881); /* #155dfc */
-  --cg-accent-text: oklch(54.6% 0.245 262.881);
-  --cg-accent-soft: color-mix(in srgb, var(--cg-accent) 10%, transparent);
-  --cg-accent-border: color-mix(in srgb, var(--cg-accent) 45%, transparent);
-  --cg-focus-ring: color-mix(in srgb, var(--cg-accent) 35%, transparent);
+  /* ── Accent. UniFi blue. ─────────────────────────────────────────────── */
+  --cg-accent: oklch(58.1% 0.23 259.5); /* #026fff — fills, focus, active bar */
+  --cg-accent-hover: oklch(52% 0.209 259.5); /* #005ede */
+  --cg-accent-active: oklch(46% 0.186 259.5); /* #004fbd */
+  --cg-accent-on: oklch(100% 0 0); /* #ffffff — text on an accent fill */
+  /* A separate, darker token: an accent's fill colour and its text colour can
+     never be the same value in both themes. */
+  --cg-accent-text: oklch(50% 0.2 259.5); /* #0059d2 — 6.3:1 on surface */
+  --cg-accent-soft: oklch(96% 0.018 259.5); /* #ebf2fe — selected row, pill background */
+  --cg-accent-soft-2: oklch(92% 0.037 259.5); /* #d6e6fe — selected and hovered */
+  --cg-accent-border: oklch(82% 0.085 259.5); /* #a4c6fc — border of a selected control */
+  --cg-focus-ring: oklch(58.1% 0.23 259.5 / 0.35);
 
-  /* Type */
-  --cg-font-ui: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  /* ── Status. Small areas only: a dot, a pill, a 2px row edge, an icon.
+        Never a large fill — that is what would break the achromatic ramp. ── */
+  --cg-success: oklch(57% 0.145 150); /* #1e8e46 */
+  --cg-success-text: oklch(48% 0.13 150); /* #067132 — 6.2:1 */
+  --cg-success-soft: oklch(95.5% 0.03 150); /* #e3f6e6 */
+  --cg-warning: oklch(76% 0.16 72); /* #ee9e10 */
+  --cg-warning-text: oklch(52% 0.12 62); /* #995600 — 5.7:1 */
+  --cg-warning-soft: oklch(96% 0.035 80); /* #fef0d8 */
+  --cg-danger: oklch(57% 0.2 26); /* #d43031 */
+  --cg-danger-text: oklch(50% 0.19 26); /* #b71920 — 6.6:1 */
+  --cg-danger-soft: oklch(95.5% 0.022 26); /* #ffebe8 */
+  --cg-danger-on: oklch(100% 0 0); /* #ffffff */
+
+  /* ── Ordinal chart ramp. NOT the technology palette — that is per-model data
+        and lives in src/calligraph/results/colors.py, arriving per series in
+        Arrow field metadata. This is for series with no technology identity
+        (carriers, cost classes, a bar comparison). One hue family with stepped
+        lightness, so it reads as a sequence and can never be mistaken for
+        categorical identity — and it survives greyscale printing. ── */
+  --cg-chart-1: oklch(50% 0.19 259); /* #055bcc */
+  --cg-chart-2: oklch(58% 0.124 235); /* #0084b9 */
+  --cg-chart-3: oklch(65% 0.112 208); /* #00a2b3 */
+  --cg-chart-4: oklch(72% 0.11 185); /* #3dbbae */
+  --cg-chart-5: oklch(79% 0.1 162); /* #7ccfa7 */
+
+  /* ── Type. Faces only; the size scale lives in @theme so Tailwind owns it. ── */
+  --cg-font-sans: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
   --cg-font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  --cg-text-sm: 12px;
-  --cg-text-xs: 11px;
 
-  /* Shape */
-  --cg-radius-sm: 4px;
-  --cg-radius: 6px;
-  --cg-radius-lg: 8px;
+  /* ── Shape. Near-square: a table-heavy console, not a consumer app. ────── */
+  --cg-radius-xs: 2px; /* checkbox, tag, dot */
+  --cg-radius-sm: 3px; /* input, button, tree-row hover */
+  --cg-radius: 4px; /* card, panel, popover, menu */
+  --cg-radius-lg: 6px; /* dialog only */
 
-  /* Space */
-  --cg-space-1: 4px;
-  --cg-space-2: 8px;
-  --cg-space-3: 12px;
-  --cg-space-4: 16px;
-  --cg-space-5: 24px;
+  /* ── Metrics, only for consumers that cannot use a Tailwind utility: AG Grid
+        params, the ECharts font size, Monaco. Vue templates use h-6/h-7/h-8. ── */
+  --cg-row-h: 26px; /* data table row */
+  --cg-row-header-h: 28px;
+  --cg-tree-row-h: 24px;
+  --cg-control-h: 28px;
+  --cg-font-size: 13px;
+  --cg-font-size-sm: 12px;
 
-  /* Elevation */
-  --cg-shadow-1: 0 1px 2px rgb(0 0 0 / 0.05);
-  --cg-shadow-2: 0 1px 3px rgb(0 0 0 / 0.08), 0 1px 2px rgb(0 0 0 / 0.04);
-
-  /* Control metrics — one place to retune widget density */
-  --cg-control-height: 28px;
-  --cg-row-gap: 8px;
-  --cg-sidebar-pad: 12px;
-  --cg-sidebar-row: 24px;
-
-  /* Panel design-system hand-off: stock widgets pick up our tokens. Declared
-     here on :root, so the dark block below must also match :root. */
-  --design-primary-color: var(--cg-accent);
-  --design-secondary-color: var(--cg-surface-low);
-  --design-background-color: var(--cg-bg);
-  --design-surface-color: var(--cg-surface);
-  --design-primary-text-color: var(--cg-surface);
-  --design-secondary-text-color: var(--cg-text);
-  --design-background-text-color: var(--cg-text);
-  --design-surface-text-color: var(--cg-text);
+  /* ── Elevation. Flat: shadows only for things that genuinely float. ───── */
+  --cg-shadow-1: 0 1px 2px oklch(0% 0 0 / 0.06);
+  --cg-shadow-2: 0 2px 6px oklch(0% 0 0 / 0.08), 0 1px 2px oklch(0% 0 0 / 0.04);
 }
 
-[data-cg-theme="dark"] {
-  --cg-bg: oklch(15% 0 0); /* #0b0b0b */
-  --cg-surface-low: oklch(20% 0 0); /* #161616 */
-  --cg-surface: oklch(27% 0 0); /* #262626 */
-  --cg-surface-raised: oklch(33% 0 0); /* #353535 */
-  --cg-border: oklch(36% 0 0); /* #3d3d3d */
-  --cg-border-strong: oklch(45% 0 0); /* #555555 */
+/* `.dark` is listed alongside so that a component copied from shadcn-vue's docs,
+   which assume a class, still resolves. `data-cg-theme` is the one we set. */
+[data-cg-theme="dark"],
+.dark {
+  --cg-bg: oklch(17% 0 0); /* #0f0f0f */
+  --cg-panel: oklch(20.5% 0 0); /* #171717 */
+  --cg-surface: oklch(22.5% 0 0); /* #1c1c1c */
+  --cg-surface-2: oklch(26% 0 0); /* #242424 */
+  --cg-hover: oklch(28% 0 0); /* #292929 */
+  --cg-active: oklch(32% 0 0); /* #333333 */
 
-  --cg-text: oklch(98% 0 0); /* #f8f8f8 */
-  --cg-text-dim: oklch(84% 0 0); /* #cacaca */
-  --cg-text-muted: oklch(70% 0 0); /* #9e9e9e */
+  /* Lifted above the value the light ramp would imply: #242424 on #1c1c1c is
+     1.29:1, which disappears on a low-brightness panel. */
+  --cg-border-subtle: oklch(28% 0 0); /* #292929 */
+  --cg-border: oklch(33% 0 0); /* #353535 */
+  --cg-border-strong: oklch(44% 0 0); /* #525252 */
 
-  --cg-hover: color-mix(in srgb, var(--cg-text) 10%, transparent);
+  --cg-text: oklch(94% 0 0); /* #ebebeb — 14.3:1 */
+  --cg-text-dim: oklch(78% 0 0); /* #b7b7b7 */
+  --cg-text-muted: oklch(62% 0 0); /* #868686 — 4.7:1 */
+  --cg-text-faint: oklch(48% 0 0); /* #5d5d5d */
 
-  --cg-accent: oklch(70% 0.15 255); /* #59a0f9 */
-  --cg-accent-text: oklch(80% 0.11 255);
-  --cg-accent-soft: color-mix(in srgb, var(--cg-accent) 18%, transparent);
+  /* Dark needs its own accent: #026fff is too dark to sit on #1c1c1c, and full
+     chroma blue on a near-black surface vibrates. */
+  --cg-accent: oklch(62% 0.205 258); /* #2481fe */
+  --cg-accent-hover: oklch(68% 0.17 258); /* #5097ff */
+  --cg-accent-active: oklch(56% 0.2 258); /* #0e6ee6 */
+  --cg-accent-on: oklch(100% 0 0); /* #ffffff */
+  --cg-accent-text: oklch(76% 0.124 256); /* #7bb3ff — 7.8:1 */
+  --cg-accent-soft: oklch(28% 0.045 258); /* #1b293f */
+  --cg-accent-soft-2: oklch(33% 0.07 258); /* #1d3559 */
+  --cg-accent-border: oklch(42% 0.1 258); /* #284d83 */
+  --cg-focus-ring: oklch(62% 0.205 258 / 0.45);
 
-  --cg-shadow-1: 0 1px 2px rgb(0 0 0 / 0.4);
-  --cg-shadow-2: 0 1px 3px rgb(0 0 0 / 0.5), 0 1px 2px rgb(0 0 0 / 0.3);
+  --cg-success: oklch(74% 0.155 152); /* #4fc678 */
+  --cg-success-text: oklch(80% 0.13 152); /* #78d694 */
+  --cg-success-soft: oklch(29% 0.045 152); /* #193220 */
+  --cg-warning: oklch(80% 0.155 78); /* #f4af2d */
+  --cg-warning-text: oklch(85% 0.13 80); /* #fac463 */
+  --cg-warning-soft: oklch(30% 0.05 72); /* #3d290e */
+  --cg-danger: oklch(68% 0.185 25); /* #f5605b */
+  --cg-danger-text: oklch(76% 0.142 25); /* #ff8a83 */
+  --cg-danger-soft: oklch(30% 0.055 25); /* #462220 */
+  --cg-danger-on: oklch(17% 0 0); /* #0f0f0f */
 
-  --design-primary-text-color: oklch(15% 0 0);
+  --cg-chart-1: oklch(58% 0.19 259); /* #2875e8 */
+  --cg-chart-2: oklch(66% 0.14 235); /* #009edb */
+  --cg-chart-3: oklch(72% 0.12 208); /* #1ab9cc */
+  --cg-chart-4: oklch(78% 0.11 185); /* #55cec0 */
+  --cg-chart-5: oklch(85% 0.1 162); /* #8fe3ba */
 
+  --cg-shadow-1: 0 1px 2px oklch(0% 0 0 / 0.5);
+  --cg-shadow-2: 0 2px 6px oklch(0% 0 0 / 0.6), 0 1px 2px oklch(0% 0 0 / 0.4);
+
+  /* Native scrollbars, form controls and date pickers follow this. */
   color-scheme: dark;
-}
-
-body {
-  background: var(--cg-bg);
-  color: var(--cg-text);
-  font-family: var(--cg-font-ui);
-  font-size: 13px;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
 }

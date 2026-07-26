@@ -1,20 +1,239 @@
-*,
-*::before,
-*::after {
-  box-sizing: border-box;
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "./assets/tokens.css";
+
+/* shadcn-vue's generated components use `dark:` utilities and assume a `.dark`
+   class. We switch on an attribute instead: charts/theme.ts already memoises on
+   it, and an attribute leaves room for a third value (high-contrast) later where
+   a class does not. This one line makes every `dark:` utility work regardless. */
+@custom-variant dark (&:where([data-cg-theme="dark"], [data-cg-theme="dark"] *));
+
+/* ───────────────────────────────────────────────────────────────────────────
+   shadcn-vue semantic aliases.
+   NO LITERAL VALUES HERE — every right-hand side is var(--cg-*), so
+   assets/tokens.css stays the single source of truth for colour. Enforceable:
+
+     grep -nE '^\s+--(background|foreground|card|popover|primary|secondary|muted|accent|destructive|border|input|ring|chart-[0-9]|sidebar)' src/style.css \
+       | grep -v 'var(--cg-'
+
+   must return nothing.
+
+   There is deliberately no dark override block: every alias points at a --cg-*
+   token, and tokens.css already re-declares those under the dark selector. That
+   is the whole payoff of keeping --cg-* as a separate primitive layer.
+   ─────────────────────────────────────────────────────────────────────────── */
+:root {
+  --radius: var(--cg-radius);
+
+  --background: var(--cg-bg);
+  --foreground: var(--cg-text);
+
+  --card: var(--cg-surface);
+  --card-foreground: var(--cg-text);
+  --popover: var(--cg-surface);
+  --popover-foreground: var(--cg-text);
+
+  --primary: var(--cg-accent);
+  --primary-foreground: var(--cg-accent-on);
+
+  /* Secondary buttons here are chrome rather than a colour: a surface step. */
+  --secondary: var(--cg-surface-2);
+  --secondary-foreground: var(--cg-text);
+
+  --muted: var(--cg-surface-2);
+  --muted-foreground: var(--cg-text-muted);
+
+  /* shadcn's "accent" is the hover/highlight wash, not the brand colour. */
+  --accent: var(--cg-hover);
+  --accent-foreground: var(--cg-text);
+
+  --destructive: var(--cg-danger);
+  --destructive-foreground: var(--cg-danger-on);
+
+  --border: var(--cg-border);
+  --input: var(--cg-border);
+  --ring: var(--cg-accent);
+
+  --chart-1: var(--cg-chart-1);
+  --chart-2: var(--cg-chart-2);
+  --chart-3: var(--cg-chart-3);
+  --chart-4: var(--cg-chart-4);
+  --chart-5: var(--cg-chart-5);
+
+  --sidebar: var(--cg-panel);
+  --sidebar-foreground: var(--cg-text);
+  --sidebar-primary: var(--cg-accent);
+  --sidebar-primary-foreground: var(--cg-accent-on);
+  --sidebar-accent: var(--cg-hover);
+  --sidebar-accent-foreground: var(--cg-text);
+  --sidebar-border: var(--cg-border);
+  --sidebar-ring: var(--cg-accent);
 }
 
-html,
-body {
-  margin: 0;
-  padding: 0;
-  height: 100%;
-  overflow: hidden;
-  font-family: var(--p-font-family, system-ui, sans-serif);
+/* `inline` is load-bearing. Without it Tailwind re-declares each variable at
+   :root with the light value baked in, and the dark override never reaches the
+   utility. With it, `bg-background` compiles to var(--background) and the
+   cascade does the work. */
+@theme inline {
+  --font-sans: var(--cg-font-sans);
+  --font-mono: var(--cg-font-mono);
+  /* Makes bare <body> text pick up the sans face without a class on it. */
+  --default-font-family: var(--cg-font-sans);
+
+  /* The type scale, in px. The root font-size stays at 16px on purpose:
+     Tailwind's --spacing is 0.25rem, so h-6/h-7/h-8 are exactly 24/28/32px and
+     gap-1/2/3 are 4/8/12px — which is the density spec, needing no overrides at
+     all. Shrinking the root to "make things smaller" would silently rescale the
+     entire spacing scale and h-7 would become 22.75px. */
+  --text-2xs: 10px;
+  --text-2xs--line-height: 13px;
+  --text-xs: 11px;
+  --text-xs--line-height: 15px;
+  /* Most shadcn components say `text-sm`; landing that at 12px is the single
+     highest-leverage line in this file. */
+  --text-sm: 12px;
+  --text-sm--line-height: 16px;
+  --text-base: 13px;
+  --text-base--line-height: 18px;
+  --text-md: 14px;
+  --text-md--line-height: 20px;
+  --text-lg: 16px;
+  --text-lg--line-height: 22px;
+  --text-xl: 20px;
+  --text-xl--line-height: 28px;
+  --text-2xl: 24px;
+  --text-2xl--line-height: 32px;
+
+  /* Near-square everywhere. shadcn components reach for rounded-md/lg/xl, so
+     those are mapped down rather than left at Tailwind's defaults. */
+  --radius-xs: var(--cg-radius-xs);
+  --radius-sm: var(--cg-radius-sm);
+  --radius-md: var(--cg-radius);
+  --radius-lg: var(--cg-radius);
+  --radius-xl: var(--cg-radius-lg);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  /* Direct exposure for the vocabulary shadcn has no name for. A data console
+     needs to say "the same grey as the tab strip" and "a hairline inside a
+     list"; shadcn's set has no surface-2, no border-subtle, no border-strong. */
+  --color-panel: var(--cg-panel);
+  --color-surface: var(--cg-surface);
+  --color-surface-2: var(--cg-surface-2);
+  --color-hover: var(--cg-hover);
+  --color-active: var(--cg-active);
+  --color-border-subtle: var(--cg-border-subtle);
+  --color-border-strong: var(--cg-border-strong);
+  --color-text-dim: var(--cg-text-dim);
+  --color-text-faint: var(--cg-text-faint);
+  --color-accent-text: var(--cg-accent-text);
+  --color-accent-soft: var(--cg-accent-soft);
+  --color-accent-soft-2: var(--cg-accent-soft-2);
+  --color-accent-border: var(--cg-accent-border);
+  --color-success: var(--cg-success);
+  --color-success-text: var(--cg-success-text);
+  --color-success-soft: var(--cg-success-soft);
+  --color-warning: var(--cg-warning);
+  --color-warning-text: var(--cg-warning-text);
+  --color-warning-soft: var(--cg-warning-soft);
+  --color-danger: var(--cg-danger);
+  --color-danger-text: var(--cg-danger-text);
+  --color-danger-soft: var(--cg-danger-soft);
 }
 
-#app {
-  height: 100%;
-  display: flex;
-  flex-direction: column;
+@layer base {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+    border-color: var(--cg-border);
+  }
+
+  html,
+  body {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    /* The app is a fixed-height shell; every scrolling region is explicit. */
+    overflow: hidden;
+  }
+
+  body {
+    background: var(--cg-bg);
+    color: var(--cg-text);
+    font-family: var(--cg-font-sans);
+    font-size: 13px;
+    line-height: 18px;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    /* Slashed zero and tailed l: a cheap legibility win where most of the text
+       on screen is identifiers and numbers. */
+    font-feature-settings: "cv05" 1, "cv08" 1;
+  }
+
+  #app {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--cg-accent);
+    outline-offset: 1px;
+  }
+
+  /* Numbers in a column have to line up. */
+  table,
+  .tabular,
+  .ag-root-wrapper {
+    font-variant-numeric: tabular-nums;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--cg-border-strong);
+    border: 2px solid transparent;
+    background-clip: content-box;
+    border-radius: 5px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background-clip: padding-box;
+  }
 }

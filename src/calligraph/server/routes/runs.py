@@ -170,7 +170,8 @@ def create_run(
     # Old finished runs go before the new one starts, not after it finishes: the
     # worker is the only thing that knows a run completed, and it must not reach
     # back into the server to tidy up.
-    storage.prune_runs(workspace)
+    if workspace.run_retention is not None:
+        storage.prune_runs(workspace, keep=workspace.run_retention)
 
     record = runs.start(
         storage.runs_dir(workspace, create=True),

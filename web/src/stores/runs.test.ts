@@ -99,6 +99,20 @@ describe("useRunsStore", () => {
     api.delete.mockReset();
   });
 
+  /**
+   * Answers the settings call and routes everything else to `data`.
+   *
+   * `load` fetches the workspace's retention setting as well as the history, so
+   * a bare `mockResolvedValue` would hand the run list to both.
+   */
+  function serve(data: unknown) {
+    api.get.mockImplementation((url: string) =>
+      url.includes("/settings/")
+        ? Promise.resolve({ data: { run_retention: 20 } })
+        : Promise.resolve({ data }),
+    );
+  }
+
   afterEach(() => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
@@ -108,13 +122,11 @@ describe("useRunsStore", () => {
     it("orders newest first, whatever the server sent", () => {
       // Run directories are UUIDs, so any order that looks deliberate is not.
       const runs = useRunsStore();
-      api.get.mockResolvedValue({
-        data: [
-          record({ id: "a", created_at: "2026-07-01T00:00:00Z" }),
-          record({ id: "c", created_at: "2026-07-03T00:00:00Z" }),
-          record({ id: "b", created_at: "2026-07-02T00:00:00Z" }),
-        ],
-      });
+      serve([
+        record({ id: "a", created_at: "2026-07-01T00:00:00Z" }),
+        record({ id: "c", created_at: "2026-07-03T00:00:00Z" }),
+        record({ id: "b", created_at: "2026-07-02T00:00:00Z" }),
+      ]);
 
       return runs.load("v1").then(() => {
         expect(runs.ordered.map((run) => run.id)).toEqual(["c", "b", "a"]);
@@ -123,9 +135,10 @@ describe("useRunsStore", () => {
 
     it("adds up what the history costs on disk", async () => {
       const runs = useRunsStore();
-      api.get.mockResolvedValue({
-        data: [record({ id: "a", size_bytes: 1000 }), record({ id: "b", size_bytes: 2500 })],
-      });
+      serve([
+        record({ id: "a", size_bytes: 1000 }),
+        record({ id: "b", size_bytes: 2500 }),
+      ]);
 
       await runs.load("v1");
       expect(runs.totalBytes).toBe(3500);
@@ -133,7 +146,7 @@ describe("useRunsStore", () => {
 
     it("resumes watching a run left solving by a previous session", async () => {
       const runs = useRunsStore();
-      api.get.mockResolvedValueOnce({ data: [record({ id: "a", status: "running" })] });
+      serve([record({ id: "a", status: "running" })]);
       await runs.load("v1");
 
       api.get.mockResolvedValue({ data: record({ id: "a", status: "success" }) });
@@ -149,6 +162,39 @@ describe("useRunsStore", () => {
       await runs.load("v1");
       expect(runs.error).toBe("connection refused");
       expect(runs.isLoading).toBe(false);
+    });
+  });
+
+  describe("retention", () => {
+    it("comes back with the history", async () => {
+      const runs = useRunsStore();
+      serve([]);
+      await runs.load("v1");
+      expect(runs.retention).toBe(20);
+    });
+
+    it("can be set to keep everything", async () => {
+      const runs = useRunsStore();
+      api.patch.mockResolvedValue({ data: { run_retention: null } });
+
+      await runs.setRetention("v1", null);
+      expect(api.patch).toHaveBeenCalledWith("/api/versions/v1/settings/", {
+        run_retention: null,
+      });
+      expect(runs.retention).toBeNull();
+    });
+
+    it("does not remove anything locally", async () => {
+      // The server prunes when a run *starts*. A settings change that deleted
+      // results as the number moved would be a trap.
+      const runs = useRunsStore();
+      serve([record({ id: "a" }), record({ id: "b" })]);
+      await runs.load("v1");
+
+      api.patch.mockResolvedValue({ data: { run_retention: 1 } });
+      await runs.setRetention("v1", 1);
+
+      expect(runs.ordered.length).toBe(2);
     });
   });
 

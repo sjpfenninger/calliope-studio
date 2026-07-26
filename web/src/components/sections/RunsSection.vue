@@ -12,7 +12,7 @@
  * it works whether or not this section is the one being looked at.
  */
 import { computed, ref, watch } from "vue";
-import { HardDrive, Play, RefreshCw } from "lucide-vue-next";
+import { Check, HardDrive, Play, RefreshCw } from "lucide-vue-next";
 
 import RunListItem from "@/components/runs/RunListItem.vue";
 import RunStatusPill from "@/components/runs/RunStatusPill.vue";
@@ -24,9 +24,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { formatBytes } from "@/lib/format";
 import { ICON_STROKE_WIDTH } from "@/lib/icons";
-import { useRunsStore, type RunRecord } from "@/stores/runs";
+import { RETENTION_CHOICES, useRunsStore, type RunRecord } from "@/stores/runs";
 import { useTabsStore } from "@/stores/tabs";
 
 const runs = useRunsStore();
@@ -87,6 +94,10 @@ async function confirmDelete() {
 function refresh() {
   if (tabs.versionId) runs.load(tabs.versionId);
 }
+
+function setRetention(keep: number | null) {
+  if (tabs.versionId) runs.setRetention(tabs.versionId, keep);
+}
 </script>
 
 <template>
@@ -136,15 +147,49 @@ function refresh() {
       </p>
     </div>
 
-    <!-- What the history costs. Visible because the directory is visible: a user
-         told to look in `calligraph/` needs to know when it is worth tidying. -->
+    <!-- What the history costs, and how much of it is kept. Visible because the
+         directory is visible: a user told to look in `calligraph/` needs to know
+         both what it is costing and why old runs disappear. -->
     <div
-      v-if="runs.ordered.length"
+      v-if="tabs.versionId"
       class="flex h-6 shrink-0 items-center gap-1.5 border-t border-border px-2 text-2xs text-text-faint"
     >
       <HardDrive class="size-3" :stroke-width="ICON_STROKE_WIDTH" />
-      <span>{{ runs.ordered.length }} {{ runs.ordered.length === 1 ? "run" : "runs" }}</span>
-      <span class="ml-auto tabular-nums">{{ formatBytes(runs.totalBytes) }}</span>
+      <span>
+        {{ runs.ordered.length }} {{ runs.ordered.length === 1 ? "run" : "runs" }}
+      </span>
+      <span class="tabular-nums">· {{ formatBytes(runs.totalBytes) }}</span>
+
+      <div class="flex-1" />
+
+      <DropdownMenu>
+        <DropdownMenuTrigger as-child>
+          <button
+            type="button"
+            data-testid="retention"
+            title="How many finished runs to keep. Applied the next time a run starts."
+            class="rounded-xs px-1 hover:bg-hover hover:text-foreground"
+          >
+            keep {{ runs.retention === null ? "all" : runs.retention }}
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" class="min-w-32">
+          <DropdownMenuLabel class="text-2xs">Keep how many runs</DropdownMenuLabel>
+          <DropdownMenuItem
+            v-for="choice in RETENTION_CHOICES"
+            :key="String(choice)"
+            :data-testid="`retention-${choice ?? 'all'}`"
+            @select="setRetention(choice)"
+          >
+            <Check
+              class="size-3"
+              :stroke-width="2.5"
+              :class="runs.retention === choice ? '' : 'invisible'"
+            />
+            {{ choice ?? "All of them" }}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
     </div>
 
     <Dialog

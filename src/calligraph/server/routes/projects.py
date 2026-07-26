@@ -67,6 +67,41 @@ def get_project(workspace: Workspace = Depends(get_workspace)) -> dict:
     return workspace.as_dict()
 
 
+class WorkspaceSettings(BaseModel):
+    """The settings a workspace has. Currently one.
+
+    `run_retention: null` keeps every run — a reasonable choice for a small
+    model and a ruinous one for a large one, which is exactly why it is a
+    setting and not a constant.
+    """
+
+    run_retention: int | None = None
+
+
+def _settings_of(workspace: Workspace) -> dict:
+    return {"run_retention": workspace.run_retention}
+
+
+@router.get("/versions/{id}/settings/")
+def get_settings(workspace: Workspace = Depends(get_workspace)) -> dict:
+    return _settings_of(workspace)
+
+
+@router.patch("/versions/{id}/settings/")
+def update_settings(
+    body: WorkspaceSettings,
+    workspace: Workspace = Depends(get_workspace),
+    storage: LocalStorage = Depends(get_storage),
+) -> dict:
+    """Changes a workspace's settings.
+
+    Retention applies the next time a run starts, which is when pruning happens.
+    Nothing is deleted here: changing a setting should never be the destructive
+    act, or lowering the number becomes a mine.
+    """
+    return _settings_of(storage.set_run_retention(workspace, body.run_retention))
+
+
 @router.get("/projects/{id}/versions/")
 def list_versions(workspace: Workspace = Depends(get_workspace)) -> list[dict]:
     return [_version_of(workspace)]

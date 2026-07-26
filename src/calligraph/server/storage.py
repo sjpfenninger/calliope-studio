@@ -10,6 +10,7 @@ interface, backed by per-user server-managed directories.
 """
 
 import atexit
+import dataclasses
 import hashlib
 import json
 import os
@@ -75,6 +76,12 @@ class Workspace:
     path: Path
     name: str
     opened_at: datetime
+    #: How many finished runs to keep. `None` keeps everything, which is a
+    #: legitimate choice for a small model and a terrible one for a large one —
+    #: hence a setting rather than a constant. Stored in the registry rather than
+    #: beside the model, because it is a preference about the machine's disk, not
+    #: a property of the model definition.
+    run_retention: int | None = DEFAULT_RUN_RETENTION
 
     def as_dict(self) -> dict:
         """Serialises for the API.
@@ -124,6 +131,24 @@ def _migrate_legacy_data_dir(workspace_path: Path) -> None:
         # A read-only or otherwise awkward workspace. Not worth failing to open
         # a model over; the old directory simply stays where it is.
         pass
+
+
+def _retention_of(entry: dict) -> int | None:
+    """Reads a registry entry's run retention, tolerating anything it may hold.
+
+    A registry written before this setting existed has no key at all, and one
+    edited by hand can hold anything. Neither is worth failing to open a model
+    over, so both fall back to the default.
+    """
+    if "run_retention" not in entry:
+        return DEFAULT_RUN_RETENTION
+    value = entry["run_retention"]
+    if value is None:
+        return None
+    try:
+        return max(1, int(value))
+    except (TypeError, ValueError):
+        return DEFAULT_RUN_RETENTION
 
 
 def workspace_id(path: Path) -> str:
@@ -192,6 +217,7 @@ class LocalStorage:
                     path=path,
                     name=entry.get("name") or path.name,
                     opened_at=opened_at,
+                    run_retention=_retention_of(entry),
                 )
             )
         if len(kept) != len(entries):
@@ -214,27 +240,61 @@ class LocalStorage:
 
         _migrate_legacy_data_dir(resolved)
 
+        existing = [
+            entry
+            for entry in self._read_registry()
+            if entry.get("path") == str(resolved)
+        ]
         workspace = Workspace(
             id=workspace_id(resolved),
             path=resolved,
             name=resolved.name,
             opened_at=datetime.now(timezone.utc),
+            # Re-opening a model must not silently reset its settings: the entry
+            # is rewritten to move it to the top of the list, and anything not
+            # carried across here is lost every time the model is opened.
+            run_retention=(
+                _retention_of(existing[0]) if existing else DEFAULT_RUN_RETENTION
+            ),
         )
         entries = [
             entry
             for entry in self._read_registry()
             if entry.get("path") != str(resolved)
         ]
-        entries.insert(
-            0,
-            {
-                "path": str(resolved),
-                "name": workspace.name,
-                "opened_at": workspace.opened_at.isoformat(),
-            },
-        )
+        entries.insert(0, self._entry_for(workspace))
         self._write_registry(entries)
         return workspace
+
+    @staticmethod
+    def _entry_for(workspace: Workspace) -> dict:
+        return {
+            "path": str(workspace.path),
+            "name": workspace.name,
+            "opened_at": workspace.opened_at.isoformat(),
+            "run_retention": workspace.run_retention,
+        }
+
+    def set_run_retention(self, workspace: Workspace, keep: int | None) -> Workspace:
+        """Changes how many finished runs this workspace keeps.
+
+        Takes effect the next time a run *starts*, which is when pruning happens
+        — lowering the limit does not delete anything on the spot. That is
+        deliberate: a settings change should not be a destructive action.
+
+        Raises:
+            WorkspaceNotFound: If the workspace is no longer registered.
+        """
+        updated = dataclasses.replace(
+            workspace, run_retention=None if keep is None else max(1, int(keep))
+        )
+        entries = self._read_registry()
+        for index, entry in enumerate(entries):
+            if entry.get("path") == str(workspace.path):
+                entries[index] = {**entry, "run_retention": updated.run_retention}
+                self._write_registry(entries)
+                return updated
+        raise WorkspaceNotFound(workspace.id)
 
     def runs_dir(self, workspace: Workspace, *, create: bool = False) -> Path:
         """Directory holding this workspace's run outputs.

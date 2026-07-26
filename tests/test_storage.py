@@ -196,6 +196,70 @@ class TestRunRetention:
         assert not (national_scale / "calligraph").exists()
 
 
+class TestRetentionSetting:
+    """How many runs to keep is a per-workspace preference, not a constant.
+
+    A national model at 100 MB a run and a teaching model at 500 kB want wildly
+    different limits, and the value is about the machine's disk rather than the
+    model, which is why it lives in the registry.
+    """
+
+    def test_a_new_workspace_gets_the_default(self, storage, national_scale):
+        assert storage.open(national_scale).run_retention == 20
+
+    def test_the_setting_persists(self, storage, national_scale, tmp_path):
+        from calligraph.server.storage import LocalStorage
+
+        workspace = storage.open(national_scale)
+        storage.set_run_retention(workspace, 3)
+
+        # A fresh storage reads it back from the registry, as a restart would.
+        reopened = LocalStorage(storage.registry_path).get(workspace.id)
+        assert reopened.run_retention == 3
+
+    def test_reopening_a_model_does_not_reset_it(self, storage, national_scale):
+        """`open` rewrites the entry to move it to the top of the recents list.
+
+        Anything not carried across is silently lost every time the model is
+        opened, which for a setting means it never appears to stick.
+        """
+        storage.set_run_retention(storage.open(national_scale), 5)
+        assert storage.open(national_scale).run_retention == 5
+
+    def test_keeping_everything_is_expressible(self, storage, national_scale):
+        workspace = storage.set_run_retention(storage.open(national_scale), None)
+        assert workspace.run_retention is None
+
+    def test_zero_is_refused(self, storage, national_scale):
+        # Keeping zero runs would delete the history on the next run, which no
+        # one means; "keep everything" is null, not 0.
+        workspace = storage.set_run_retention(storage.open(national_scale), 0)
+        assert workspace.run_retention == 1
+
+    def test_a_registry_written_before_the_setting_existed_still_opens(
+        self, storage, national_scale
+    ):
+        import json
+
+        workspace = storage.open(national_scale)
+        entries = json.loads(storage.registry_path.read_text())
+        for entry in entries:
+            entry.pop("run_retention", None)
+        storage.registry_path.write_text(json.dumps(entries))
+
+        assert storage.get(workspace.id).run_retention == 20
+
+    def test_a_hand_edited_nonsense_value_falls_back(self, storage, national_scale):
+        import json
+
+        workspace = storage.open(national_scale)
+        entries = json.loads(storage.registry_path.read_text())
+        entries[0]["run_retention"] = "lots"
+        storage.registry_path.write_text(json.dumps(entries))
+
+        assert storage.get(workspace.id).run_retention == 20
+
+
 class TestLegacyDataDirectory:
     def test_hidden_directory_is_migrated_on_open(self, storage, national_scale):
         """A workspace from before the rename keeps its run history at the new path."""

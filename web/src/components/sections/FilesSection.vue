@@ -11,14 +11,15 @@ import { computed, ref, watch } from "vue";
 
 import { Tree } from "@/components/ui/tree";
 import { fileIcon } from "@/lib/icons";
+import { type FileTreeNode } from "@/lib/fileTree";
 import { fileTabId } from "@/lib/tabId";
 import { useTabsStore } from "@/stores/tabs";
-import { useVersionStore, type TreeNode } from "@/stores/version";
+import { useVersionStore } from "@/stores/version";
 
 const tabs = useTabsStore();
 const version = useVersionStore();
 
-const selected = ref<TreeNode>();
+const selected = ref<FileTreeNode>();
 const nodes = computed(() => version.fileTree);
 
 watch(
@@ -39,18 +40,18 @@ watch(selected, (node) => {
   <Tree
     v-model="selected"
     :items="nodes"
-    :get-key="(node) => (node as TreeNode).key"
-    :get-children="(node) => (node as TreeNode).children"
-    :get-label="(node) => (node as TreeNode).label"
+    :get-key="(node) => (node as FileTreeNode).key"
+    :get-children="(node) => (node as FileTreeNode).children"
+    :get-label="(node) => (node as FileTreeNode).label"
     :get-icon="
-      (node) => fileIcon((node as TreeNode).leaf ? ((node as TreeNode).type ?? '') : 'directory')
+      (node) => fileIcon((node as FileTreeNode).leaf ? ((node as FileTreeNode).type ?? '') : 'directory')
     "
     data-testid="file-tree"
     class="min-h-0 flex-1"
   >
     <template #trailing="{ item }">
       <span
-        v-if="tabs.get(fileTabId((item as TreeNode).key))?.isDirty"
+        v-if="tabs.get(fileTabId((item as FileTreeNode).key))?.isDirty"
         class="ml-auto size-1.5 shrink-0 rounded-full bg-primary"
         title="Unsaved changes"
       />

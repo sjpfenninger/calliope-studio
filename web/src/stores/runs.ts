@@ -90,6 +90,9 @@ export function isTerminal(status: RunStatus): boolean {
 
 const POLL_INTERVAL_MS = 2000;
 
+/** The choices offered for how much history to keep. `null` keeps everything. */
+export const RETENTION_CHOICES: Array<number | null> = [5, 10, 20, 50, 100, null];
+
 export const useRunsStore = defineStore("runs", () => {
   const records = reactive(new Map<string, RunRecord>());
   const logs = reactive(new Map<string, string[]>());
@@ -97,6 +100,8 @@ export const useRunsStore = defineStore("runs", () => {
   const streaming = reactive(new Set<string>());
   const isLoading = ref(false);
   const error = ref<string | null>(null);
+  /** How many runs this workspace keeps. Null means all of them. */
+  const retention = ref<number | null>(null);
 
   // Not reactive: nothing renders a timer or an EventSource, and making them
   // reactive would mean Vue proxying objects the browser handed us.
@@ -227,9 +232,38 @@ export const useRunsStore = defineStore("runs", () => {
 
   // -- history ---------------------------------------------------------------
 
+  interface Settings {
+    run_retention: number | null;
+  }
+
+  async function loadSettings(versionId: string): Promise<void> {
+    try {
+      const res = await client.get<Settings>(`/api/versions/${versionId}/settings/`);
+      retention.value = res.data.run_retention;
+    } catch {
+      // A viewer-mode server has no workspace to have settings; the control
+      // simply does not appear.
+    }
+  }
+
+  /**
+   * Changes how much history this workspace keeps.
+   *
+   * Nothing is deleted here — the server prunes when a run *starts*. A settings
+   * change that silently removed results as you moved the number would be a
+   * trap, so lowering the limit only takes effect next time.
+   */
+  async function setRetention(versionId: string, keep: number | null): Promise<void> {
+    const res = await client.patch<Settings>(`/api/versions/${versionId}/settings/`, {
+      run_retention: keep,
+    });
+    retention.value = res.data.run_retention;
+  }
+
   async function load(versionId: string): Promise<void> {
     isLoading.value = true;
     error.value = null;
+    void loadSettings(versionId);
     try {
       const res = await client.get<RunRecord[]>(`/api/versions/${versionId}/runs/`);
       records.clear();
@@ -301,10 +335,12 @@ export const useRunsStore = defineStore("runs", () => {
     totalBytes,
     isLoading,
     error,
+    retention,
     get,
     logsFor,
     isStreaming,
     load,
+    setRetention,
     refresh,
     watchRun,
     unwatchRun,

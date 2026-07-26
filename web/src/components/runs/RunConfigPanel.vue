@@ -2,46 +2,259 @@
 /**
  * The model definition this run was solved from.
  *
- * A stub until the next step, which gives it the frozen file tree and the
- * as-solved summary. It exists now so the sub-view is real rather than
- * conditionally absent — a tab whose tabs appear and disappear as the feature
- * lands is worse than one that says what is coming.
+ * Two views, because they answer two different questions and neither subsumes
+ * the other:
+ *
+ * - **As written** is the YAML and CSV frozen into the run directory before the
+ *   worker existed. It is what the user wrote, comments and all, and since the
+ *   worker now solves *from* this tree it is provably the thing that was solved.
+ * - **As solved** is the resolved configuration read back out of `results.nc` —
+ *   every default filled in, every override applied. It is what Calliope
+ *   actually used, which is rarely what the file says.
+ *
+ * Read-only throughout: history is not editable. That is also why this does not
+ * reuse the Monaco instance the editor owns — a shared editor with a read-only
+ * flag is one mistake away from a frozen file becoming writable, and the
+ * highlighting is not worth that.
  */
-import { onMounted, ref } from "vue";
+import { computed, ref, watch } from "vue";
+import { FileWarning } from "lucide-vue-next";
 
+import { Tree } from "@/components/ui/tree";
 import client from "@/api/client";
+import { fetchSummary } from "@/api/results";
+import { buildFileTree, type FileEntry, type FileTreeNode } from "@/lib/fileTree";
+import { formatBytes } from "@/lib/format";
+import { fileIcon, ICON_STROKE_WIDTH } from "@/lib/icons";
 
 const props = defineProps<{ runId: string; handle: string | null }>();
 
+/** What the snapshot captured, and what it could not. */
 interface Manifest {
   available: boolean;
   reason: string | null;
   complete?: boolean;
-  files?: Array<{ path: string }>;
-  external?: Array<{ path: string; reason: string }>;
+  solve_from?: string;
+  files?: FileEntry[];
+  /** What the snapshot could *not* capture, and why. */
+  external?: Array<{ reference: string; referenced_by: string; reason: string }>;
 }
 
-const manifest = ref<Manifest | null>(null);
+interface Summary {
+  model: Record<string, unknown>;
+  init_config: Record<string, unknown>;
+  build_config: Record<string, unknown>;
+  solve_config: Record<string, unknown>;
+}
 
-onMounted(async () => {
-  const response = await client.get<Manifest>(`/api/runs/${props.runId}/snapshot/`);
-  manifest.value = response.data;
+type View = "written" | "solved";
+
+const view = ref<View>("written");
+const manifest = ref<Manifest | null>(null);
+const tree = ref<FileTreeNode[]>([]);
+const selected = ref<FileTreeNode>();
+const content = ref<string | null>(null);
+const csv = ref<{ columns: Array<{ name: string }>; rows: unknown[][] } | null>(null);
+const summary = ref<Summary | null>(null);
+const summaryError = ref<string | null>(null);
+
+const external = computed(() => manifest.value?.external ?? []);
+
+watch(
+  () => props.runId,
+  async (runId) => {
+    manifest.value = (
+      await client.get<Manifest>(`/api/runs/${runId}/snapshot/`)
+    ).data;
+    if (!manifest.value.available) return;
+
+    const files = (await client.get<FileEntry[]>(`/api/runs/${runId}/files/`)).data;
+    tree.value = buildFileTree(files);
+    // Opening on the model's entry point rather than on nothing: it is the file
+    // anyone reading a frozen configuration starts from.
+    const entry = files.find((file) => file.path === "model.yaml") ?? files[0];
+    if (entry) show(entry.path, entry.type);
+  },
+  { immediate: true },
+);
+
+// Fetched lazily: it means loading the whole solved model server-side, which is
+// not worth doing for someone who only wanted to see the YAML.
+watch([view, () => props.handle], async ([current, handle]) => {
+  if (current !== "solved" || !handle || summary.value) return;
+  try {
+    summary.value = await fetchSummary(handle);
+    summaryError.value = null;
+  } catch (caught) {
+    summaryError.value = (caught as Error).message ?? String(caught);
+  }
 });
+
+watch(selected, (node) => {
+  if (node?.leaf) show(node.key, node.type);
+});
+
+async function show(path: string, type: string) {
+  content.value = null;
+  csv.value = null;
+  if (type === "csv") {
+    csv.value = (await client.get(`/api/runs/${props.runId}/csv/${path}`)).data;
+  } else {
+    content.value = (
+      await client.get<{ content: string }>(`/api/runs/${props.runId}/files/${path}`)
+    ).data.content;
+  }
+}
+
+/** Config blocks render as flat rows; nested values are shown as JSON. */
+function display(value: unknown): string {
+  if (value === null || value === undefined) return "—";
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value);
+}
+
+const SECTIONS: Array<{ key: keyof Summary; label: string }> = [
+  { key: "model", label: "Model" },
+  { key: "init_config", label: "config.init" },
+  { key: "build_config", label: "config.build" },
+  { key: "solve_config", label: "config.solve" },
+];
 </script>
 
 <template>
-  <div class="flex min-h-0 flex-1 flex-col overflow-auto p-3 text-sm">
-    <p v-if="manifest && !manifest.available" class="text-muted-foreground">
+  <div class="flex min-h-0 flex-1 flex-col" data-testid="run-config">
+    <div
+      class="flex h-7 shrink-0 items-center gap-1 border-b border-border bg-panel px-2"
+    >
+      <button
+        v-for="option in [
+          { id: 'written' as View, label: 'As written' },
+          { id: 'solved' as View, label: 'As solved' },
+        ]"
+        :key="option.id"
+        type="button"
+        :data-testid="`config-view-${option.id}`"
+        :data-active="view === option.id || undefined"
+        :disabled="option.id === 'solved' && !handle"
+        class="h-5 rounded-xs px-1.5 text-2xs text-text-faint hover:bg-hover hover:text-foreground disabled:opacity-40 data-[active]:bg-active data-[active]:text-foreground"
+        @click="view = option.id"
+      >
+        {{ option.label }}
+      </button>
+
+      <div class="flex-1" />
+
+      <!-- A model reaching outside its own folder cannot be fully frozen, and
+           such a run falls back to solving the live workspace. Saying so here is
+           the only place the user finds out. -->
+      <span
+        v-if="manifest?.complete === false"
+        class="inline-flex items-center gap-1 text-2xs text-warning-text"
+        :title="
+          external.map((entry) => `${entry.reference} — ${entry.reason}`).join('\n')
+        "
+      >
+        <FileWarning class="size-3" :stroke-width="ICON_STROKE_WIDTH" />
+        {{ external.length }} file(s) outside the model folder
+      </span>
+      <span v-else-if="manifest?.solve_from" class="text-2xs text-text-faint">
+        solved from the {{ manifest.solve_from }}
+      </span>
+    </div>
+
+    <p
+      v-if="manifest && !manifest.available"
+      class="p-3 text-sm text-muted-foreground"
+    >
       {{ manifest.reason }}
     </p>
-    <template v-else-if="manifest">
-      <p class="text-muted-foreground">
-        {{ manifest.files?.length ?? 0 }} files were frozen when this run started.
-      </p>
-      <p v-if="manifest.complete === false" class="mt-1 text-warning-text">
-        The model refers to files outside its own folder, so the frozen copy is
-        not the whole definition.
-      </p>
-    </template>
+
+    <div v-else-if="view === 'written'" class="flex min-h-0 flex-1">
+      <Tree
+        v-model="selected"
+        :items="tree"
+        :get-key="(node) => (node as FileTreeNode).key"
+        :get-children="(node) => (node as FileTreeNode).children"
+        :get-label="(node) => (node as FileTreeNode).label"
+        :get-icon="
+          (node) =>
+            fileIcon(
+              (node as FileTreeNode).leaf
+                ? ((node as FileTreeNode).type ?? '')
+                : 'directory',
+            )
+        "
+        data-testid="snapshot-tree"
+        class="w-56 shrink-0 border-r border-border bg-panel"
+      >
+        <template #trailing="{ item }">
+          <span
+            v-if="(item as FileTreeNode).size !== undefined"
+            class="ml-auto shrink-0 text-2xs tabular-nums text-text-faint"
+          >
+            {{ formatBytes((item as FileTreeNode).size ?? 0) }}
+          </span>
+        </template>
+      </Tree>
+
+      <div class="min-h-0 flex-1 overflow-auto bg-surface">
+        <pre
+          v-if="content !== null"
+          data-testid="snapshot-content"
+          class="p-2 font-mono text-xs leading-4 whitespace-pre"
+          >{{ content }}</pre
+        >
+
+        <table v-else-if="csv" class="w-full text-sm">
+          <thead class="sticky top-0 bg-panel">
+            <tr>
+              <th
+                v-for="column in csv.columns"
+                :key="column.name"
+                class="border-b border-border px-2 py-1 text-left font-medium"
+              >
+                {{ column.name }}
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="(row, index) in csv.rows" :key="index">
+              <td
+                v-for="(cell, cellIndex) in row"
+                :key="cellIndex"
+                class="border-b border-border-subtle px-2 py-0.5 tabular-nums"
+              >
+                {{ cell }}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div v-else class="min-h-0 flex-1 overflow-auto p-2" data-testid="run-summary">
+      <p v-if="summaryError" class="text-sm text-danger-text">{{ summaryError }}</p>
+      <p v-else-if="!summary" class="text-sm text-muted-foreground">Reading results…</p>
+
+      <template v-else>
+        <section v-for="section in SECTIONS" :key="section.key" class="mb-3">
+          <h3 class="mb-1 text-2xs font-semibold uppercase tracking-wide text-text-faint">
+            {{ section.label }}
+          </h3>
+          <dl class="rounded-sm border border-border">
+            <div
+              v-for="(value, key) in summary[section.key]"
+              :key="key"
+              class="flex gap-2 border-b border-border-subtle px-2 py-0.5 text-sm last:border-b-0"
+            >
+              <dt class="w-56 shrink-0 truncate text-text-dim">{{ key }}</dt>
+              <dd class="min-w-0 flex-1 truncate font-mono text-xs" :title="display(value)">
+                {{ display(value) }}
+              </dd>
+            </div>
+          </dl>
+        </section>
+      </template>
+    </div>
   </div>
 </template>

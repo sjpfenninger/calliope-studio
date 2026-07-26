@@ -581,6 +581,66 @@ class TestRenamingAndDeleting:
         assert client.delete(f"/api/runs/{unknown}/").status_code == 404
 
 
+class TestRetention:
+    """How much history to keep is the user's decision, made visible.
+
+    Runs were previously capped at a constant nobody could see or change, in a
+    directory the user is now told to look at.
+    """
+
+    def test_the_setting_round_trips(self, client, ws):
+        assert client.get(f"/api/versions/{ws}/settings/").json() == {
+            "run_retention": 20
+        }
+
+        patched = client.patch(
+            f"/api/versions/{ws}/settings/", json={"run_retention": 3}
+        )
+        assert patched.status_code == 200
+        assert patched.json() == {"run_retention": 3}
+        assert client.get(f"/api/versions/{ws}/settings/").json()["run_retention"] == 3
+
+    def test_changing_the_setting_deletes_nothing(self, client, ws, national_scale):
+        """Lowering the limit must not be a destructive act in itself.
+
+        Pruning happens when a run starts. A settings screen that silently
+        deleted results as you moved a number would be a trap.
+        """
+        run_id = client.post(f"/api/versions/{ws}/runs/").json()["id"]
+        wait_for_terminal(client, run_id)
+
+        client.patch(f"/api/versions/{ws}/settings/", json={"run_retention": 1})
+        assert (national_scale / "calligraph" / "runs" / run_id).is_dir()
+
+    def test_a_lowered_limit_prunes_on_the_next_run(self, client, ws):
+        first = client.post(f"/api/versions/{ws}/runs/").json()["id"]
+        wait_for_terminal(client, first)
+        second = client.post(f"/api/versions/{ws}/runs/").json()["id"]
+        wait_for_terminal(client, second)
+
+        client.patch(f"/api/versions/{ws}/settings/", json={"run_retention": 1})
+        third = client.post(f"/api/versions/{ws}/runs/").json()["id"]
+        wait_for_terminal(client, third)
+
+        history = {
+            record["id"] for record in client.get(f"/api/versions/{ws}/runs/").json()
+        }
+        assert first not in history
+        assert third in history
+
+    def test_keeping_everything_prunes_nothing(self, client, ws):
+        client.patch(f"/api/versions/{ws}/settings/", json={"run_retention": None})
+        first = client.post(f"/api/versions/{ws}/runs/").json()["id"]
+        wait_for_terminal(client, first)
+        second = client.post(f"/api/versions/{ws}/runs/").json()["id"]
+        wait_for_terminal(client, second)
+
+        history = {
+            record["id"] for record in client.get(f"/api/versions/{ws}/runs/").json()
+        }
+        assert {first, second} <= history
+
+
 class TestCancellation:
     def test_cancelling_stops_the_run(self, client, ws):
         run_id = client.post(f"/api/versions/{ws}/runs/").json()["id"]

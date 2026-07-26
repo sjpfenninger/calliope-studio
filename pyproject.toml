@@ -111,8 +111,15 @@ web-build = { cmd = "npm run build", cwd = "web", depends-on = ["web-install"] }
 web-dev = { cmd = "npm run dev", cwd = "web", depends-on = ["web-install"] }
 web-typecheck = { cmd = "npx vue-tsc --noEmit", cwd = "web", depends-on = ["web-install"] }
 
+# A scratch model to develop against, so `serve` opens something real rather
+# than whatever directory it happened to start in. Gitignored; delete it to get
+# a clean one.
+example = "test -d example-model || calliope new example-model --template national_scale"
+
 # API only, with reload. Pair with `web-dev` (Vite proxies /api to this).
-serve = "uvicorn calligraph.server.app:app --reload --port 8000"
+serve = { cmd = "uvicorn calligraph.server.app:app --reload --port 8000", env = { CALLIGRAPH_WORKSPACE = "example-model" }, depends-on = [
+  "example",
+] }
 
 build = { cmd = "python -m build", depends-on = ["web-build"] }
 

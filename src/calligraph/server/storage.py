@@ -22,6 +22,11 @@ import platformdirs
 #: Directory created inside a workspace to hold run outputs.
 WORKSPACE_DATA_DIR = ".calligraph"
 
+#: Overrides where the registry is kept. Tests set this so that they cannot
+#: write into the developer's real state directory, and it is a useful escape
+#: hatch for running several instances against separate registries.
+STATE_DIR_ENV_VAR = "CALLIGRAPH_STATE_DIR"
+
 
 class WorkspaceNotFound(KeyError):
     """Raised when a workspace id is not in the registry, or its path is gone."""
@@ -51,6 +56,20 @@ class Workspace:
         }
 
 
+def default_registry_path() -> Path:
+    """Where the workspace registry lives, honouring the state-dir override.
+
+    Read on each call rather than at import, so that setting the environment
+    variable in a fixture takes effect for code that constructs its own
+    `LocalStorage`.
+    """
+    override = os.environ.get(STATE_DIR_ENV_VAR)
+    state_dir = (
+        Path(override) if override else Path(platformdirs.user_state_dir("calligraph"))
+    )
+    return state_dir / "workspaces.json"
+
+
 def workspace_id(path: Path) -> str:
     """A stable id for a folder, derived from its resolved path.
 
@@ -65,10 +84,7 @@ class LocalStorage:
     """Tracks opened workspaces in a registry file under the user state dir."""
 
     def __init__(self, registry_path: Path | None = None) -> None:
-        if registry_path is None:
-            state_dir = Path(platformdirs.user_state_dir("calligraph"))
-            registry_path = state_dir / "workspaces.json"
-        self.registry_path = registry_path
+        self.registry_path = registry_path or default_registry_path()
 
     # -- registry file ----------------------------------------------------
 

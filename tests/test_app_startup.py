@@ -34,9 +34,21 @@ class TestWorkspaceResolution:
         monkeypatch.setenv(WORKSPACE_ENV_VAR, str(national_scale))
         assert app_module.app.state.workspace == national_scale.resolve()
 
-    def test_opening_a_folder_registers_it(self, national_scale, storage):
+    def test_opening_a_model_folder_registers_it(self, national_scale, storage):
         create_app(workspace=national_scale, storage=storage)
         assert [w.name for w in storage.list()] == ["national_scale"]
+
+    def test_a_non_model_directory_is_not_registered(self, tmp_path, storage):
+        """Starting the server in the wrong place must not create a project.
+
+        The dev server used to default to the working directory, so merely
+        running it added this repository to the user's project list.
+        """
+        somewhere = tmp_path / "not-a-model"
+        somewhere.mkdir()
+        app = create_app(workspace=somewhere, storage=storage)
+        assert app.state.active_workspace is None
+        assert storage.list() == []
 
     def test_a_non_directory_workspace_does_not_crash_startup(
         self, national_scale, storage

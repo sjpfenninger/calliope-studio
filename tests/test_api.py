@@ -56,6 +56,14 @@ class TestProjects:
         )
         assert response.status_code == 400
 
+    def test_opening_a_folder_without_a_model_is_rejected(self, client, tmp_path):
+        empty = tmp_path / "empty"
+        empty.mkdir()
+        response = client.post("/api/projects/", json={"path": str(empty)})
+        assert response.status_code == 400
+        assert "calliope new" in response.json()["detail"]
+        assert len(client.get("/api/projects/").json()) == 1
+
 
 class TestFiles:
     def test_file_tree_lists_the_model(self, client, ws):

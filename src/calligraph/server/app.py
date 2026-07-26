@@ -12,6 +12,7 @@ from fastapi import FastAPI, HTTPException, status
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from calligraph.modeldef.imports import find_model_yaml
 from calligraph.runs.manager import RunManager
 from calligraph.server.routes import api_router
 from calligraph.server.storage import LocalStorage
@@ -48,9 +49,11 @@ def create_app(
     app.state.storage = storage or LocalStorage()
     app.state.runs = RunManager()
 
-    # Opening the app on a folder registers it, so the projects list always has
-    # at least the thing the user actually asked for.
-    if app.state.workspace.is_dir():
+    # Registering on startup means the projects list always contains the thing
+    # the user actually asked for — but only if it is a model. Registering any
+    # directory would mean that merely starting the server in the wrong place
+    # permanently added it as a "project".
+    if find_model_yaml(app.state.workspace) is not None:
         app.state.active_workspace = app.state.storage.open(app.state.workspace)
     else:
         app.state.active_workspace = None

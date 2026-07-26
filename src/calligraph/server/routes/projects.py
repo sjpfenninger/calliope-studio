@@ -9,6 +9,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 
+from calligraph.modeldef.imports import find_model_yaml
 from calligraph.server.deps import get_storage, get_workspace
 from calligraph.server.storage import LocalStorage, Workspace
 
@@ -44,13 +45,21 @@ def open_project(
     Creating a project means pointing at a model folder that already exists;
     scaffolding a new model is `calliope new`, not this.
     """
-    try:
-        return storage.open(Path(body.path).expanduser()).as_dict()
-    except NotADirectoryError:
+    path = Path(body.path).expanduser()
+    if not path.is_dir():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Not a directory: {body.path}",
-        ) from None
+        )
+    if find_model_yaml(path) is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"No model.yaml in {body.path}. "
+                "Create a model there first, for example with `calliope new`."
+            ),
+        )
+    return storage.open(path).as_dict()
 
 
 @router.get("/projects/{id}/")

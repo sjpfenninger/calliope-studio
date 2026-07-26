@@ -13,7 +13,19 @@ import pytest
 from fastapi.testclient import TestClient
 
 from calligraph.server.app import create_app
-from calligraph.server.storage import LocalStorage
+from calligraph.server.storage import STATE_DIR_ENV_VAR, LocalStorage
+
+
+@pytest.fixture(autouse=True)
+def isolated_state_dir(tmp_path, monkeypatch):
+    """Keeps every test out of the developer's real state directory.
+
+    Not every code path takes an injected `LocalStorage` — the CLI and the
+    module-level app both construct their own — so redirecting the whole state
+    directory is the only reliable way to stop tests registering temporary
+    folders as the user's real projects.
+    """
+    monkeypatch.setenv(STATE_DIR_ENV_VAR, str(tmp_path / "state"))
 
 
 def _example_models_dir() -> Path:

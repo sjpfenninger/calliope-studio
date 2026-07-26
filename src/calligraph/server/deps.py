@@ -41,14 +41,24 @@ def get_workspace(id: str, storage: LocalStorage = Depends(get_storage)) -> Work
         ) from None
 
 
-def resolve_path(workspace: Workspace, file_path: str) -> Path:
-    """Resolves a request path inside a workspace, rejecting traversal."""
+def resolve_within(base: Path, file_path: str) -> Path:
+    """Resolves a request path inside an arbitrary root, rejecting traversal.
+
+    The same guard as `resolve_path`, for roots that are not workspaces — chiefly
+    a run's frozen snapshot directory. `safe_path` stays the only place a
+    request-supplied path reaches the filesystem.
+    """
     try:
-        return safe_path(workspace.path, file_path)
+        return safe_path(base, file_path)
     except UnsafePath:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid path."
         ) from None
+
+
+def resolve_path(workspace: Workspace, file_path: str) -> Path:
+    """Resolves a request path inside a workspace, rejecting traversal."""
+    return resolve_within(workspace.path, file_path)
 
 
 def require_file(path: Path) -> Path:

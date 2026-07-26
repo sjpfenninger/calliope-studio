@@ -7,6 +7,7 @@ prototype this code came from failed to do.
 """
 
 import json
+import shutil
 import time
 
 import pytest
@@ -263,6 +264,194 @@ class TestRunLifecycle:
     def test_unknown_run_is_404(self, client):
         assert client.get("/api/runs/nope/").status_code == 404
         assert client.get("/api/runs/nope/logs/").status_code == 404
+
+
+class TestFrozenConfig:
+    """The model definition a run was started from, served read-only."""
+
+    @pytest.fixture
+    def finished(self, client, ws):
+        run_id = client.post(f"/api/versions/{ws}/runs/").json()["id"]
+        wait_for_terminal(client, run_id)
+        return run_id
+
+    def test_the_run_reports_a_complete_snapshot(self, client, finished):
+        record = client.get(f"/api/runs/{finished}/").json()
+        assert record["has_snapshot"] is True
+        assert record["snapshot_complete"] is True
+
+        manifest = client.get(f"/api/runs/{finished}/snapshot/").json()
+        assert manifest["available"] is True
+        assert manifest["total_bytes"] > 0
+        assert manifest["external"] == []
+
+    def test_the_file_tree_matches_the_workspace_shape(self, client, finished):
+        """Same payload shape as `/versions/{id}/files/`, so one component serves both."""
+        entries = client.get(f"/api/runs/{finished}/files/").json()
+        paths = {entry["path"] for entry in entries}
+
+        assert "model.yaml" in paths
+        assert {"path", "type", "size"} <= set(entries[0])
+
+    def test_frozen_files_are_byte_identical_to_the_workspace(
+        self, client, ws, finished
+    ):
+        live = client.get(f"/api/versions/{ws}/files/model.yaml").json()["content"]
+        frozen = client.get(f"/api/runs/{finished}/files/model.yaml").json()["content"]
+        assert frozen == live
+
+    def test_editing_the_workspace_does_not_change_the_frozen_copy(
+        self, client, ws, finished
+    ):
+        """The entire point: a run stays readable as it was, not as the model is now."""
+        before = client.get(f"/api/runs/{finished}/files/model.yaml").json()["content"]
+
+        client.put(
+            f"/api/versions/{ws}/files/model.yaml", json={"content": "wrecked: true\n"}
+        )
+
+        after = client.get(f"/api/runs/{finished}/files/model.yaml").json()["content"]
+        assert after == before
+        assert "wrecked" not in after
+
+    def test_a_frozen_data_table_reads_as_a_grid(self, client, finished):
+        entries = client.get(f"/api/runs/{finished}/files/").json()
+        csv_path = next(e["path"] for e in entries if e["type"] == "csv")
+
+        body = client.get(f"/api/runs/{finished}/csv/{csv_path}").json()
+        assert body["columns"]
+        assert body["rows"]
+
+    def test_the_frozen_tree_is_a_model_in_its_own_right(self, client, finished):
+        """Enough was captured to describe the model, not just list files."""
+        tree = client.get(f"/api/runs/{finished}/component-tree/").json()
+        assert "techs" in tree
+
+        graph = client.get(f"/api/runs/{finished}/import-graph/").json()
+        assert graph["nodes"]
+
+    def test_there_is_no_way_to_write_to_a_snapshot(self, client, finished):
+        """History is not editable."""
+        response = client.put(
+            f"/api/runs/{finished}/files/model.yaml", json={"content": "no"}
+        )
+        assert response.status_code == 405
+
+    @pytest.mark.parametrize(
+        "attack", ["..%2f..%2f..%2frequest.json", "%2e%2e%2foutcome.json"]
+    )
+    def test_snapshot_paths_cannot_escape(self, client, finished, attack):
+        """`safe_path` guards this root too, not just a workspace."""
+        assert client.get(f"/api/runs/{finished}/files/{attack}").status_code == 400
+
+    def test_a_run_without_a_snapshot_answers_rather_than_404ing(
+        self, client, ws, national_scale
+    ):
+        """A pre-snapshot run must be distinguishable from a wrong URL.
+
+        A 404 would mean the frontend could not tell "old run" from "no such run".
+        """
+        run_id = client.post(f"/api/versions/{ws}/runs/").json()["id"]
+        wait_for_terminal(client, run_id)
+        run_dir = national_scale / "calligraph" / "runs" / run_id
+        shutil.rmtree(run_dir / "snapshot")
+        (run_dir / "snapshot.json").unlink()
+
+        manifest = client.get(f"/api/runs/{run_id}/snapshot/")
+        assert manifest.status_code == 200
+        assert manifest.json()["available"] is False
+        assert manifest.json()["reason"]
+
+        assert client.get(f"/api/runs/{run_id}/files/").json() == []
+        assert client.get(f"/api/runs/{run_id}/").json()["has_snapshot"] is False
+
+
+class TestRunOptions:
+    def test_no_body_still_starts_a_run(self, client, ws):
+        """The frontend sends none today, and must keep working."""
+        assert client.post(f"/api/versions/{ws}/runs/").status_code == 201
+
+    def test_options_are_echoed_on_the_record(self, client, ws):
+        response = client.post(
+            f"/api/versions/{ws}/runs/",
+            json={
+                "label": "  with a name  ",
+                "scenario": "time_resampling",
+                "override_dict": {"config": {"init": {"name": "x"}}},
+                "build_only": True,
+            },
+        )
+        assert response.status_code == 201
+        record = response.json()
+
+        assert record["label"] == "with a name"
+        assert record["scenario"] == "time_resampling"
+        assert record["build_only"] is True
+        assert record["override_dict"] == {"config": {"init": {"name": "x"}}}
+
+    def test_an_unknown_scenario_is_rejected_without_starting_anything(
+        self, client, ws, national_scale
+    ):
+        """Rejected up front, rather than after a subprocess and a stack trace."""
+        response = client.post(
+            f"/api/versions/{ws}/runs/", json={"scenario": "no_such_scenario"}
+        )
+        assert response.status_code == 400
+        assert "no_such_scenario" in response.json()["detail"]
+
+        # Nothing was created, so a typo leaves no wreckage in the history.
+        assert not (national_scale / "calligraph" / "runs").exists()
+
+
+class TestRenamingAndDeleting:
+    @pytest.fixture
+    def finished(self, client, ws):
+        run_id = client.post(f"/api/versions/{ws}/runs/").json()["id"]
+        wait_for_terminal(client, run_id)
+        return run_id
+
+    def test_a_run_can_be_renamed(self, client, finished):
+        patched = client.patch(f"/api/runs/{finished}/", json={"label": "baseline"})
+        assert patched.status_code == 200
+        assert patched.json()["label"] == "baseline"
+        assert client.get(f"/api/runs/{finished}/").json()["label"] == "baseline"
+
+    def test_renaming_does_not_disturb_the_creation_time(self, client, finished):
+        """The label goes in meta.json, so history ordering is untouched."""
+        before = client.get(f"/api/runs/{finished}/").json()["created_at"]
+        client.patch(f"/api/runs/{finished}/", json={"label": "renamed"})
+        assert client.get(f"/api/runs/{finished}/").json()["created_at"] == before
+
+    def test_a_rename_survives_a_restart(self, client, finished):
+        client.patch(f"/api/runs/{finished}/", json={"label": "persisted"})
+        restart(client)
+        assert client.get(f"/api/runs/{finished}/").json()["label"] == "persisted"
+
+    def test_a_run_can_be_deleted(self, client, ws, finished, national_scale):
+        assert client.delete(f"/api/runs/{finished}/").status_code == 204
+
+        assert not (national_scale / "calligraph" / "runs" / finished).exists()
+        assert client.get(f"/api/runs/{finished}/").status_code == 404
+        assert client.get(f"/api/versions/{ws}/runs/").json() == []
+
+    def test_a_running_run_cannot_be_deleted(self, client, ws):
+        """Deleting under a live worker would leave it writing into nothing."""
+        run_id = client.post(f"/api/versions/{ws}/runs/").json()["id"]
+
+        response = client.delete(f"/api/runs/{run_id}/")
+        assert response.status_code == 409
+        assert "cancel" in response.json()["detail"].lower()
+
+        client.post(f"/api/runs/{run_id}/cancel/")
+        assert client.delete(f"/api/runs/{run_id}/").status_code == 204
+
+    def test_renaming_or_deleting_an_unknown_run_is_404(self, client):
+        unknown = "00000000-0000-4000-8000-000000000000"
+        assert (
+            client.patch(f"/api/runs/{unknown}/", json={"label": "x"}).status_code
+            == 404
+        )
+        assert client.delete(f"/api/runs/{unknown}/").status_code == 404
 
 
 class TestCancellation:

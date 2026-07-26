@@ -18,6 +18,7 @@ import asyncio
 import dataclasses
 import os
 import re
+import shutil
 import signal
 import subprocess
 import sys
@@ -40,6 +41,10 @@ TERMINAL_STATUSES = frozenset({"success", "infeasible", "failed", "cancelled"})
 #: resolve outside the runs root. The guard is new because `run_dir` used to be
 #: a dictionary lookup and so never touched the filesystem at all.
 RUN_ID_RE = re.compile(r"\A[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}\Z")
+
+
+class RunStillActive(RuntimeError):
+    """Raised when an operation needs a run to have finished, and it has not."""
 
 
 @dataclass(frozen=True)
@@ -161,6 +166,22 @@ class RunManager:
         self._dirs.pop(run_id, None)
         self._processes.pop(run_id, None)
 
+    def delete(self, run_id: str) -> None:
+        """Removes a run and everything it produced.
+
+        Raises:
+            KeyError: If the run is unknown.
+            RunStillActive: If it has not finished. Deleting the directory out
+                from under a live worker would leave it writing events into
+                nothing and its results nowhere, so the caller has to cancel
+                first and decide what to tell the user.
+        """
+        run_dir = self.run_dir(run_id)
+        if self.get(run_id).status not in TERMINAL_STATUSES:
+            raise RunStillActive(run_id)
+        shutil.rmtree(run_dir, ignore_errors=True)
+        self.forget(run_id)
+
     def discover(self, runs_root: Path) -> list[RunRecord]:
         """Finds runs already on disk, newest first, so history survives a restart.
 
@@ -187,11 +208,38 @@ class RunManager:
 
     # -- lifecycle --------------------------------------------------------
 
-    def start(self, runs_root: Path, request: protocol.RunRequest) -> RunRecord:
-        """Starts a run in a fresh directory and returns immediately."""
+    def start(
+        self,
+        runs_root: Path,
+        request: protocol.RunRequest,
+        prepare: Callable[[Path], None] | None = None,
+    ) -> RunRecord:
+        """Starts a run in a fresh directory and returns immediately.
+
+        Args:
+            runs_root: Directory to create the run's own directory inside.
+            request: What to run.
+            prepare: Called with the new run directory before the request is
+                written and before the worker exists. This is where the model
+                definition is frozen. Doing it here rather than in the worker is
+                what makes the snapshot atomic: there is no moment in which the
+                user could edit a file that was about to be captured. Passed in as
+                a callback rather than called directly because freezing needs
+                `modeldef`, and `runs` may not import it.
+        """
         run_id = str(uuid.uuid4())
         run_dir = runs_root / run_id
         run_dir.mkdir(parents=True, exist_ok=True)
+
+        if prepare is not None:
+            try:
+                prepare(run_dir)
+            except Exception:
+                # `request.json` is what makes a directory a run, and it has not
+                # been written yet, so removing the directory leaves no trace in
+                # the history rather than a permanently broken entry.
+                shutil.rmtree(run_dir, ignore_errors=True)
+                raise
 
         # Stamped here rather than by each caller: this is the one place that
         # knows a run is being created right now, and the timestamp has to be in

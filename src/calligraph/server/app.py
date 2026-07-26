@@ -13,6 +13,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from calligraph.modeldef.imports import find_model_yaml
+from calligraph.results.store import ResultStore
 from calligraph.runs.manager import RunManager
 from calligraph.server.routes import api_router
 from calligraph.server.storage import LocalStorage
@@ -48,6 +49,15 @@ def create_app(
     app.state.workspace = workspace.resolve()
     app.state.storage = storage or LocalStorage()
     app.state.runs = RunManager()
+    app.state.results = ResultStore()
+
+    # `calligraph results.nc` opens a solved model directly, with no model
+    # definition to edit. The analysis half has to work on its own.
+    app.state.active_results = (
+        app.state.results.register(app.state.workspace)
+        if app.state.workspace.suffix == ".nc" and app.state.workspace.is_file()
+        else None
+    )
 
     # Registering on startup means the projects list always contains the thing
     # the user actually asked for — but only if it is a model. Registering any
@@ -65,6 +75,7 @@ def create_app(
             "status": "ok",
             "workspace": str(app.state.workspace),
             "workspace_id": active.id if active else None,
+            "results_handle": app.state.active_results,
             "calligraph_version": _version(),
         }
 

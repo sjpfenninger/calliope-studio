@@ -50,6 +50,37 @@ def urban_scale(tmp_path: Path) -> Path:
     return destination
 
 
+@pytest.fixture(scope="session")
+def solved_results(tmp_path_factory) -> Path:
+    """A solved national_scale model, as a `results.nc`.
+
+    Session-scoped: solving takes several seconds and every results test wants
+    the same model, so it is solved once.
+    """
+    import calliope
+
+    directory = tmp_path_factory.mktemp("solved")
+    model_dir = directory / "national_scale"
+    shutil.copytree(_example_models_dir() / "national_scale", model_dir)
+
+    model = calliope.read_yaml(str(model_dir / "model.yaml"))
+    model.build()
+    model.solve()
+
+    output = directory / "results.nc"
+    model.to_netcdf(str(output))
+    return output
+
+
+@pytest.fixture
+def results(solved_results: Path):
+    """A loaded results handle for the solved model."""
+    from calligraph.results.store import ResultStore
+
+    store = ResultStore()
+    return store.get(store.register(solved_results))
+
+
 @pytest.fixture
 def storage(tmp_path: Path) -> LocalStorage:
     """Storage backed by a registry inside the test's temporary directory."""

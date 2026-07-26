@@ -11,6 +11,7 @@ from calligraph.server.routes import (
     csv,
     files,
     projects,
+    results,
     runs,
     schema,
     structure,
@@ -20,7 +21,17 @@ from calligraph.server.routes import (
 
 api_router = APIRouter(prefix="/api")
 
-for module in (projects, files, csv, yaml_sections, structure, validate, runs, schema):
+for module in (
+    projects,
+    files,
+    csv,
+    yaml_sections,
+    structure,
+    validate,
+    runs,
+    results,
+    schema,
+):
     api_router.include_router(module.router)
 
 __all__ = ["api_router"]

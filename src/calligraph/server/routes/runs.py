@@ -7,12 +7,28 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 
 from calligraph.modeldef.imports import find_model_yaml
+from calligraph.results.store import ResultStore
 from calligraph.runs import protocol
-from calligraph.runs.manager import RunManager
-from calligraph.server.deps import get_runs, get_storage, get_workspace
+from calligraph.runs.manager import RunManager, RunRecord
+from calligraph.server.deps import get_results, get_runs, get_storage, get_workspace
 from calligraph.server.storage import LocalStorage, Workspace
 
 router = APIRouter(tags=["runs"])
+
+
+def _with_results(record: RunRecord, runs: RunManager, store: ResultStore) -> dict:
+    """Adds a results handle to a run that produced one.
+
+    Minting the handle here is what lets the frontend go straight from a
+    finished run to its charts, without having to know where the file landed.
+    """
+    payload = record.as_dict()
+    if record.has_results:
+        results_file = runs.run_dir(record.id) / protocol.RESULTS_FILE
+        payload["results_handle"] = store.register(results_file)
+    else:
+        payload["results_handle"] = None
+    return payload
 
 
 @router.get("/versions/{id}/runs/")
@@ -20,12 +36,16 @@ def list_runs(
     workspace: Workspace = Depends(get_workspace),
     storage: LocalStorage = Depends(get_storage),
     runs: RunManager = Depends(get_runs),
+    store: ResultStore = Depends(get_results),
 ) -> list[dict]:
     """Run history for a workspace, rediscovered from disk.
 
     Runs outlive the server process, so history survives a restart.
     """
-    return [record.as_dict() for record in runs.discover(storage.runs_dir(workspace))]
+    return [
+        _with_results(record, runs, store)
+        for record in runs.discover(storage.runs_dir(workspace))
+    ]
 
 
 @router.post("/versions/{id}/runs/", status_code=status.HTTP_201_CREATED)
@@ -49,9 +69,13 @@ def create_run(
 
 
 @router.get("/runs/{run_id}/")
-def get_run(run_id: str, runs: RunManager = Depends(get_runs)) -> dict:
+def get_run(
+    run_id: str,
+    runs: RunManager = Depends(get_runs),
+    store: ResultStore = Depends(get_results),
+) -> dict:
     try:
-        return runs.get(run_id).as_dict()
+        return _with_results(runs.get(run_id), runs, store)
     except KeyError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Run not found."

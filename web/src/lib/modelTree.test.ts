@@ -111,14 +111,17 @@ describe("buildModelTree", () => {
 });
 
 describe("STRUCTURED_SECTIONS", () => {
-  it("covers only the sections with a form", () => {
-    // Everything else opens raw, because an override is an arbitrary partial
-    // model and a form for one would be the whole editor again, recursively.
+  it("covers every section with a form", () => {
+    // `templates` is the one that is left, and deliberately: a template is an
+    // arbitrary fragment inherited by anything, so the form for one would be
+    // every other form at once.
     expect([...STRUCTURED_SECTIONS].sort()).toEqual([
       "config",
       "data_tables",
       "links",
       "nodes",
+      "overrides",
+      "scenarios",
       "techs",
     ]);
   });

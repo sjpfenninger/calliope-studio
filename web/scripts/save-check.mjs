@@ -39,6 +39,8 @@ const SECTIONS = [
   ["nodes", "model_config/locations.yaml"],
   ["config", "model.yaml"],
   ["data tables", "model.yaml"],
+  ["overrides", "scenarios.yaml"],
+  ["scenarios", "scenarios.yaml"],
 ];
 
 const failures = [];

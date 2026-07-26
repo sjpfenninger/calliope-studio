@@ -269,3 +269,128 @@ class TestComponentTreeSummaries:
             if item["name"] == "cold_fusion_with_production_share"
         )
         assert entry["overrides"] == ["cold_fusion", "cold_fusion_prod_share"]
+
+
+class TestOverridesApi:
+    """The endpoints the overrides editor is built on.
+
+    The edit crosses the wire, not the document: the client sends the settings it
+    wants an override to have, and the server applies them one path at a time
+    against the structure already in the file. Sending the flattened form back as
+    a document would rewrite nested YAML into a wall of dotted keys the first
+    time anyone pressed Save.
+    """
+
+    @pytest.fixture
+    def settled(self, client, national_scale):
+        """`scenarios.yaml` after one save, so only real edits show up."""
+        path = national_scale / "scenarios.yaml"
+        write_section(path, "overrides", read_section(path, "overrides"))
+        return path
+
+    def _get(self, client):
+        return client.get(
+            f"/api/versions/{client.workspace_id}/overrides/scenarios.yaml"
+        ).json()["overrides"]
+
+    def _put(self, client, overrides):
+        return client.put(
+            f"/api/versions/{client.workspace_id}/overrides/scenarios.yaml",
+            json={"overrides": overrides},
+        )
+
+    def test_each_override_arrives_as_its_settings(self, client, settled):
+        body = self._get(client)
+        paths = [setting["path"] for setting in body["profiling"]]
+        assert "config.init.name" in paths
+        # A dotted key in the file stays one path, spelled as it was written.
+        assert "config.solve.solver" in paths
+
+    def test_a_file_with_no_overrides_is_not_an_error(self, client, national_scale):
+        response = client.get(
+            f"/api/versions/{client.workspace_id}/overrides/model.yaml"
+        )
+        assert response.status_code == 200
+        assert response.json()["overrides"] == {}
+
+    def test_a_no_op_save_is_byte_identical(self, client, settled):
+        before = settled.read_bytes()
+        assert self._put(client, self._get(client)).status_code == 200
+        assert settled.read_bytes() == before
+
+    def test_editing_one_setting_changes_one_line(self, client, settled):
+        before = settled.read_text().splitlines()
+
+        body = self._get(client)
+        for setting in body["time_resampling"]:
+            if setting["path"] == "config.init.resample.timesteps":
+                setting["value"] = "12h"
+        self._put(client, body)
+
+        after = settled.read_text().splitlines()
+        assert len(before) == len(after)
+        changed = [(old, new) for old, new in zip(before, after) if old != new]
+        assert len(changed) == 1 and "12h" in changed[0][1]
+
+    def test_removing_a_setting_removes_only_it(self, client, settled):
+        before = settled.read_text()
+
+        body = self._get(client)
+        body["profiling"] = [
+            setting
+            for setting in body["profiling"]
+            if setting["path"] != "config.solve.solver"
+        ]
+        self._put(client, body)
+
+        after = settled.read_text()
+        assert "solve.solver: cbc" not in after
+        # Everything else in that override is still there.
+        assert "profiling run" in after
+        assert "2005-01-15" in after
+        # Two lines, not one: ruamel attaches the blank line that follows a key
+        # to that key, so deleting the last setting in a block takes the
+        # separator with it. Cosmetic, and inherent to how the comments are
+        # anchored — worth stating so the next person does not read it as data
+        # loss.
+        assert len(after.splitlines()) == len(before.splitlines()) - 2
+
+    def test_an_override_can_be_deleted(self, client, settled):
+        body = self._get(client)
+        del body["profiling"]
+        self._put(client, body)
+
+        assert "profiling" not in self._get(client)
+        assert "time_resampling" in self._get(client)
+
+    def test_a_new_override_is_written_nested(self, client, settled):
+        body = self._get(client)
+        body["cheap_storage"] = [{"path": "techs.battery.cost_flow_cap", "value": 100}]
+        self._put(client, body)
+
+        text = settled.read_text()
+        # Nested, because that is the form Calliope's own examples use and the
+        # one a reader expects.
+        assert "  cheap_storage:" in text
+        assert "        cost_flow_cap: 100" in text
+
+    def test_an_impossible_path_is_a_400_not_a_corrupted_file(self, client, settled):
+        before = settled.read_bytes()
+
+        body = self._get(client)
+        # `config.init.name` holds a string, so nothing can live underneath it.
+        body["profiling"].append(
+            {"path": "config.init.name.deeper", "value": "nonsense"}
+        )
+        response = self._put(client, body)
+
+        assert response.status_code == 400
+        assert "already holds a value" in response.json()["detail"]
+        assert settled.read_bytes() == before
+
+    def test_an_unbounded_value_round_trips(self, client, settled):
+        body = self._get(client)
+        body["profiling"].append({"path": "techs.ccgt.flow_cap_max", "value": ".inf"})
+        self._put(client, body)
+
+        assert "flow_cap_max: .inf" in settled.read_text()

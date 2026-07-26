@@ -10,6 +10,8 @@ import ConfigEditor from "@/components/editor/ConfigEditor.vue";
 import DataTablesEditor from "@/components/editor/DataTablesEditor.vue";
 import LinksEditor from "@/components/editor/LinksEditor.vue";
 import NodesEditor from "@/components/editor/NodesEditor.vue";
+import OverridesEditor from "@/components/editor/OverridesEditor.vue";
+import ScenariosEditor from "@/components/editor/ScenariosEditor.vue";
 import TechsEditor from "@/components/editor/TechsEditor.vue";
 import type { EntryTab, SectionTab } from "@/stores/tabs";
 
@@ -52,6 +54,20 @@ const entryName = () => (props.tab.kind === "entry" ? props.tab.entryName : null
     />
     <LinksEditor
       v-else-if="tab.section === 'links'"
+      :versionId="versionId"
+      :filePath="tab.filePath"
+      :tabId="tab.id"
+      :entryName="entryName()"
+    />
+    <OverridesEditor
+      v-else-if="tab.section === 'overrides'"
+      :versionId="versionId"
+      :filePath="tab.filePath"
+      :tabId="tab.id"
+      :entryName="entryName()"
+    />
+    <ScenariosEditor
+      v-else-if="tab.section === 'scenarios'"
       :versionId="versionId"
       :filePath="tab.filePath"
       :tabId="tab.id"

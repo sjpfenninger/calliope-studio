@@ -21,9 +21,11 @@ export const SECTIONS = [
 ] as const;
 
 /**
- * Sections with a structured editor. Anything else opens as raw YAML, because
- * an override is an arbitrary partial model and a form for one would be the
- * whole editor again, recursively.
+ * Sections with a structured editor. Anything else opens as raw YAML.
+ *
+ * `overrides` is here despite an override being an arbitrary partial model: its
+ * editor shows the *settings* an override makes, one row per leaf, rather than
+ * trying to be the whole editor again recursively.
  */
 export const STRUCTURED_SECTIONS = new Set<string>([
   "config",
@@ -31,6 +33,8 @@ export const STRUCTURED_SECTIONS = new Set<string>([
   "techs",
   "nodes",
   "links",
+  "overrides",
+  "scenarios",
 ]);
 
 export interface ModelTreeNode {

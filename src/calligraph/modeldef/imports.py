@@ -23,7 +23,11 @@ TREE_SECTIONS = (
 )
 
 #: Sections whose entries are bare names rather than objects with metadata.
-FLAT_SECTIONS = frozenset({"data_tables", "overrides", "scenarios"})
+#:
+#: `overrides` and `scenarios` used to be here. They now carry a summary — how
+#: many settings an override makes, and which overrides a scenario composes — so
+#: that the explorer says something useful before anything is opened.
+FLAT_SECTIONS = frozenset({"data_tables"})
 
 
 def find_model_yaml(base: Path) -> Path | None:
@@ -139,6 +143,27 @@ def import_graph(base: Path) -> dict:
     return {"nodes": list(nodes.values()), "edges": edges}
 
 
+def _summarise(section: str, value: Any) -> dict:
+    """Whatever makes an entry worth looking at before it is opened.
+
+    An override named `spores` says nothing on its own; "9 settings" says whether
+    it is a tweak or a rewrite. A scenario is *only* a list of override names, so
+    showing them is showing the whole thing.
+    """
+    if section == "overrides":
+        from calligraph.modeldef.overrides import flatten
+
+        return {"setting_count": len(flatten(value))} if isinstance(value, dict) else {}
+
+    if section == "scenarios":
+        if isinstance(value, list):
+            return {"overrides": [str(item) for item in value]}
+        # A single override name is accepted where a list is expected.
+        return {"overrides": [str(value)]} if value else {}
+
+    return {}
+
+
 def component_tree(base: Path) -> dict:
     """Merged view of which sections and entries exist, and where.
 
@@ -199,6 +224,7 @@ def component_tree(base: Path) -> dict:
                         for key in ("link_from", "link_to"):
                             if value.get(key):
                                 entry[key] = str(value[key])
+                    entry.update(_summarise(target, value))
                 node["entries"].append(entry)
 
     # A `techs:` section containing nothing but links would otherwise leave an

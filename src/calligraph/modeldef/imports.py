@@ -27,9 +27,15 @@ FLAT_SECTIONS = frozenset({"data_tables", "overrides", "scenarios"})
 
 
 def find_model_yaml(base: Path) -> Path | None:
-    """Finds the model's entry-point file at the workspace root."""
+    """Finds the model's entry-point file at the workspace root.
+
+    Resolves `base` first: imports are followed by resolving each entry against
+    its parent and checking it stays inside the workspace, and a relative base
+    would fail that check for every one of them.
+    """
+    root = Path(base).resolve()
     for name in ("model.yaml", "model.yml"):
-        candidate = base / name
+        candidate = root / name
         if candidate.is_file():
             return candidate
     return None
@@ -74,8 +80,9 @@ def collect_imports(
     return edges
 
 
-def _reachable_files(base: Path) -> list[Path]:
+def reachable_files(base: Path) -> list[Path]:
     """Every file reachable from the model root, root first, deduplicated."""
+    base = Path(base).resolve()
     root = find_model_yaml(base)
     if root is None:
         return []
@@ -91,6 +98,7 @@ def _reachable_files(base: Path) -> list[Path]:
 
 def import_graph(base: Path) -> dict:
     """The `import:` DAG, as nodes and edges for the frontend's graph view."""
+    base = Path(base).resolve()
     root = find_model_yaml(base)
     if root is None:
         return {"nodes": [], "edges": []}
@@ -119,9 +127,10 @@ def component_tree(base: Path) -> dict:
     entries}` with entries as objects — rather than the Django version's mix of
     bare strings and objects depending on section.
     """
+    base = Path(base).resolve()
     tree: dict[str, Any] = {}
 
-    for path in _reachable_files(base):
+    for path in reachable_files(base):
         document = load_quietly(path)
         if not isinstance(document, dict):
             continue

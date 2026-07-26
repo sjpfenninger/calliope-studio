@@ -5,10 +5,13 @@ import Select from "primevue/select";
 import SelectButton from "primevue/selectbutton";
 import Message from "primevue/message";
 import ProgressSpinner from "primevue/progressspinner";
+import Button from "primevue/button";
 import FilterSidebar from "../components/results/FilterSidebar.vue";
 import ResultChart from "../components/results/ResultChart.vue";
+import ModelMap, { type GeoPayload } from "../components/map/ModelMap.vue";
 import { useResultFrame } from "../composables/useResultFrame";
 import { RESOLUTIONS, useSelectionStore } from "../stores/selection";
+import { fetchGeo } from "../api/results";
 import client from "../api/client";
 
 const route = useRoute();
@@ -24,6 +27,32 @@ const staticFrame = useResultFrame(
   handle,
   computed(() => store.staticQuery),
 );
+const mapFrame = useResultFrame(
+  handle,
+  computed(() => store.mapQuery),
+);
+
+const geo = ref<GeoPayload | null>(null);
+
+/**
+ * Per-node totals for the map, keyed by node.
+ *
+ * The map query is indexed by node and summed over technologies, so each series
+ * is one node and its first value is that node's total.
+ */
+const mapValues = computed<Record<string, number>>(() => {
+  const frame = mapFrame.frame.value;
+  if (!frame) return {};
+  const totals: Record<string, number> = {};
+  frame.index.forEach((node, position) => {
+    const sum = frame.series.reduce((running, series) => {
+      const value = series.values[position];
+      return Number.isNaN(value) ? running : running + value;
+    }, 0);
+    if (sum !== 0) totals[String(node)] = sum;
+  });
+  return totals;
+});
 
 const plotTypes = ["Bar", "Line", "Area", "Duration"];
 const resolutions = Object.keys(RESOLUTIONS);
@@ -48,8 +77,21 @@ async function resolveHandle(): Promise<string | null> {
 async function open() {
   const resolved = await resolveHandle();
   handle.value = resolved;
-  if (resolved) await store.load(resolved);
+  geo.value = null;
+  store.mapNodes = [];
+  if (!resolved) return;
+  await store.load(resolved);
+  try {
+    geo.value = await fetchGeo(resolved);
+  } catch {
+    // A model without coordinates is perfectly normal; the map says so itself.
+    geo.value = null;
+  }
 }
+
+const hasGeography = computed(
+  () => (geo.value?.nodes.features.length ?? 0) > 0,
+);
 
 onMounted(open);
 watch(() => route.params.runId, open);
@@ -76,6 +118,32 @@ const staticVariables = computed(() => store.catalog?.variables.static ?? []);
         <ProgressSpinner v-if="store.isLoading" style="width: 32px" />
 
         <template v-else>
+          <section v-if="hasGeography" class="pane">
+            <header class="controls">
+              <span class="pane-title">
+                {{ store.variableStatic }} by node
+              </span>
+              <span v-if="store.mapNodes.length" class="filter-note">
+                Charts narrowed to {{ store.mapNodes.join(", ") }}
+                <Button
+                  text
+                  size="small"
+                  label="Clear"
+                  @click="store.mapNodes = []"
+                />
+              </span>
+              <span v-else class="filter-note muted">
+                Click nodes to narrow the charts below.
+              </span>
+            </header>
+            <ModelMap
+              v-model:selected="store.mapNodes"
+              :geo="geo"
+              :values="mapValues"
+              height="320px"
+            />
+          </section>
+
           <section class="pane">
             <header class="controls">
               <Select
@@ -177,6 +245,23 @@ const staticVariables = computed(() => store.catalog?.variables.static ?? []);
 
 .variable {
   min-width: 200px;
+}
+
+.pane-title {
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.filter-note {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.8rem;
+  margin-left: auto;
+}
+
+.filter-note.muted {
+  color: var(--p-text-muted-color, #888);
 }
 
 .empty {

@@ -301,7 +301,15 @@ class TestGeo:
 
     def test_geojson_bundles_everything_the_map_needs(self, results):
         payload = geo.geojson(results.model)
-        assert set(payload) == {"nodes", "links", "bounds"}
+        assert set(payload) == {"nodes", "links", "bounds", "colors"}
+
+    def test_shape_matches_the_definition_endpoint(self, results, national_scale):
+        """One map component renders either, so both must agree on the shape."""
+        from calligraph.modeldef import geo as definition_geo
+
+        assert set(geo.geojson(results.model)) == set(
+            definition_geo.geojson(national_scale)
+        )
 
 
 class TestSummaries:

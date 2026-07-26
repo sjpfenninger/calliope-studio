@@ -2,6 +2,7 @@
 
 from fastapi import APIRouter, Depends, Query
 
+from calligraph.modeldef import geo
 from calligraph.modeldef.data_tables import data_table_params
 from calligraph.modeldef.imports import component_tree, import_graph
 from calligraph.server.deps import get_workspace
@@ -18,6 +19,16 @@ def get_component_tree(workspace: Workspace = Depends(get_workspace)) -> dict:
 @router.get("/versions/{id}/import-graph/")
 def get_import_graph(workspace: Workspace = Depends(get_workspace)) -> dict:
     return import_graph(workspace.path)
+
+
+@router.get("/versions/{id}/geo/")
+def get_geometry(workspace: Workspace = Depends(get_workspace)) -> dict:
+    """Node and link geometry read from the model definition.
+
+    The same shape the results endpoint returns, so the map component does not
+    care whether a model has been solved.
+    """
+    return geo.geojson(workspace.path)
 
 
 @router.get("/versions/{id}/data-table-params/")

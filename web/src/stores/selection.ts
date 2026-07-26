@@ -140,11 +140,26 @@ export const useSelectionStore = defineStore("selection", () => {
     setSelected("techs", ordered);
   }
 
+  /** Nodes picked on the map, which narrow the charts further. */
+  const mapNodes = ref<string[]>([]);
+
+  /**
+   * The selection the charts actually use.
+   *
+   * Picking nodes on the map narrows to those; picking none falls back to the
+   * sidebar, so an empty map selection means "everything" rather than
+   * "nothing". v0.2.0 did this through a Bokeh server callback.
+   */
+  const effectiveSelectors = computed<Record<string, string[]>>(() => {
+    if (mapNodes.value.length === 0) return selected.value;
+    return { ...selected.value, nodes: mapNodes.value };
+  });
+
   const timeseriesQuery = computed<ResultQuery | null>(() => {
     if (!variableTimeseries.value) return null;
     return {
       variable: variableTimeseries.value,
-      selectors: selected.value,
+      selectors: effectiveSelectors.value,
       resample: RESOLUTIONS[resolution.value] ?? null,
       sum_by: sumBy.value,
       time_range: timeRange.value,
@@ -154,7 +169,26 @@ export const useSelectionStore = defineStore("selection", () => {
 
   const staticQuery = computed<ResultQuery | null>(() => {
     if (!variableStatic.value) return null;
-    return { variable: variableStatic.value, selectors: selected.value };
+    return {
+      variable: variableStatic.value,
+      selectors: effectiveSelectors.value,
+    };
+  });
+
+  /**
+   * Per-node totals for the map's marker sizes.
+   *
+   * Indexed by node and summed over technologies, so a marker shows how much of
+   * the chosen variable sits at that node.
+   */
+  const mapQuery = computed<ResultQuery | null>(() => {
+    if (!variableStatic.value) return null;
+    return {
+      variable: variableStatic.value,
+      selectors: selected.value,
+      index: "nodes",
+      sum_by: "techs",
+    };
   });
 
   /** Which chart type the timeseries pane should draw. */
@@ -182,8 +216,11 @@ export const useSelectionStore = defineStore("selection", () => {
     plotType,
     sumBy,
     timeRange,
+    mapNodes,
+    effectiveSelectors,
     timeseriesQuery,
     staticQuery,
+    mapQuery,
     timeseriesKind,
     load,
     setSelected,

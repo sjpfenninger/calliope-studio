@@ -133,9 +133,14 @@ def bounds(model, padding: float = BOUNDS_PADDING) -> list[list[float]] | None:
 
 
 def geojson(model, selectors: dict | None = None, colors: dict | None = None) -> dict:
-    """Everything a map needs in one response."""
+    """Everything a map needs in one response.
+
+    The same shape `calligraph.modeldef.geo` produces for an unsolved model, so
+    one map component renders either.
+    """
     return {
         "nodes": nodes_geojson(model, selectors),
         "links": links_geojson(model, selectors, colors),
         "bounds": bounds(model),
+        "colors": colors or {},
     }

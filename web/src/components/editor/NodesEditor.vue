@@ -326,7 +326,6 @@ watch(() => props.filePath, load);
         <NodesMapView
           v-if="viewMode === 'map'"
           :versionId="versionId"
-          :nodes="entries"
           class="map-fill"
         />
 

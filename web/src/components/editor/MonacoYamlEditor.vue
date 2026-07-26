@@ -13,8 +13,15 @@ import { computed, ref, watch, onMounted, onUnmounted } from "vue";
 import * as monaco from "monaco-editor";
 import { stringify as yamlStringify, parse as yamlParse } from "yaml";
 import client from "../../api/client";
+import {
+  applyMonacoTheme,
+  MONACO_FONT_SIZE,
+  MONACO_LINE_HEIGHT,
+  MONACO_THEME,
+} from "../../editor/monacoTheme";
 import { useEditorStore, tabKind, parseTabKey } from "../../stores/editor";
 import { useSectionDataStore } from "../../stores/sectionData";
+import { useUiStore } from "../../stores/ui";
 
 const props = defineProps<{
   versionId: string | null;
@@ -22,6 +29,7 @@ const props = defineProps<{
 
 const editorStore = useEditorStore();
 const sectionDataStore = useSectionDataStore();
+const ui = useUiStore();
 const containerRef = ref<HTMLElement | null>(null);
 
 let editor: monaco.editor.IStandaloneCodeEditor | null = null;
@@ -156,10 +164,14 @@ const activeMonacoKey = computed(() => {
 onMounted(() => {
   if (!containerRef.value) return;
 
+  // Defined before `create`, so the editor never paints with a stock theme.
+  applyMonacoTheme(ui.mode);
+
   editor = monaco.editor.create(containerRef.value, {
     model: null,
-    theme: "vs-dark",
-    fontSize: 13,
+    theme: MONACO_THEME,
+    fontSize: MONACO_FONT_SIZE,
+    lineHeight: MONACO_LINE_HEIGHT,
     lineNumbers: "on",
     minimap: { enabled: false },
     scrollBeyondLastLine: false,
@@ -197,6 +209,15 @@ onMounted(() => {
 watch(activeMonacoKey, (key) => {
   if (key !== null) activateTab(key);
 });
+
+// Re-derive the theme's colours from the tokens. `setTheme` is global, so this
+// is a redefine-and-apply rather than anything per-instance — which matters,
+// because re-creating the editor would dispose every model and take unsaved
+// buffers with it.
+watch(
+  () => ui.revision,
+  () => applyMonacoTheme(ui.mode),
+);
 
 // Navigate Monaco to a specific line/column when jumpTarget is set
 watch(() => editorStore.jumpTarget, async (target) => {

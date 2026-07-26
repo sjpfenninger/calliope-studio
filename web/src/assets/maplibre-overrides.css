@@ -1,0 +1,70 @@
+/* MapLibre's own chrome, restyled onto the design tokens.
+ *
+ * Unscoped on purpose: the navigation control, popups and attribution strip are
+ * created by MapLibre and appended outside the Vue component tree, so a `scoped`
+ * block in ModelMap.vue cannot reach them. Left alone they keep
+ * maplibre-gl.css's stock light styling and glow white in dark mode.
+ *
+ * `color-mix()` is fine here, unlike in the token layer: this is ordinary DOM CSS
+ * that no canvas parser ever sees.
+ */
+
+.maplibregl-ctrl-group {
+  background: var(--cg-surface);
+  border: 1px solid var(--cg-border);
+  border-radius: var(--cg-radius-sm);
+  box-shadow: var(--cg-shadow-1);
+}
+
+.maplibregl-ctrl-group button {
+  width: 26px;
+  height: 26px;
+}
+
+.maplibregl-ctrl-group button + button {
+  border-top: 1px solid var(--cg-border-subtle);
+}
+
+.maplibregl-ctrl-group button:hover {
+  background: var(--cg-hover);
+}
+
+/* The control glyphs are inline SVG data URIs with a dark fill baked in, so
+   there is no property to retint — inverting is the only lever. */
+[data-cg-theme="dark"] .maplibregl-ctrl-group button .maplibregl-ctrl-icon {
+  filter: invert(1) brightness(1.4);
+}
+
+.maplibregl-ctrl-attrib {
+  background: color-mix(in srgb, var(--cg-surface) 82%, transparent);
+  color: var(--cg-text-muted);
+  font-size: 10px;
+}
+
+.maplibregl-ctrl-attrib a {
+  color: var(--cg-text-muted);
+}
+
+.maplibregl-popup-content {
+  background: var(--cg-surface);
+  color: var(--cg-text);
+  border: 1px solid var(--cg-border);
+  border-radius: var(--cg-radius-sm);
+  box-shadow: var(--cg-shadow-2);
+  font-size: 12px;
+  padding: 6px 8px;
+}
+
+/* The tip is a bordered triangle; only the side facing the popup is visible. */
+.maplibregl-popup-anchor-top .maplibregl-popup-tip {
+  border-bottom-color: var(--cg-surface);
+}
+.maplibregl-popup-anchor-bottom .maplibregl-popup-tip {
+  border-top-color: var(--cg-surface);
+}
+.maplibregl-popup-anchor-left .maplibregl-popup-tip {
+  border-right-color: var(--cg-surface);
+}
+.maplibregl-popup-anchor-right .maplibregl-popup-tip {
+  border-left-color: var(--cg-surface);
+}

@@ -3,6 +3,7 @@ import { ref, onMounted } from "vue";
 import { AgGridVue } from "ag-grid-vue3";
 import { AllCommunityModule, ModuleRegistry } from "ag-grid-community";
 import client from "../../api/client";
+import { gridTheme } from "../../lib/agTheme";
 import { useEditorStore } from "../../stores/editor";
 
 ModuleRegistry.registerModules([AllCommunityModule]);
@@ -83,7 +84,8 @@ function onKeyDown(e: KeyboardEvent) {
         <button class="save-btn" @click="save">Save</button>
       </div>
       <AgGridVue
-        class="ag-theme-quartz csv-grid"
+        class="csv-grid"
+        :theme="gridTheme"
         :columnDefs="columnDefs"
         :rowData="rowData"
         :defaultColDef="{ resizable: true, sortable: true, filter: true }"

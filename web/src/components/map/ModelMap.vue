@@ -3,6 +3,9 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import { onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue";
 import maplibregl, { type StyleSpecification } from "maplibre-gl";
 
+import { resolvedColor } from "../../lib/cssColor";
+import { useUiStore } from "../../stores/ui";
+
 /**
  * The map, for both halves of the app.
  *
@@ -36,6 +39,8 @@ const props = withDefaults(
 
 const emit = defineEmits<{ "update:selected": [string[]] }>();
 
+const ui = useUiStore();
+
 const container = ref<HTMLDivElement | null>(null);
 const map = shallowRef<maplibregl.Map | null>(null);
 const ready = ref(false);
@@ -63,6 +68,68 @@ const STYLE: StyleSpecification = {
   },
   layers: [{ id: "osm", type: "raster", source: "osm" }],
 };
+
+/**
+ * How hard to drain the basemap, per theme.
+ *
+ * No dark tile provider is used, deliberately. The keyless options all have a
+ * catch: CARTO's free CDN ties use to their platform and is rate-limited without
+ * a contract, Stadia's keyless tiles only work from localhost (fine for the dev
+ * server, broken for an installed tool), and Esri's terms contemplate an account.
+ * None is something a locally-installed scientific tool should silently depend on
+ * for every user.
+ *
+ * Desaturating the tiles already fetched is better anyway, and not only as a
+ * dark-mode workaround: standard OSM is by far the most saturated thing on
+ * screen, which breaks the achromatic-surfaces rule that the whole palette is
+ * built on. Draining it is the fix in *both* themes.
+ *
+ * Dark dims rather than inverts — MapLibre has no raster-invert — giving a dark
+ * grey basemap with legible but recessed geography.
+ */
+const BASEMAP_PAINT = {
+  light: {
+    "raster-saturation": -0.85,
+    "raster-contrast": -0.15,
+    "raster-brightness-min": 0.12,
+    "raster-brightness-max": 0.97,
+    "raster-opacity": 0.9,
+  },
+  dark: {
+    "raster-saturation": -0.95,
+    "raster-contrast": -0.1,
+    "raster-brightness-min": 0,
+    "raster-brightness-max": 0.34,
+    "raster-opacity": 0.75,
+  },
+} as const;
+
+/**
+ * Data-layer colours, resolved from the tokens.
+ *
+ * MapLibre's paint parser cannot read `oklch` — its bundle contains no reference
+ * to it — so these go through `lib/cssColor` like the other canvas renderers.
+ *
+ * Note what the node colour used to be: `#2a78d6`, which is `DEFAULT_PALETTE[0]`
+ * from the server's technology palette. Every unstyled node was therefore drawn
+ * in the *first technology's* colour, which looked deliberate and was not.
+ */
+function layerPaint() {
+  return {
+    // Per-feature colour still wins: `results/geo.py` stamps the technology
+    // colour onto each link, and that is identity, not chrome.
+    linkColor: [
+      "coalesce",
+      ["get", "color"],
+      resolvedColor("--cg-text-faint", "#8f8f8f"),
+    ] as maplibregl.ExpressionSpecification,
+    nodeColor: resolvedColor("--cg-accent", "#026fff"),
+    // Inverts with the theme, which is what keeps a selected node legible
+    // against a dimmed basemap.
+    nodeStrokeSelected: resolvedColor("--cg-text", "#1f1f1f"),
+    nodeStroke: resolvedColor("--cg-surface", "#ffffff"),
+  };
+}
 
 function nodeFeatures(): GeoJSON.FeatureCollection {
   const source = props.geo?.nodes ?? emptyCollection();
@@ -119,9 +186,38 @@ function toggle(id: string) {
   emit("update:selected", next);
 }
 
+/**
+ * Repaints everything the theme touches.
+ *
+ * Never `setStyle`. Swapping the style destroys every custom source and layer,
+ * so it would mean re-running `addLayers` and re-`setData`-ing on each theme
+ * change, with a visible flash and a whole class of ordering bugs. Setting the
+ * paint properties is nine cheap calls and touches nothing else.
+ */
+function applyTheme(instance: maplibregl.Map) {
+  if (!instance.getLayer("osm")) return;
+
+  const basemap = BASEMAP_PAINT[ui.mode];
+  for (const [property, value] of Object.entries(basemap)) {
+    instance.setPaintProperty("osm", property as keyof typeof basemap, value);
+  }
+
+  const paint = layerPaint();
+  instance.setPaintProperty("links", "line-color", paint.linkColor);
+  instance.setPaintProperty("nodes", "circle-color", paint.nodeColor);
+  instance.setPaintProperty("nodes", "circle-stroke-color", [
+    "case",
+    ["get", "selected"],
+    paint.nodeStrokeSelected,
+    paint.nodeStroke,
+  ]);
+}
+
 function addLayers(instance: maplibregl.Map) {
   instance.addSource("links", { type: "geojson", data: emptyCollection() });
   instance.addSource("nodes", { type: "geojson", data: emptyCollection() });
+
+  const paint = layerPaint();
 
   // Links first, so node markers sit on top of them.
   instance.addLayer({
@@ -130,7 +226,7 @@ function addLayers(instance: maplibregl.Map) {
     source: "links",
     layout: { "line-cap": "round" },
     paint: {
-      "line-color": ["coalesce", ["get", "color"], "#94a3b8"],
+      "line-color": paint.linkColor,
       "line-width": 2.5,
       "line-opacity": 0.85,
     },
@@ -142,12 +238,19 @@ function addLayers(instance: maplibregl.Map) {
     source: "nodes",
     paint: {
       "circle-radius": ["get", "radius"],
-      "circle-color": "#2a78d6",
+      "circle-color": paint.nodeColor,
       "circle-opacity": 0.85,
       "circle-stroke-width": ["case", ["get", "selected"], 3, 1.5],
-      "circle-stroke-color": ["case", ["get", "selected"], "#111827", "#ffffff"],
+      "circle-stroke-color": [
+        "case",
+        ["get", "selected"],
+        paint.nodeStrokeSelected,
+        paint.nodeStroke,
+      ],
     },
   });
+
+  applyTheme(instance);
 
   if (!props.interactive) return;
 
@@ -215,6 +318,14 @@ watch(() => props.geo, () => {
   fit();
 });
 watch([() => props.selected, () => props.values], setData, { deep: true });
+
+watch(
+  () => ui.revision,
+  () => {
+    const instance = map.value;
+    if (instance && ready.value) applyTheme(instance);
+  },
+);
 </script>
 
 <template>

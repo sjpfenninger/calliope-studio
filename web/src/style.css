@@ -1,6 +1,10 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "./assets/tokens.css";
+/* MapLibre appends its controls outside the Vue tree, so they cannot be styled
+   from a scoped block. Imported here rather than from ModelMap.vue so it lands
+   in the main stylesheet with the tokens it depends on. */
+@import "./assets/maplibre-overrides.css";
 
 /* shadcn-vue's generated components use `dark:` utilities and assume a `.dark`
    class. We switch on an attribute instead: charts/theme.ts already memoises on

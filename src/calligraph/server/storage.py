@@ -266,6 +266,23 @@ class LocalStorage:
         self._write_registry(entries)
         return workspace
 
+    def forget(self, workspace: Workspace) -> None:
+        """Removes a workspace from the recents list.
+
+        Touches only the registry: the folder, the model and its runs are the
+        user's own files and stay exactly where they are. Until now the only way
+        an entry could leave this list was to delete the folder from disk, which
+        is a wildly disproportionate way to say "I am not working on that any
+        more".
+        """
+        self._write_registry(
+            [
+                entry
+                for entry in self._read_registry()
+                if entry.get("path") != str(workspace.path)
+            ]
+        )
+
     @staticmethod
     def _entry_for(workspace: Workspace) -> dict:
         return {

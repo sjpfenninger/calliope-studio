@@ -61,6 +61,18 @@ def browse(path: str | None = None) -> dict:
         # worth failing the request over — show it as empty.
         children = []
 
+    # `EXCLUDED_NAMES` is about what belongs to a *model definition*, and it is
+    # the right rule inside a model folder — `calligraph/` there is this
+    # application's own output. Applied everywhere it is wrong: any folder on the
+    # machine called `calligraph` would become unreachable, including the one
+    # this project is developed in. So it only applies where it means something.
+    listing_a_model = find_model_yaml(target) is not None
+
+    def hidden(child: Path) -> bool:
+        if child.name.startswith("."):
+            return True
+        return listing_a_model and child.name in EXCLUDED_NAMES
+
     entries = [
         {
             "name": child.name,
@@ -70,14 +82,14 @@ def browse(path: str | None = None) -> dict:
             "is_model": find_model_yaml(child) is not None,
         }
         for child in children
-        if child.name not in EXCLUDED_NAMES and not child.name.startswith(".")
+        if not hidden(child)
     ]
 
     return {
         "path": str(target),
         # Null at the root, so the dialog knows not to offer "up".
         "parent": str(target.parent) if target.parent != target else None,
-        "is_model": find_model_yaml(target) is not None,
+        "is_model": listing_a_model,
         "entries": entries[:MAX_ENTRIES],
         "truncated": len(entries) > MAX_ENTRIES,
     }

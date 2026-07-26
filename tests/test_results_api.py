@@ -237,6 +237,27 @@ class TestBrowse:
         assert all("model.yaml" != entry["name"] for entry in body["entries"])
         assert "content" not in body
 
+    def test_a_folder_called_calligraph_is_still_reachable(self, client, tmp_path):
+        """`EXCLUDED_NAMES` is about model definitions, not about the whole disk.
+
+        Applied to every listing it made any folder on the machine named
+        `calligraph` unreachable — including the one this project is developed
+        in, which is how it was found.
+        """
+        (tmp_path / "calligraph").mkdir()
+        body = client.get("/api/browse/", params={"path": str(tmp_path)}).json()
+        assert "calligraph" in [entry["name"] for entry in body["entries"]]
+
+    def test_a_models_own_output_directory_is_hidden(self, client, national_scale):
+        """Inside a model folder, `calligraph/` is this application's own output.
+
+        There it is noise rather than a place anyone would open, so the rule
+        applies where it actually means something.
+        """
+        (national_scale / "calligraph").mkdir(exist_ok=True)
+        body = client.get("/api/browse/", params={"path": str(national_scale)}).json()
+        assert all(entry["name"] != "calligraph" for entry in body["entries"])
+
     def test_the_root_has_no_parent(self, client):
         body = client.get("/api/browse/", params={"path": "/"}).json()
         assert body["parent"] is None

@@ -67,6 +67,21 @@ def get_project(workspace: Workspace = Depends(get_workspace)) -> dict:
     return workspace.as_dict()
 
 
+@router.delete("/projects/{id}/", status_code=status.HTTP_204_NO_CONTENT)
+def forget_project(
+    workspace: Workspace = Depends(get_workspace),
+    storage: LocalStorage = Depends(get_storage),
+) -> None:
+    """Removes a model from the recents list.
+
+    Nothing on disk is touched — the folder, the model and its runs are the
+    user's files. This is only a removal from the list of things Calligraph has
+    been shown, which previously could not be edited at all: an entry left only
+    when its folder was deleted.
+    """
+    storage.forget(workspace)
+
+
 class WorkspaceSettings(BaseModel):
     """The settings a workspace has. Currently one.
 

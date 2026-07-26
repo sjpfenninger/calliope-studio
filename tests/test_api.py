@@ -64,6 +64,31 @@ class TestProjects:
         assert "calliope new" in response.json()["detail"]
         assert len(client.get("/api/projects/").json()) == 1
 
+    def test_a_model_can_be_removed_from_the_recents_list(
+        self, client, urban_scale, national_scale
+    ):
+        """Leaving the list must not mean deleting the folder.
+
+        Until now an entry could only disappear by the folder being removed from
+        disk, which is a wildly disproportionate way of saying "I am not working
+        on that any more".
+        """
+        opened = client.post("/api/projects/", json={"path": str(urban_scale)}).json()
+
+        assert client.delete(f"/api/projects/{opened['id']}/").status_code == 204
+
+        assert [p["id"] for p in client.get("/api/projects/").json()] != [opened["id"]]
+        assert (urban_scale / "model.yaml").is_file()
+
+    def test_removing_an_unknown_model_is_404(self, client):
+        assert client.delete("/api/projects/deadbeef/").status_code == 404
+
+    def test_health_says_where_the_recents_list_lives(self, client):
+        # A list of the user's own folders, kept in an invisible state
+        # directory, is otherwise something they can neither find nor reset.
+        registry = client.get("/api/health").json()["registry_path"]
+        assert registry.endswith("workspaces.json")
+
 
 class TestFiles:
     def test_file_tree_lists_the_model(self, client, ws):

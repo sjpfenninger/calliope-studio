@@ -1,123 +1,171 @@
 <script setup lang="ts">
-import { ref, onMounted } from "vue";
+/**
+ * Recent models.
+ *
+ * This was "Projects", a grid of cards showing a name and a creation date, with
+ * a disabled "New project" button and no way to add or remove anything. But a
+ * local workspace is a folder, and the honest presentation of a list of folders
+ * is a list of paths: which folder, when it was last opened, which one this
+ * server is serving right now, and how to stop it being listed.
+ *
+ * "Removed" means removed from this list. The folder, the model and its runs are
+ * the user's own files, and until now the only way an entry could leave was for
+ * the folder to be deleted from disk.
+ */
+import { computed, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
-import Card from "primevue/card";
-import Button from "primevue/button";
-import client from "../api/client";
-import { useProjectStore } from "../stores/project";
+import { FolderOpen, FolderPlus, X } from "lucide-vue-next";
+
+import client from "@/api/client";
+import OpenModelDialog from "@/components/workspace/OpenModelDialog.vue";
+import { formatRelativeTime, formatTimestamp } from "@/lib/format";
+import { ICON_STROKE_WIDTH } from "@/lib/icons";
+import { useProjectStore, type Project } from "@/stores/project";
 
 const router = useRouter();
 const projectStore = useProjectStore();
 
-interface Project {
-  id: string;
-  name: string;
-  description: string;
-  created_at: string;
-}
-
-interface Version {
-  id: string;
-  label: string;
-  created_at: string;
-}
-
-const projects = ref<Project[]>([]);
+const models = ref<Project[]>([]);
 const isLoading = ref(true);
 const error = ref<string | null>(null);
+const registryPath = ref<string | null>(null);
+const currentId = ref<string | null>(null);
+const browsing = ref(false);
 
-onMounted(async () => {
-  projectStore.clearProject();
+const hasModels = computed(() => models.value.length > 0);
+
+async function load() {
   try {
-    const res = await client.get<Project[]>("/api/projects/");
-    projects.value = res.data;
+    models.value = (await client.get<Project[]>("/api/projects/")).data;
+    error.value = null;
   } catch {
-    error.value = "Failed to load projects.";
+    error.value = "The list of models could not be read.";
   } finally {
     isLoading.value = false;
   }
-});
-
-async function openProject(projectId: string) {
-  const res = await client.get<Version[]>(`/api/projects/${projectId}/versions/`);
-  const versions = res.data;
-  if (versions.length === 0) return;
-  router.push(`/projects/${projectId}/versions/${versions[0].id}`);
 }
 
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString();
+onMounted(async () => {
+  // Leaving the shell means no model is current any more; the switcher in the
+  // sidebar reads this.
+  projectStore.clearProject();
+  await load();
+  try {
+    const health = (await client.get("/api/health")).data;
+    registryPath.value = health.registry_path ?? null;
+    currentId.value = health.workspace_id ?? null;
+  } catch {
+    registryPath.value = null;
+  }
+});
+
+function open(id: string) {
+  // Through the resolver: a project id alone cannot address the shell, which
+  // needs a version too.
+  router.push({ name: "project", params: { projectId: id } });
+}
+
+async function forget(id: string) {
+  await client.delete(`/api/projects/${id}/`);
+  models.value = models.value.filter((model) => model.id !== id);
 }
 </script>
 
 <template>
-  <div class="project-list">
-    <header class="project-list-header">
-      <h1>Projects</h1>
-      <Button label="New project" icon="pi pi-plus" disabled />
-    </header>
-    <div v-if="isLoading" class="status-msg">Loading…</div>
-    <div v-else-if="error" class="status-msg error">{{ error }}</div>
-    <div v-else-if="projects.length === 0" class="status-msg">
-      No projects yet. Use the management command to create one.
-    </div>
-    <div v-else class="project-grid">
-      <Card
-        v-for="project in projects"
-        :key="project.id"
-        class="project-card"
-        @click="openProject(project.id)"
+  <div class="mx-auto flex h-full w-full max-w-3xl min-h-0 flex-col p-6">
+    <header class="mb-3 flex shrink-0 items-center gap-2">
+      <h1 class="text-lg font-semibold">Recent models</h1>
+      <div class="flex-1" />
+      <button
+        type="button"
+        data-testid="open-model"
+        class="inline-flex h-7 items-center gap-1.5 rounded-sm bg-primary px-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+        @click="browsing = true"
       >
-        <template #title>{{ project.name }}</template>
-        <template #subtitle>Created {{ formatDate(project.created_at) }}</template>
-        <template #content>
-          <p>{{ project.description }}</p>
-        </template>
-      </Card>
+        <FolderPlus class="size-3.5" :stroke-width="ICON_STROKE_WIDTH" />
+        Open model…
+      </button>
+    </header>
+
+    <p v-if="isLoading" class="text-sm text-muted-foreground">Loading…</p>
+    <p v-else-if="error" class="text-sm text-danger-text">{{ error }}</p>
+
+    <div
+      v-else-if="hasModels"
+      data-testid="recent-models"
+      class="min-h-0 overflow-y-auto rounded-sm border border-border"
+    >
+      <div
+        v-for="model in models"
+        :key="model.id"
+        class="group flex h-11 items-center gap-2 border-b border-border-subtle px-2 last:border-b-0 hover:bg-hover"
+        data-testid="recent-model"
+      >
+        <FolderOpen
+          class="size-3.5 shrink-0 text-text-faint"
+          :stroke-width="ICON_STROKE_WIDTH"
+        />
+
+        <button
+          type="button"
+          class="min-w-0 flex-1 text-left"
+          data-testid="recent-model-open"
+          @click="open(model.id)"
+        >
+          <span class="flex items-center gap-1.5">
+            <span class="truncate text-sm font-medium">{{ model.name }}</span>
+            <span
+              v-if="model.id === currentId"
+              class="shrink-0 rounded-xs border border-accent-border bg-accent-soft px-1 text-2xs text-accent-text"
+            >
+              Open now
+            </span>
+          </span>
+          <!-- The full path, not the folder name: two models called `model` in
+               different places are otherwise indistinguishable. -->
+          <span class="block truncate font-mono text-2xs text-text-faint">
+            {{ model.description }}
+          </span>
+        </button>
+
+        <span
+          class="shrink-0 text-2xs text-text-faint"
+          :title="formatTimestamp(model.created_at)"
+        >
+          {{ formatRelativeTime(model.created_at) }}
+        </span>
+
+        <button
+          type="button"
+          data-testid="forget-model"
+          title="Remove from this list (nothing is deleted)"
+          class="grid size-5 shrink-0 place-items-center rounded-xs text-text-faint opacity-0 group-hover:opacity-100 hover:bg-active hover:text-foreground focus-visible:opacity-100"
+          @click="forget(model.id)"
+        >
+          <X class="size-3.5" :stroke-width="2" />
+        </button>
+      </div>
     </div>
+
+    <div
+      v-else
+      class="grid place-items-center rounded-sm border border-dashed border-border py-16 text-center"
+    >
+      <p class="max-w-sm text-sm text-muted-foreground">
+        No models yet. Open a folder containing a <code>model.yaml</code>, or start
+        Calligraph with one:
+        <code class="mt-1 block font-mono text-xs">calligraph path/to/model</code>
+      </p>
+    </div>
+
+    <div class="flex-1" />
+
+    <p class="mt-2 shrink-0 text-2xs text-text-faint">
+      This list is kept in
+      <code class="font-mono">{{ registryPath ?? "the Calligraph state directory" }}</code
+      >. Removing a model here does not delete anything on disk.
+    </p>
+
+    <OpenModelDialog v-model:open="browsing" @opened="open" />
   </div>
 </template>
-
-<style scoped>
-.project-list {
-  padding: 2rem;
-  height: 100%;
-  overflow-y: auto;
-}
-
-.project-list-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 1.5rem;
-}
-
-.project-list-header h1 {
-  margin: 0;
-}
-
-.status-msg {
-  text-align: center;
-  color: var(--p-text-muted-color, #888);
-  margin-top: 3rem;
-}
-
-.status-msg.error {
-  color: var(--p-red-500, #ef4444);
-}
-
-.project-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 1rem;
-}
-
-.project-card {
-  cursor: pointer;
-  transition: box-shadow 0.15s ease;
-}
-
-.project-card:hover {
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
-}
-</style>

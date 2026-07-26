@@ -101,6 +101,10 @@ def create_app(
             "workspace_id": active.id if active else None,
             "results_handle": app.state.active_results,
             "run_id": app.state.active_run_id,
+            # Where the recents list lives. Shown on that screen, because a list
+            # of the user's own folders kept in an invisible state directory is
+            # otherwise something they can neither find nor reset.
+            "registry_path": str(app.state.storage.registry_path),
             "calligraph_version": _version(),
         }
 

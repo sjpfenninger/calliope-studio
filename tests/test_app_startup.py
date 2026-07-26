@@ -65,37 +65,36 @@ class TestWorkspaceResolution:
             assert client.get("/api/health").json()["workspace_id"] is None
 
 
+@pytest.fixture
+def served(monkeypatch):
+    """Captures what the CLI would serve, without serving it."""
+    import calligraph.cli as cli
+
+    recorded: dict = {}
+
+    class FakeServer:
+        def __init__(self, config):
+            recorded["target"] = config.app
+
+        def run(self, sockets=None):
+            recorded["sockets"] = sockets
+            # Resolve the app the way uvicorn does, at serve time.
+            module_name, _, attribute = recorded["target"].partition(":")
+            module = importlib.import_module(module_name)
+            importlib.reload(module)
+            recorded["workspace"] = getattr(module, attribute).state.workspace
+
+    monkeypatch.setattr("uvicorn.Server", FakeServer)
+    monkeypatch.setattr(
+        "uvicorn.Config", lambda app, **kwargs: SimpleNamespace(app=app)
+    )
+    monkeypatch.setattr("uvicorn.run", lambda *a, **k: recorded.update(reload_args=k))
+    monkeypatch.setattr(cli, "open_browser", lambda url: recorded.update(url=url))
+    return cli, recorded
+
+
 class TestCli:
     """The path the CLI actually takes, which the test client cannot reach."""
-
-    @pytest.fixture
-    def served(self, monkeypatch):
-        """Captures what the CLI would serve, without serving it."""
-        import calligraph.cli as cli
-
-        recorded: dict = {}
-
-        class FakeServer:
-            def __init__(self, config):
-                recorded["target"] = config.app
-
-            def run(self, sockets=None):
-                recorded["sockets"] = sockets
-                # Resolve the app the way uvicorn does, at serve time.
-                module_name, _, attribute = recorded["target"].partition(":")
-                module = importlib.import_module(module_name)
-                importlib.reload(module)
-                recorded["workspace"] = getattr(module, attribute).state.workspace
-
-        monkeypatch.setattr("uvicorn.Server", FakeServer)
-        monkeypatch.setattr(
-            "uvicorn.Config", lambda app, **kwargs: SimpleNamespace(app=app)
-        )
-        monkeypatch.setattr(
-            "uvicorn.run", lambda *a, **k: recorded.update(reload_args=k)
-        )
-        monkeypatch.setattr(cli, "open_browser", lambda url: recorded.update(url=url))
-        return cli, recorded
 
     def test_the_workspace_is_published_before_the_app_resolves(
         self, served, national_scale
@@ -174,3 +173,47 @@ class TestPortSelection:
         finally:
             for listener in held:
                 listener.close()
+
+
+class TestTargetValidation:
+    """What `calligraph <path>` accepts, and where it lands."""
+
+    def test_a_model_folder_opens_the_editor(self, national_scale):
+        assert cli_module.describe_target(national_scale) == "/"
+
+    def test_a_results_file_goes_straight_to_the_charts(self, solved_results):
+        # Opening a solved model can only mean one thing.
+        assert cli_module.describe_target(solved_results) == "/results"
+
+    def test_a_folder_without_a_model_is_rejected(self, tmp_path):
+        """This used to serve an empty file tree, which reads as a broken app."""
+        empty = tmp_path / "not-a-model"
+        empty.mkdir()
+        with pytest.raises(click.ClickException) as failure:
+            cli_module.describe_target(empty)
+        message = str(failure.value)
+        assert "No model.yaml" in message
+        assert "calliope new" in message, "the error should say how to proceed"
+
+    def test_an_unrelated_file_is_rejected(self, national_scale):
+        with pytest.raises(click.ClickException, match="not a Calliope results file"):
+            cli_module.describe_target(national_scale / "model.yaml")
+
+    def test_the_cli_refuses_before_binding_a_port(self, tmp_path, monkeypatch):
+        """Nothing should be started for a path that cannot be opened."""
+        import calligraph.cli as cli
+
+        empty = tmp_path / "empty"
+        empty.mkdir()
+        monkeypatch.setattr(
+            cli, "bind_available", lambda *a, **k: pytest.fail("bound a port anyway")
+        )
+        with pytest.raises(click.ClickException):
+            cli.main([str(empty), "--no-browser"], standalone_mode=False)
+
+    def test_a_results_file_opens_the_browser_at_the_results_view(
+        self, served, solved_results
+    ):
+        cli, recorded = served
+        cli.main([str(solved_results), "--port", "0"], standalone_mode=False)
+        assert recorded["url"].endswith("/results")

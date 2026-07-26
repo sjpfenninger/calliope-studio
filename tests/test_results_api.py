@@ -193,3 +193,19 @@ class TestRunsExposeResults:
     def test_unfinished_run_has_no_handle(self, client):
         created = client.post(f"/api/versions/{client.workspace_id}/runs/").json()
         assert created.get("results_handle") is None
+
+    def test_run_history_is_newest_first(self, client):
+        """The frontend takes the first run with results as "the latest".
+
+        Run directories are named with UUIDs, so ordering by name is arbitrary
+        while looking deliberate.
+        """
+        import time
+
+        first = client.post(f"/api/versions/{client.workspace_id}/runs/").json()["id"]
+        time.sleep(1.1)  # filesystem timestamps are not always sub-second
+        second = client.post(f"/api/versions/{client.workspace_id}/runs/").json()["id"]
+
+        history = client.get(f"/api/versions/{client.workspace_id}/runs/").json()
+        order = [record["id"] for record in history]
+        assert order.index(second) < order.index(first)

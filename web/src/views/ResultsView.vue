@@ -62,16 +62,25 @@ const sumByOptions = [
 ];
 
 async function resolveHandle(): Promise<string | null> {
-  // A run id in the route means "show me this run's results"; otherwise fall
-  // back to whatever the server was opened on, which is how `calligraph
-  // results.nc` lands straight here.
+  // A run id in the route means "show me this run's results".
   const runId = route.params.runId as string | undefined;
   if (runId) {
     const run = await client.get(`/api/runs/${runId}/`);
     return run.data.results_handle ?? null;
   }
+
+  // Opening Calligraph on a `results.nc` lands straight here.
   const health = await client.get("/api/health");
-  return health.data.results_handle ?? null;
+  if (health.data.results_handle) return health.data.results_handle;
+
+  // Otherwise show the most recent run that produced results. Running a model
+  // and then clicking Results should show them, without having to find the run
+  // in a list first.
+  const workspace = health.data.workspace_id;
+  if (!workspace) return null;
+  const runs = await client.get(`/api/versions/${workspace}/runs/`);
+  const latest = (runs.data ?? []).find((run: any) => run.results_handle);
+  return latest?.results_handle ?? null;
 }
 
 async function open() {

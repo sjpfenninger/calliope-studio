@@ -46,6 +46,8 @@ def main(path: Path, host: str, port: int, browser: bool, reload: bool) -> None:
     """
     import uvicorn
 
+    landing = describe_target(path)
+
     # The app factory reads this, so it is also picked up under --reload, where
     # uvicorn imports the module in a fresh subprocess.
     os.environ[WORKSPACE_ENV_VAR] = str(path.resolve())
@@ -54,12 +56,12 @@ def main(path: Path, host: str, port: int, browser: bool, reload: bool) -> None:
     bound_port = listener.getsockname()[1]
     if bound_port != port:
         click.echo(f"Port {port} is in use; using {bound_port} instead.")
-    click.echo(f"Calligraph is at http://{host}:{bound_port}/")
+    click.echo(f"Calligraph is at http://{host}:{bound_port}{landing}")
 
     if browser:
         # The socket is already listening, so a request made now waits in the
         # accept queue rather than being refused. There is nothing to wait for.
-        open_browser(f"http://{host}:{bound_port}/")
+        open_browser(f"http://{host}:{bound_port}{landing}")
 
     if reload:
         # The reloader supervises its own worker processes and binds its own
@@ -75,6 +77,48 @@ def main(path: Path, host: str, port: int, browser: bool, reload: bool) -> None:
 
     server = uvicorn.Server(uvicorn.Config("calligraph.server.app:app"))
     server.run(sockets=[listener])
+
+
+def describe_target(path: Path) -> str:
+    """Checks that `path` is something to open, and says where to land.
+
+    A solved `.nc` has no model definition to edit, so it goes straight to the
+    results. Anything else is a folder that should contain a model.
+
+    Serving a directory with no model in it used to succeed and then show an
+    empty file tree, which reads as a broken application rather than a mistyped
+    path.
+
+    Returns:
+        The path within the app to open.
+
+    Raises:
+        click.ClickException: If there is nothing there to open.
+    """
+    from calligraph.modeldef.imports import find_model_yaml
+
+    resolved = Path(path).resolve()
+
+    if resolved.is_file():
+        if resolved.suffix == ".nc":
+            return "/results"
+        raise click.ClickException(
+            f"{resolved} is not a Calliope results file.\n"
+            "Give a solved model saved as '.nc', or a folder containing a "
+            "model.yaml."
+        )
+
+    if find_model_yaml(resolved) is None:
+        raise click.ClickException(
+            f"No model.yaml in {resolved}.\n"
+            "Give a folder containing a Calliope model, or a solved model "
+            "saved as '.nc'.\n"
+            # `calliope new` requires its target not to exist, so this suggests
+            # a new folder rather than the one that was just rejected.
+            "To create a model to work on, run 'calliope new <new-folder>'."
+        )
+
+    return "/"
 
 
 def bind_available(

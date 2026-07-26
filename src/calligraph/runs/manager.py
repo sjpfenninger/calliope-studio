@@ -71,14 +71,26 @@ class RunManager:
             raise KeyError(run_id) from None
 
     def discover(self, runs_root: Path) -> list[RunRecord]:
-        """Finds runs already on disk, so history survives a restart."""
+        """Finds runs already on disk, newest first, so history survives a restart.
+
+        Ordered by when each run was requested, not by directory name: the names
+        are UUIDs, so sorting them puts the history in an arbitrary order that
+        merely looks deliberate.
+        """
+        directories = [
+            directory
+            for directory in runs_root.glob("*/")
+            if (directory / protocol.REQUEST_FILE).is_file()
+        ]
+        directories.sort(
+            key=lambda directory: (directory / protocol.REQUEST_FILE).stat().st_mtime,
+            reverse=True,
+        )
+
         records = []
-        for directory in sorted(runs_root.glob("*/"), reverse=True):
-            if not (directory / protocol.REQUEST_FILE).is_file():
-                continue
-            run_id = directory.name
-            self._dirs.setdefault(run_id, directory)
-            records.append(self.get(run_id))
+        for directory in directories:
+            self._dirs.setdefault(directory.name, directory)
+            records.append(self.get(directory.name))
         return records
 
     # -- lifecycle --------------------------------------------------------

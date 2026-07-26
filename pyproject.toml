@@ -121,7 +121,12 @@ serve = { cmd = "uvicorn calligraph.server.app:app --reload --port 8000", env = 
   "example",
 ] }
 
-build = { cmd = "python -m build", depends-on = ["web-build"] }
+# The check is not optional: `python -m build` succeeds without the frontend and
+# produces a wheel with no interface, which nothing notices until a browser is
+# pointed at it.
+build = { cmd = "python -m build && python scripts/check_wheel.py", depends-on = [
+  "web-build",
+] }
 
 [tool.black]
 line-length = 88

@@ -260,6 +260,102 @@ describe("useTabsStore", () => {
     });
   });
 
+  describe("persistence", () => {
+    beforeEach(() => localStorage.clear());
+
+    it("reopens the tabs a model had last time", () => {
+      const first = useTabsStore();
+      first.setVersion("v1");
+      first.openFile("model.yaml");
+      first.openSection("techs", "techs.yaml");
+      first.persist();
+
+      setActivePinia(createPinia());
+      const restored = useTabsStore();
+      restored.setVersion("v1");
+      restored.restore("v1");
+
+      expect([...restored.openTabs.keys()]).toEqual([
+        fileTabId("model.yaml"),
+        sectionTabId("techs", "techs.yaml"),
+      ]);
+    });
+
+    it("hands back which tab was in front rather than activating it", () => {
+      // A `?tab=` in the URL has to win over what the last session left open,
+      // so the caller decides.
+      const first = useTabsStore();
+      first.setVersion("v1");
+      first.openFile("a.yaml");
+      first.openFile("b.yaml");
+      first.persist();
+
+      setActivePinia(createPinia());
+      const restored = useTabsStore();
+      expect(restored.restore("v1")).toBe(fileTabId("b.yaml"));
+      expect(restored.activeId).toBeNull();
+    });
+
+    it("mounts nothing while restoring", () => {
+      // Restoring six tabs would otherwise build six panes, five of them inside
+      // a hidden container — which hands MapLibre a zero-size element.
+      const first = useTabsStore();
+      first.setVersion("v1");
+      first.openRun({ id: "r1" });
+      first.openRun({ id: "r2" });
+      first.persist();
+
+      setActivePinia(createPinia());
+      const restored = useTabsStore();
+      restored.restore("v1");
+
+      expect(restored.ordered.every((tab) => !tab.mounted)).toBe(true);
+    });
+
+    it("keeps each model's tabs to itself", () => {
+      const store = useTabsStore();
+      store.setVersion("v1");
+      store.openFile("a.yaml");
+      store.persist();
+
+      setActivePinia(createPinia());
+      const other = useTabsStore();
+      expect(other.restore("v2")).toBeNull();
+      expect(other.openTabs.size).toBe(0);
+    });
+
+    it("ignores a stored entry it cannot read", () => {
+      localStorage.setItem("calligraph.tabs.v1", "not json");
+      const store = useTabsStore();
+      expect(store.restore("v1")).toBeNull();
+    });
+
+    it("skips a tab id that no longer parses", () => {
+      // These outlive the scheme that wrote them.
+      localStorage.setItem(
+        "calligraph.tabs.v1",
+        JSON.stringify({ tabs: ["\0s:techs:techs.yaml", fileTabId("a.yaml")] }),
+      );
+      const store = useTabsStore();
+      store.restore("v1");
+      expect([...store.openTabs.keys()]).toEqual([fileTabId("a.yaml")]);
+    });
+
+    it("does not resurrect a tab that was closed", () => {
+      const store = useTabsStore();
+      store.setVersion("v1");
+      const id = store.openFile("a.yaml");
+      store.persist();
+      store.closeTab(id);
+      store.persist();
+
+      setActivePinia(createPinia());
+      const restored = useTabsStore();
+      restored.restore("v1");
+      expect(restored.openTabs.size).toBe(0);
+    });
+  });
+
   describe("jumping", () => {
     it("opens the file and records where to reveal", () => {
       const tabs = useTabsStore();

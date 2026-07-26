@@ -158,6 +158,60 @@ export const useTabsStore = defineStore("tabs", () => {
     versionId.value = id;
   }
 
+  // ── Persistence ───────────────────────────────────────────────────────────
+
+  /**
+   * Per model, because a tab set is about one model's files.
+   *
+   * Only the ids are stored. They are enough to rebuild every tab — that is the
+   * point of `lib/tabId.ts` — and storing anything more would mean persisting a
+   * *copy* of state the files themselves already hold, which goes stale the
+   * moment the model is edited outside the app.
+   */
+  const storageKey = (id: string) => `calligraph.tabs.${id}`;
+
+  function persist() {
+    if (!versionId.value) return;
+    localStorage.setItem(
+      storageKey(versionId.value),
+      JSON.stringify({ tabs: [...openTabs.keys()], active: activeId.value }),
+    );
+  }
+
+  /**
+   * Reopens the tabs this model had last time, if any are remembered.
+   *
+   * Returns the id that should come to the front, rather than activating it, so
+   * the caller can let a `?tab=` in the URL win — a link to a specific tab has
+   * to beat what the last session happened to leave open.
+   */
+  function restore(id: string): string | null {
+    let stored: { tabs?: unknown; active?: unknown };
+    try {
+      const raw = localStorage.getItem(storageKey(id));
+      if (!raw) return null;
+      stored = JSON.parse(raw);
+    } catch {
+      // A corrupt entry is not worth failing to open a model over.
+      return null;
+    }
+    if (!Array.isArray(stored.tabs)) return null;
+
+    quiet = true;
+    try {
+      for (const tabId of stored.tabs) {
+        // An id that no longer parses is skipped, not fatal: these outlive the
+        // scheme that wrote them.
+        if (typeof tabId === "string") openFromId(tabId);
+      }
+    } finally {
+      quiet = false;
+    }
+
+    const active = typeof stored.active === "string" ? stored.active : null;
+    return active && openTabs.has(active) ? active : null;
+  }
+
   function get(id: string): TabEntry | undefined {
     return openTabs.get(id);
   }
@@ -166,7 +220,18 @@ export const useTabsStore = defineStore("tabs", () => {
     return openTabs.has(id);
   }
 
+  /**
+   * Set while restoring a persisted tab set.
+   *
+   * Every `open*` activates, and activating latches `mounted`. Restoring six
+   * tabs would therefore build six panes, five of them inside a hidden
+   * container — which is exactly the zero-size MapLibre problem the latch
+   * exists to avoid. Restore opens quietly and activates once, at the end.
+   */
+  let quiet = false;
+
   function activate(id: string) {
+    if (quiet) return;
     const tab = openTabs.get(id);
     if (!tab) return;
     tab.mounted = true;
@@ -417,6 +482,8 @@ export const useTabsStore = defineStore("tabs", () => {
     get,
     has,
     setVersion,
+    persist,
+    restore,
     activate,
     openFile,
     openSection,

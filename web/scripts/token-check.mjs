@@ -146,24 +146,8 @@ check("body is 13px", light.bodyFontSize === "13px");
 check("data-cg-theme inverts the surface ramp", dark.bg !== light.bg);
 check("the painted background follows it", dark.bodyBackground !== light.bodyBackground);
 check("dark has its own accent", dark.accent !== light.accent);
-/**
- * A known, pre-existing fault: the monaco-yaml language worker answers no
- * requests, so YAML schema validation and completion are dead. Verified to
- * predate the Tailwind migration by rebuilding at the previous commit and
- * getting the same six errors, so it is reported rather than failed on — but it
- * is a real bug and CLAUDE.md's claim that schema completion works is wrong.
- */
-const KNOWN_BROKEN = /Missing requestHandler/;
-const knownErrors = consoleErrors.filter((message) => KNOWN_BROKEN.test(message));
-const newErrors = consoleErrors.filter((message) => !KNOWN_BROKEN.test(message));
-
-if (knownErrors.length) {
-  console.log(
-    `  note  ${knownErrors.length} monaco-yaml worker errors (known, pre-existing)`,
-  );
-}
-check(`no unexpected console errors (${newErrors.length})`, newErrors.length === 0);
-if (newErrors.length) console.log("console errors:", newErrors.slice(0, 5));
+check(`no console errors (${consoleErrors.length})`, consoleErrors.length === 0);
+if (consoleErrors.length) console.log("console errors:", consoleErrors.slice(0, 5));
 
 // ── The toggle, which is the only way a user reaches any of this ─────────────
 

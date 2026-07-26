@@ -14,7 +14,7 @@
  * nothing; keeping it alive afterwards is what makes switching sub-views (and
  * tabs) cost no frame request.
  */
-import { computed, onMounted, watch } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 
 import RunConfigPanel from "./RunConfigPanel.vue";
 import RunLogPanel from "./RunLogPanel.vue";
@@ -46,6 +46,9 @@ function shows(view: RunSubView) {
   return props.tab.seenViews.includes(view) && available.value[view];
 }
 
+/** True once we know the run this tab names is not on disk. */
+const missing = ref(false);
+
 /**
  * Makes sure this tab has the run behind it, however it was opened.
  *
@@ -59,6 +62,10 @@ onMounted(async () => {
 
   if (!runs.get(runId)) await runs.refresh(runId);
   const record = runs.get(runId);
+  // A tab restored from a previous session can outlive the run it names —
+  // deleted here, or pruned by retention. Say so rather than showing an empty
+  // log and a config panel that 404s.
+  missing.value = !record;
   if (record && !isTerminal(record.status)) runs.watchRun(runId);
 });
 
@@ -103,6 +110,13 @@ watch(
     </div>
 
     <div class="relative min-h-0 flex-1">
+      <p
+        v-if="missing"
+        class="absolute inset-0 grid place-items-center text-sm text-muted-foreground"
+      >
+        This run is no longer on disk. Close the tab, or start a new run.
+      </p>
+
       <RunResultsPanel
         v-if="shows('results') && tab.handle"
         v-show="tab.subView === 'results'"
@@ -111,7 +125,7 @@ watch(
       />
 
       <RunConfigPanel
-        v-if="shows('config') && tab.runId"
+        v-if="!missing && shows('config') && tab.runId"
         v-show="tab.subView === 'config'"
         :run-id="tab.runId"
         :handle="tab.handle"
@@ -119,14 +133,14 @@ watch(
       />
 
       <RunLogPanel
-        v-if="shows('log') && tab.runId"
+        v-if="!missing && shows('log') && tab.runId"
         v-show="tab.subView === 'log'"
         :run-id="tab.runId"
         class="absolute inset-0 flex"
       />
 
       <p
-        v-if="tab.subView === 'results' && !tab.handle"
+        v-if="!missing && tab.subView === 'results' && !tab.handle"
         class="absolute inset-0 grid place-items-center text-sm text-muted-foreground"
       >
         This run has not produced results.

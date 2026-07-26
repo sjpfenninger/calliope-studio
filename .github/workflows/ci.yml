@@ -94,6 +94,12 @@ jobs:
         working-directory: web
         run: npm run token-check -- http://127.0.0.1:8791
 
+      # The YAML language worker, which answered nothing at all until the
+      # monaco-editor pin. This is what notices if the pin is lifted.
+      - name: Monaco check
+        working-directory: web
+        run: npm run monaco-check -- http://127.0.0.1:8791
+
       # A no-op save must not change the file, across every structured section.
       - name: Faithful-save check
         working-directory: web

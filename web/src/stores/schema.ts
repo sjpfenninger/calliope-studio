@@ -1,6 +1,7 @@
 import { ref } from "vue";
 import { defineStore } from "pinia";
 import client from "../api/client";
+import { withSiblingSchemas } from "../lib/calliopeSchema";
 
 /**
  * Calliope's own schemas, resolved once and navigated by path.
@@ -56,30 +57,12 @@ export const useSchemaStore = defineStore("schema", () => {
     );
   }
 
-  /**
-   * Folds the sibling schemas into the model schema's `properties`.
-   *
-   * So that every editor addresses what it needs by the same dot path it would
-   * write in YAML — `config.init`, `data_tables` — rather than each one knowing
-   * where in the payload its schema happens to live.
-   */
-  function graftSiblings(payload: Record<string, any>): Record<string, any> {
-    const siblings: Record<string, any> = payload["x-calliope"]?.schemas ?? {};
-    const extra: Record<string, any> = {};
-    if (siblings.config) extra.config = siblings.config;
-    if (siblings.math) extra.math = siblings.math;
-    return {
-      ...payload,
-      properties: { ...(payload.properties ?? {}), ...extra },
-    };
-  }
-
   /** Fetch the Calliope schema from the API and deref it in place. */
   async function load() {
     if (isLoaded.value) return;
     try {
       const res = await client.get<Record<string, any>>("/api/schema/calliope/");
-      const schema = graftSiblings(res.data);
+      const schema = withSiblingSchemas(res.data);
       const defs: Record<string, any> = schema.$defs ?? schema.definitions ?? {};
       resolved.value = deref(schema, defs);
       isLoaded.value = true;

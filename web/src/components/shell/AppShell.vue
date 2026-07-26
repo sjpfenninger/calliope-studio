@@ -44,11 +44,24 @@ onMounted(() => {
 
 watch(
   [projectId, versionId],
-  ([nextProject, nextVersion]) => {
+  ([nextProject, nextVersion], previous) => {
     if (nextProject) project.loadProject(nextProject);
-    if (nextVersion) tabs.setVersion(nextVersion);
+    if (!nextVersion || nextVersion === previous?.[1]) return;
+
+    tabs.setVersion(nextVersion);
+    // What this model had open last time. A `?tab=` in the URL wins over it —
+    // a link to a specific tab has to beat whatever the last session left
+    // behind — which is why `restore` hands the id back instead of activating.
+    const remembered = tabs.restore(nextVersion);
+    if (remembered && typeof route.query.tab !== "string") tabs.activate(remembered);
   },
   { immediate: true },
+);
+
+// Store → localStorage. Ids only; they are enough to rebuild every tab.
+watch(
+  [() => [...tabs.openTabs.keys()].join("\n"), () => tabs.activeId],
+  () => tabs.persist(),
 );
 
 // Store → URL. `replace`, not `push`: switching tab is not navigation, and

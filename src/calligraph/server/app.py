@@ -48,7 +48,10 @@ def create_app(
     app = FastAPI(title="Calligraph", version=_version())
     app.state.workspace = workspace.resolve()
     app.state.storage = storage or LocalStorage()
-    app.state.runs = RunManager()
+    # The manager is given a way to *find* a run it did not start, rather than a
+    # dependency on storage: `runs` knows nothing about workspaces. Ordering
+    # matters — storage has to exist before the closure is first called.
+    app.state.runs = RunManager(search_roots=lambda: app.state.storage.run_roots())
     app.state.results = ResultStore()
 
     # `calligraph results.nc` opens a solved model directly, with no model

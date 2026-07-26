@@ -1,8 +1,10 @@
-"""Validating a model definition, in tiers of increasing cost.
+"""Reading a validation outcome back out of a worker run.
 
-Three levels, none of which needs a solver:
+Validation comes in tiers of increasing cost, none of which needs a solver:
 
-- **syntax** — can every YAML file be parsed? In-process, milliseconds.
+- **syntax** — can every YAML file be parsed? In-process, milliseconds. That tier
+  is a statement about files rather than about running anything, so it lives in
+  `calligraph.modeldef.validate`.
 - **definition** — does `calliope.read_yaml` accept it? This runs the full
   pydantic validation of config and model definition, resolves scenarios,
   overrides and templates, and builds the xarray dataset, so it catches missing
@@ -11,22 +13,9 @@ Three levels, none of which needs a solver:
   assembles the optimisation problem.
 
 The last two import Calliope and can take seconds to minutes, so they run in the
-same worker subprocess machinery as a real run.
+same worker subprocess machinery as a real run — which is why turning what that
+worker reported into a problem list belongs here.
 """
-
-from pathlib import Path
-
-from calligraph.modeldef.paths import yaml_files
-from calligraph.modeldef.yaml_io import syntax_errors
-
-
-def check_syntax(base: Path) -> dict:
-    """Parses every YAML file in a workspace and collects syntax errors."""
-    root = Path(base)
-    errors: list[dict] = []
-    for path in yaml_files(root):
-        errors.extend(syntax_errors(path, str(path.relative_to(root))))
-    return {"errors": errors}
 
 
 def errors_from_outcome(outcome: dict, model_file: str) -> dict:

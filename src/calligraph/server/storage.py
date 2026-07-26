@@ -16,6 +16,7 @@ import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Iterator
 
 import platformdirs
 
@@ -196,3 +197,18 @@ class LocalStorage:
         path = workspace.path / WORKSPACE_DATA_DIR / "validations"
         path.mkdir(parents=True, exist_ok=True)
         return path
+
+    def run_roots(self) -> Iterator[Path]:
+        """Every directory that may hold run directories, across all workspaces.
+
+        Used to resolve a run id that this process did not start — after a
+        restart, nothing is left in memory to map an id to a directory.
+
+        Deliberately creates nothing, unlike `runs_dir`: this is called to *look
+        a run up*, and searching must not have the side effect of littering the
+        data directory into every folder the user has ever opened.
+        """
+        for workspace in self.list():
+            base = workspace.path / WORKSPACE_DATA_DIR
+            yield base / "runs"
+            yield base / "validations"

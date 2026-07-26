@@ -11,7 +11,21 @@ import time
 
 import pytest
 
+from calligraph.runs.manager import RunManager
+
 TERMINAL = {"success", "infeasible", "failed", "cancelled"}
+
+
+def restart(client):
+    """Replaces the run manager, as restarting the server would.
+
+    Wired the way `create_app` wires it, so the replacement can still *find* runs
+    it did not start. Constructing a bare `RunManager()` here would only prove
+    that `discover` repopulates its cache, which was never the bug.
+    """
+    app = client.app
+    app.state.runs = RunManager(search_roots=lambda: app.state.storage.run_roots())
+    return app.state.runs
 
 
 def wait_for_terminal(client, run_id, timeout=300):
@@ -71,9 +85,95 @@ class TestRunLifecycle:
 
         # Runs are rediscovered from disk, not held in memory, so a restarted
         # server still knows about them.
-        client.app.state.runs.__init__()
+        restart(client)
         history = client.get(f"/api/versions/{ws}/runs/").json()
         assert run_id in {record["id"] for record in history}
+
+    def test_run_endpoints_work_after_a_restart_without_listing_first(self, client, ws):
+        """A bookmarked run URL keeps working across a server restart.
+
+        The manager used to hold the id-to-directory mapping only in memory, so
+        every one of these returned 404 until something happened to list the
+        workspace's runs and repopulate it. Listing first is exactly what a
+        client following a bookmark does not do.
+        """
+        run_id = client.post(f"/api/versions/{ws}/runs/").json()["id"]
+        wait_for_terminal(client, run_id)
+
+        restart(client)
+
+        assert client.get(f"/api/runs/{run_id}/").status_code == 200
+        assert client.get(f"/api/runs/{run_id}/logs/").status_code == 200
+
+    def test_run_records_timings_solver_and_objective(self, client, ws):
+        """Diagnostics a user comparing two runs looks at first.
+
+        `timings` was written through a `.root` attribute that Calliope's schema
+        does not have, so it raised on every run and `outcome.json` never
+        contained it.
+        """
+        run_id = client.post(f"/api/versions/{ws}/runs/").json()["id"]
+        record = wait_for_terminal(client, run_id)
+        assert record["status"] == "success", record.get("error")
+
+        assert record["timings"], "no timings recorded"
+        assert all(isinstance(value, float) for value in record["timings"].values())
+        assert record["solver"]
+        assert isinstance(record["objective"], float)
+        assert record["duration_seconds"] > 0
+
+    def test_created_at_survives_a_touched_request_file(
+        self, client, ws, national_scale
+    ):
+        """History order comes from the recorded timestamp, not the file's mtime.
+
+        An mtime is lost when a workspace is copied or restored from a backup,
+        which silently reshuffles the whole run history.
+        """
+        run_id = client.post(f"/api/versions/{ws}/runs/").json()["id"]
+        created_at = wait_for_terminal(client, run_id)["created_at"]
+
+        request_file = national_scale / ".calligraph" / "runs" / run_id / "request.json"
+        import os
+
+        os.utime(request_file, (0, 0))
+
+        assert client.get(f"/api/runs/{run_id}/").json()["created_at"] == created_at
+
+    def test_unknown_fields_in_request_do_not_hide_the_run(
+        self, client, ws, national_scale
+    ):
+        """A run written by a future version still appears in the history.
+
+        `RunRequest.read` used to splat the whole file into the constructor, so
+        one added or renamed field would raise during discovery and take the
+        user's entire history with it.
+        """
+        run_id = client.post(f"/api/versions/{ws}/runs/").json()["id"]
+        wait_for_terminal(client, run_id)
+
+        request_file = national_scale / ".calligraph" / "runs" / run_id / "request.json"
+        payload = json.loads(request_file.read_text())
+        payload["a_field_from_the_future"] = {"nested": True}
+        request_file.write_text(json.dumps(payload))
+
+        restart(client)
+        history = client.get(f"/api/versions/{ws}/runs/").json()
+        assert run_id in {record["id"] for record in history}
+
+    # Encoded traversal only: an unencoded `../../etc` is normalised away by the
+    # client before it is ever sent, so it never reaches the endpoint under test.
+    @pytest.mark.parametrize(
+        "attack", ["..%2f..%2fetc", "not-a-uuid", "%2e%2e%2f%2e%2e%2fetc", "nope"]
+    )
+    def test_run_id_must_be_a_uuid(self, client, attack):
+        """A run id is joined to a filesystem path, so its shape is checked.
+
+        This surface is new: `run_dir` used to be a dictionary lookup and never
+        touched the filesystem, so nothing could be probed through it.
+        """
+        assert client.get(f"/api/runs/{attack}/").status_code == 404
+        assert client.get(f"/api/runs/{attack}/logs/").status_code == 404
 
     def test_events_stream_reports_stages_and_completion(self, client, ws):
         run_id = client.post(f"/api/versions/{ws}/runs/").json()["id"]
@@ -137,6 +237,19 @@ class TestCancellation:
         while time.time() < deadline and process.poll() is None:
             time.sleep(0.25)
         assert process.poll() is not None, "worker process survived cancellation"
+        assert client.get(f"/api/runs/{run_id}/").json()["status"] == "cancelled"
+
+    def test_cancellation_survives_a_restart(self, client, ws):
+        """A cancelled run still reads as cancelled after the server restarts.
+
+        Cancellation used to live in a set in memory, so cancelling and then
+        restarting reported "failed" with the message "the process is no longer
+        present" — technically true, and thoroughly misleading.
+        """
+        run_id = client.post(f"/api/versions/{ws}/runs/").json()["id"]
+        client.post(f"/api/runs/{run_id}/cancel/")
+
+        restart(client)
         assert client.get(f"/api/runs/{run_id}/").json()["status"] == "cancelled"
 
 

@@ -1,6 +1,6 @@
 """Guards for the layered architecture's import rules.
 
-Two rules, both stated in CLAUDE.md:
+Three rules, all stated in CLAUDE.md:
 
 - `results`, `modeldef` and `runs` must stay importable without a web framework,
   so that they remain usable from a notebook and cannot grow HTTP concerns.
@@ -9,6 +9,8 @@ Two rules, both stated in CLAUDE.md:
   figures; all charts are built in the frontend. Reintroducing a Python-side
   plotting library would also reintroduce the duplicated theme definitions that
   v0.2.0 had to keep in sync by hand.
+- The three domain layers may not import *each other*. `server` may import all
+  three and is the only place allowed to compose them.
 """
 
 import pathlib
@@ -28,9 +30,19 @@ PLOTTING_LIBRARIES = ("panel", "param", "plotly", "bokeh", "matplotlib", "altair
 
 IMPORT_RE = re.compile(r"^\s*(?:import|from)\s+([a-zA-Z0-9_]+)", re.MULTILINE)
 
+#: Captures the layer in `from calligraph.<layer> import ...`. The rule above
+#: cannot use `IMPORT_RE`, which only ever sees the leading `calligraph`.
+CALLIGRAPH_IMPORT_RE = re.compile(
+    r"^\s*(?:from|import)\s+calligraph\.([a-zA-Z0-9_]+)", re.MULTILINE
+)
+
 
 def _imported_top_level_modules(path: pathlib.Path) -> set[str]:
     return set(IMPORT_RE.findall(path.read_text()))
+
+
+def _imported_layers(path: pathlib.Path) -> set[str]:
+    return set(CALLIGRAPH_IMPORT_RE.findall(path.read_text()))
 
 
 def _python_files(*relative_dirs: str):
@@ -47,6 +59,23 @@ class TestImportRules:
             bad = _imported_top_level_modules(path) & set(WEB_FRAMEWORKS)
             if bad:
                 violations.append(f"{path.relative_to(SRC)}: imports {sorted(bad)}")
+        assert not violations, "\n".join(violations)
+
+    def test_domain_layers_do_not_import_each_other(self):
+        """CLAUDE.md's third rule, previously unchecked.
+
+        Snapshotting a model definition made this live: freezing needs
+        `modeldef`, and it happens as part of starting a run, so the tempting
+        shortcut is `runs.manager` importing `modeldef.snapshot`. The snapshot is
+        injected from `server` as a callback instead, and this test is what keeps
+        it that way.
+        """
+        violations = []
+        for layer in DOMAIN_LAYERS:
+            for path in _python_files(layer):
+                bad = _imported_layers(path) & (set(DOMAIN_LAYERS) - {layer})
+                if bad:
+                    violations.append(f"{path.relative_to(SRC)}: imports {sorted(bad)}")
         assert not violations, "\n".join(violations)
 
     def test_no_layer_imports_a_plotting_library(self):

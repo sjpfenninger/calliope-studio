@@ -8,9 +8,10 @@ enough to warrant the accepted-then-poll shape the frontend already implements.
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from calligraph.modeldef.imports import find_model_yaml
+from calligraph.modeldef.validate import check_syntax
 from calligraph.runs import protocol
 from calligraph.runs.manager import RunManager
-from calligraph.runs.validate import check_syntax, errors_from_outcome
+from calligraph.runs.validate import errors_from_outcome
 from calligraph.server.deps import get_runs, get_storage, get_workspace
 from calligraph.server.storage import LocalStorage, Workspace
 

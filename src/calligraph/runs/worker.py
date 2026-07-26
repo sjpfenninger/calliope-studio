@@ -74,6 +74,45 @@ def _install_logging(run_dir: Path) -> None:
     logging.getLogger("py.warnings").addHandler(handler)
 
 
+#: Calliope's objective variable for a cost-minimising run. A 0-d scalar in
+#: `model.results`, and the single number anyone comparing two runs looks at
+#: first — otherwise reachable only by loading the whole `.nc` back.
+OBJECTIVE_VARIABLE = "min_cost_optimisation"
+
+
+def _record_diagnostics(outcome: dict, model, *, build_only: bool) -> None:
+    """Adds what the run view needs beyond pass/fail: timings, solver, objective.
+
+    Each lookup is guarded separately. These are all conveniences, and a Calliope
+    version that has moved one of them must not turn a successful solve into a
+    failed run.
+    """
+    try:
+        # `CalliopeRuntime.timings` is a plain `dict[str, float]` (verified
+        # against 0.7.0.dev7, `schemas/runtime_attrs_schema.py`). This used to
+        # reach for a `.root` attribute that does not exist, so it raised
+        # `AttributeError` on every single run and no run ever recorded timings.
+        timings = model.runtime.timings
+        outcome["timings"] = dict(getattr(timings, "root", timings))
+    except (AttributeError, TypeError):
+        pass
+
+    try:
+        outcome["solver"] = str(model.config.solve.solver)
+    except AttributeError:
+        pass
+
+    if build_only:
+        return
+    try:
+        if OBJECTIVE_VARIABLE in model.results:
+            objective = model.results[OBJECTIVE_VARIABLE]
+            if objective.size == 1:
+                outcome["objective"] = float(objective.item())
+    except (AttributeError, KeyError, TypeError, ValueError):
+        pass
+
+
 def run(run_dir: Path) -> int:
     """Executes the run described by `run_dir/request.json`.
 
@@ -128,10 +167,7 @@ def run(run_dir: Path) -> int:
             # and the UI must not offer results that do not exist.
             outcome["status"] = "success" if condition == "optimal" else "infeasible"
 
-        try:
-            outcome["timings"] = dict(model.runtime.timings.root)
-        except AttributeError:
-            pass
+        _record_diagnostics(outcome, model, build_only=request.build_only)
 
     except Exception as exc:
         outcome["status"] = "failed"

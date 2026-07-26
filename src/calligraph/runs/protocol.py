@@ -10,16 +10,29 @@ than reading the child's stdout, and buys three things worth having:
 - Calliope's own logging setup clears handlers on the `calliope` logger and
   attaches its own to stdout, so stdout is not ours to define a protocol on.
 
-Layout under `{workspace}/.calligraph/runs/{run_id}/`:
+Layout under `{workspace}/calligraph/runs/{run_id}/`:
 
     request.json    what to run; written by the parent before starting
+    snapshot.json   what was frozen, and whether the freeze is complete
+    snapshot/       the frozen model definition, in workspace-relative layout
+    meta.json       user-editable metadata (currently just a label)
+    worker.pid      the child's pid, so a restarted server can spot a live run
+    cancelled       presence means cancellation was requested
     events.jsonl    the structured event stream; appended by the worker
     run.log         raw child stdout/stderr, a debugging backstop
     outcome.json    terminal status; written by the worker as its last act
     results.nc      the solved model
+
+Everything except `request.json` is optional. A directory is a run if and only if
+it contains `request.json`, and every reader below returns `None`/`{}`/`False`
+for an absent file — run directories outlive the code that wrote them, so a run
+made by an older version must still appear in the history.
 """
 
+import dataclasses
 import json
+import os
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterator
@@ -29,6 +42,26 @@ EVENTS_FILE = "events.jsonl"
 LOG_FILE = "run.log"
 OUTCOME_FILE = "outcome.json"
 RESULTS_FILE = "results.nc"
+
+#: The frozen model definition, and the manifest describing it. Written by the
+#: parent before the run starts; see `calligraph.modeldef.snapshot`.
+SNAPSHOT_DIR = "snapshot"
+SNAPSHOT_FILE = "snapshot.json"
+
+#: User-editable run metadata. Kept apart from `request.json` because that file
+#: is written once and never touched again, which is what makes it a trustworthy
+#: record of what was asked for.
+META_FILE = "meta.json"
+
+#: The worker's pid. The worker is started with `start_new_session=True` and so
+#: outlives the server; without this, a server restarted mid-solve reports a
+#: perfectly healthy run as failed.
+PID_FILE = "worker.pid"
+
+#: Presence means cancellation was requested. A file rather than a set in memory,
+#: so that cancelling and then restarting does not report "failed" with the
+#: message "the process is no longer present" — technically true, and misleading.
+CANCELLED_FILE = "cancelled"
 
 #: Ordered stages a run passes through, for the frontend's progress display.
 STAGES = ("read", "build", "solve", "save")
@@ -43,13 +76,30 @@ class RunRequest:
     scenario: str | None = None
     override_dict: dict = field(default_factory=dict)
     build_only: bool = False
+    #: What the user called this run when they started it. `meta.json` overrides
+    #: it if the run has since been renamed.
+    label: str | None = None
+    #: When the run was requested. Recorded in the file rather than inferred from
+    #: its mtime, which is lost the moment a workspace is copied, restored from a
+    #: backup or checked out — silently reshuffling the whole run history.
+    requested_at: str | None = None
 
     def write(self, run_dir: Path) -> None:
-        (run_dir / REQUEST_FILE).write_text(json.dumps(self.__dict__, indent=2))
+        (run_dir / REQUEST_FILE).write_text(
+            json.dumps(dataclasses.asdict(self), indent=2)
+        )
 
     @classmethod
     def read(cls, run_dir: Path) -> "RunRequest":
-        return cls(**json.loads((run_dir / REQUEST_FILE).read_text()))
+        """Reads a request, ignoring fields this version does not know about.
+
+        Filtering rather than passing the whole dict through: otherwise the day a
+        field is renamed or removed, every existing run raises `TypeError` during
+        discovery and the user's entire history disappears.
+        """
+        raw = json.loads((run_dir / REQUEST_FILE).read_text())
+        known = {field_.name for field_ in dataclasses.fields(cls)}
+        return cls(**{key: value for key, value in raw.items() if key in known})
 
 
 def append_event(run_dir: Path, event: dict) -> None:
@@ -74,16 +124,79 @@ def read_events(run_dir: Path) -> Iterator[dict]:
                 continue
 
 
+def _read_json(path: Path) -> dict[str, Any] | None:
+    """A JSON object from disk, or None if it is absent or unreadable.
+
+    Unreadable counts as absent throughout this module: a half-written or
+    corrupted sidecar file must degrade the run's record, never break the
+    listing that every other run appears in.
+    """
+    try:
+        loaded = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return None
+    return loaded if isinstance(loaded, dict) else None
+
+
+def _write_json_atomic(path: Path, payload: dict) -> None:
+    """Replaces a JSON file atomically."""
+    fd, tmp = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w") as fh:
+            json.dump(payload, fh, indent=2, default=str)
+        os.replace(tmp, path)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
+
+
 def read_outcome(run_dir: Path) -> dict[str, Any] | None:
     """The terminal outcome, or None if the run has not finished."""
-    path = run_dir / OUTCOME_FILE
-    if not path.is_file():
-        return None
-    try:
-        return json.loads(path.read_text())
-    except json.JSONDecodeError:
-        return None
+    return _read_json(run_dir / OUTCOME_FILE)
 
 
 def write_outcome(run_dir: Path, outcome: dict) -> None:
     (run_dir / OUTCOME_FILE).write_text(json.dumps(outcome, indent=2, default=str))
+
+
+def read_snapshot_manifest(run_dir: Path) -> dict[str, Any] | None:
+    """The snapshot manifest, or None for a run made before snapshots existed."""
+    return _read_json(run_dir / SNAPSHOT_FILE)
+
+
+def write_snapshot_manifest(run_dir: Path, manifest: dict) -> None:
+    (run_dir / SNAPSHOT_FILE).write_text(json.dumps(manifest, indent=2, default=str))
+
+
+def read_meta(run_dir: Path) -> dict[str, Any]:
+    """User-editable run metadata; empty for a run that has never been edited."""
+    return _read_json(run_dir / META_FILE) or {}
+
+
+def write_meta(run_dir: Path, meta: dict) -> None:
+    """Replaces the run's metadata atomically.
+
+    Atomic because a half-written `meta.json` would make the run look unnamed
+    forever, and there is no other copy of the name.
+    """
+    _write_json_atomic(run_dir / META_FILE, meta)
+
+
+def mark_cancelled(run_dir: Path) -> None:
+    (run_dir / CANCELLED_FILE).touch()
+
+
+def is_cancelled(run_dir: Path) -> bool:
+    return (run_dir / CANCELLED_FILE).is_file()
+
+
+def write_pid(run_dir: Path, pid: int) -> None:
+    (run_dir / PID_FILE).write_text(str(pid))
+
+
+def read_pid(run_dir: Path) -> int | None:
+    """The worker's pid, or None if it was never recorded or is unreadable."""
+    try:
+        return int((run_dir / PID_FILE).read_text().strip())
+    except (OSError, ValueError):
+        return None

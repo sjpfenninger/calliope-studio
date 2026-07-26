@@ -11,12 +11,12 @@ import DataTable from "primevue/datatable";
 import Column from "primevue/column";
 import { useValidationStore } from "../../stores/validation";
 import { useRunStore } from "../../stores/run";
-import { useEditorStore } from "../../stores/editor";
+import { useTabsStore } from "../../stores/tabs";
 import { useVersionStore } from "../../stores/version";
 
 const validationStore = useValidationStore();
 const runStore = useRunStore();
-const editorStore = useEditorStore();
+const tabsStore = useTabsStore();
 const versionStore = useVersionStore();
 
 const errorCount = computed(() => validationStore.errors.length);
@@ -37,12 +37,10 @@ function startRun() {
 }
 
 function openErrorFile(file: string, line: number | null) {
-  const tab = editorStore.openTabs.get(file);
-  const type = file.endsWith(".csv") ? "csv" : file.endsWith(".yaml") || file.endsWith(".yml") ? "yaml" : "other";
-  editorStore.openTab(file, tab?.type ?? type);
-  if (line != null) {
-    editorStore.jumpTo(file, line, 1);
-  }
+  // `jumpTo` opens the file itself, so there is nothing to do first. The file
+  // type no longer needs working out here either — the store infers it.
+  if (line != null) tabsStore.jumpTo(file, line, 1);
+  else tabsStore.openFile(file);
 }
 
 const statusColor = computed(() => {

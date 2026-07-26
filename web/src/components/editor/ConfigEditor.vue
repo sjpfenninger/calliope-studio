@@ -3,17 +3,17 @@ import { ref, reactive, computed, onMounted, watch } from "vue";
 import InputText from "primevue/inputtext";
 import Button from "primevue/button";
 import client from "../../api/client";
-import { useEditorStore } from "../../stores/editor";
+import { useTabsStore } from "../../stores/tabs";
 import { useSchemaStore } from "../../stores/schema";
 import SchemaObjectEditor, { type FieldOverlay } from "./SchemaObjectEditor.vue";
 
 const props = defineProps<{
   versionId: string;
   filePath: string;
-  tabKey: string;
+  tabId: string;
 }>();
 
-const editorStore = useEditorStore();
+const tabsStore = useTabsStore();
 const schemaStore = useSchemaStore();
 
 const isLoading = ref(true);
@@ -147,7 +147,7 @@ async function save() {
       `/api/versions/${props.versionId}/yaml-section/${props.filePath}?section=config`,
       { data: buildPayload() }
     );
-    editorStore.markClean(props.tabKey);
+    tabsStore.markClean(props.tabId);
   } finally {
     isSaving.value = false;
   }
@@ -159,11 +159,11 @@ async function save() {
 
 watch(
   configData,
-  () => { if (!isLoading.value) editorStore.markDirty(props.tabKey); },
+  () => { if (!isLoading.value) tabsStore.markDirty(props.tabId); },
   { deep: true }
 );
 watch([timeSubsetStart, timeSubsetEnd], () => {
-  if (!isLoading.value) editorStore.markDirty(props.tabKey);
+  if (!isLoading.value) tabsStore.markDirty(props.tabId);
 });
 
 // ---------------------------------------------------------------------------

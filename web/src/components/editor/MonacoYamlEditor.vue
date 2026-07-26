@@ -19,7 +19,13 @@ import {
   MONACO_LINE_HEIGHT,
   MONACO_THEME,
 } from "../../editor/monacoTheme";
-import { useEditorStore, tabKind, parseTabKey } from "../../stores/editor";
+import { fileTabId } from "../../lib/tabId";
+import {
+  useTabsStore,
+  type EditableTab,
+  type EntryTab,
+  type SectionTab,
+} from "../../stores/tabs";
 import { useSectionDataStore } from "../../stores/sectionData";
 import { useUiStore } from "../../stores/ui";
 
@@ -27,7 +33,7 @@ const props = defineProps<{
   versionId: string | null;
 }>();
 
-const editorStore = useEditorStore();
+const tabsStore = useTabsStore();
 const sectionDataStore = useSectionDataStore();
 const ui = useUiStore();
 const containerRef = ref<HTMLElement | null>(null);
@@ -60,18 +66,29 @@ async function ensureFileModel(path: string): Promise<monaco.editor.ITextModel> 
   const model = monaco.editor.createModel(content, langForPath(path), uri);
 
   const disposable = model.onDidChangeContent(() => {
-    editorStore.markDirty(path);
+    // A file tab's id is derived from its path rather than being it, so this has
+    // to be built — passing the bare path used to work only by coincidence.
+    tabsStore.markDirty(fileTabId(path));
   });
   changeDisposables.set(path, disposable);
   models.set(path, model);
   return model;
 }
 
-// Create or reuse a virtual model for a section/entry tab
-async function ensureVirtualModel(tabKey: string): Promise<monaco.editor.ITextModel> {
-  if (models.has(tabKey)) return models.get(tabKey)!;
+// Create or reuse a virtual model for a section/entry tab.
+//
+// The tab is passed rather than its id: it already carries `section`, `filePath`
+// and `entryName` as typed fields, so parsing them back out of the id — which is
+// what this used to do — was both redundant and wrong for any name containing a
+// colon.
+async function ensureVirtualModel(
+  tab: SectionTab | EntryTab,
+): Promise<monaco.editor.ITextModel> {
+  if (models.has(tab.id)) return models.get(tab.id)!;
 
-  const { kind, section, filePath, entryName } = parseTabKey(tabKey);
+  const { section, filePath } = tab;
+  const entryName = tab.kind === "entry" ? tab.entryName : null;
+
   let content = "";
   if (props.versionId) {
     try {
@@ -79,52 +96,49 @@ async function ensureVirtualModel(tabKey: string): Promise<monaco.editor.ITextMo
         `/api/versions/${props.versionId}/yaml-section/${filePath}?section=${section}`
       );
       const sectionData = res.data.data ?? {};
-      if (kind === "entry" && entryName) {
-        content = yamlStringify({ [entryName]: sectionData[entryName] ?? null });
-      } else {
-        content = yamlStringify(sectionData);
-      }
+      content = entryName
+        ? yamlStringify({ [entryName]: sectionData[entryName] ?? null })
+        : yamlStringify(sectionData);
     } catch {
       content = "";
     }
   }
 
   // Use a virtual:// URI ending in .yaml so monaco-yaml still applies
-  const uri = monaco.Uri.parse(`virtual:///${encodeURIComponent(tabKey)}.yaml`);
+  const uri = monaco.Uri.parse(`virtual:///${encodeURIComponent(tab.id)}.yaml`);
   const model = monaco.editor.createModel(content, "yaml", uri);
 
   const disposable = model.onDidChangeContent(() => {
-    editorStore.markDirty(tabKey);
+    tabsStore.markDirty(tab.id);
   });
-  changeDisposables.set(tabKey, disposable);
-  models.set(tabKey, model);
+  changeDisposables.set(tab.id, disposable);
+  models.set(tab.id, model);
   return model;
 }
 
-async function activateTab(key: string | null) {
-  if (!editor || !key) return;
+async function activateTab(tab: EditableTab | null) {
+  if (!editor || !tab) return;
 
-  let model: monaco.editor.ITextModel;
-  if (tabKind(key) === "file") {
-    model = await ensureFileModel(key);
-  } else {
-    model = await ensureVirtualModel(key);
-  }
+  const model =
+    tab.kind === "file"
+      ? await ensureFileModel(tab.path)
+      : await ensureVirtualModel(tab);
 
   editor.setModel(model);
   editor.focus();
 }
 
 // Save for virtual (section/entry) tabs — reads Monaco content, writes to yaml-section API
-async function saveVirtualTab(tabKey: string) {
+async function saveVirtualTab(tab: SectionTab | EntryTab) {
   if (!props.versionId) return;
-  const model = models.get(tabKey);
+  const model = models.get(tab.id);
   if (!model) return;
 
-  const { kind, section, filePath, entryName } = parseTabKey(tabKey);
+  const { section, filePath } = tab;
+  const entryName = tab.kind === "entry" ? tab.entryName : null;
   const currentContent = model.getValue();
 
-  if (kind === "entry" && entryName) {
+  if (entryName) {
     // Read-modify-write: fetch full section, replace this entry, PUT back
     const sectionRes = await client.get<{ section: string; data: any }>(
       `/api/versions/${props.versionId}/yaml-section/${filePath}?section=${section}`
@@ -148,17 +162,20 @@ async function saveVirtualTab(tabKey: string) {
     );
     sectionDataStore.invalidate(props.versionId!, filePath, section);
   }
-  editorStore.markClean(tabKey);
+  tabsStore.markClean(tab.id);
 }
 
-// Derived: the tab key whose Monaco model should be active, or null when irrelevant.
-// Reacts to both tab switches and raw/structured mode toggles.
-const activeMonacoKey = computed(() => {
-  const key = editorStore.activeTabKey;
-  if (!key) return null;
-  const tab = editorStore.openTabs.get(key);
-  if (!tab || tab.editorMode !== "raw" || tab.type === "csv") return null;
-  return key;
+// The tab whose Monaco model should be showing, or null when Monaco is not the
+// right editor for it. Reacts to both tab switches and raw/structured toggles.
+//
+// A run tab returns null, so `setModel` is never called for one and the last
+// YAML buffer simply stays attached behind `display: none` — which is why
+// switching to a run and back does not refetch or lose undo history.
+const activeMonacoTab = computed<EditableTab | null>(() => {
+  const tab = tabsStore.activeTab;
+  if (!tab || tab.kind === "run") return null;
+  if (tab.kind === "file") return tab.fileType === "csv" ? null : tab;
+  return tab.editorMode === "raw" ? tab : null;
 });
 
 onMounted(() => {
@@ -181,16 +198,16 @@ onMounted(() => {
 
   // Cmd/Ctrl+S → save (file tab or virtual tab)
   editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, async () => {
-    const key = editorStore.activeTabKey;
-    if (!key) return;
-    if (tabKind(key) === "file") {
-      const model = models.get(key);
+    const tab = activeMonacoTab.value;
+    if (!tab) return;
+    if (tab.kind === "file") {
+      const model = models.get(tab.path);
       if (!model) return;
-      await editorStore.saveYamlFile(key, model.getValue());
+      await tabsStore.saveYamlFile(tab.path, model.getValue());
       // Invalidate all section caches for this file — Monaco may have changed any section
-      if (props.versionId) sectionDataStore.invalidateFile(props.versionId, key);
+      if (props.versionId) sectionDataStore.invalidateFile(props.versionId, tab.path);
     } else {
-      await saveVirtualTab(key);
+      await saveVirtualTab(tab);
     }
   });
 
@@ -200,14 +217,12 @@ onMounted(() => {
   (editor as any)._resizeObserver = ro;
 
   // Activate current tab if already set
-  if (activeMonacoKey.value) {
-    activateTab(activeMonacoKey.value);
-  }
+  if (activeMonacoTab.value) activateTab(activeMonacoTab.value);
 });
 
-// Swap model whenever the effective Monaco key changes
-watch(activeMonacoKey, (key) => {
-  if (key !== null) activateTab(key);
+// Swap model whenever the effective Monaco tab changes
+watch(activeMonacoTab, (tab) => {
+  if (tab) activateTab(tab);
 });
 
 // Re-derive the theme's colours from the tokens. `setTheme` is global, so this
@@ -220,14 +235,18 @@ watch(
 );
 
 // Navigate Monaco to a specific line/column when jumpTarget is set
-watch(() => editorStore.jumpTarget, async (target) => {
+watch(() => tabsStore.jumpTarget, async (target) => {
   if (!target || !editor) return;
   const { path, line, column } = target;
-  await activateTab(path);
+  // `jumpTo` has already opened the tab, so it is there to look up.
+  const tab = tabsStore.get(fileTabId(path));
+  if (tab?.kind !== "file") return;
+
+  await activateTab(tab);
   editor.revealLineInCenter(line);
   editor.setPosition({ lineNumber: line, column });
   editor.focus();
-  editorStore.jumpTarget = null;
+  tabsStore.jumpTarget = null;
 });
 
 onUnmounted(() => {

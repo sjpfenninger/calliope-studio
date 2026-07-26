@@ -7,17 +7,17 @@ import AccordionContent from "primevue/accordioncontent";
 import InputText from "primevue/inputtext";
 import Button from "primevue/button";
 import client from "../../api/client";
-import { useEditorStore } from "../../stores/editor";
+import { useTabsStore } from "../../stores/tabs";
 import { useSchemaStore } from "../../stores/schema";
 import SchemaObjectEditor, { type FieldOverlay } from "./SchemaObjectEditor.vue";
 
 const props = defineProps<{
   versionId: string;
   filePath: string;
-  tabKey: string;
+  tabId: string;
 }>();
 
-const editorStore = useEditorStore();
+const tabsStore = useTabsStore();
 const schemaStore = useSchemaStore();
 
 const isLoading = ref(true);
@@ -106,7 +106,7 @@ async function save() {
       `/api/versions/${props.versionId}/yaml-section/${props.filePath}?section=data_tables`,
       { data: buildPayload() }
     );
-    editorStore.markClean(props.tabKey);
+    tabsStore.markClean(props.tabId);
   } finally {
     isSaving.value = false;
   }
@@ -118,21 +118,21 @@ async function save() {
 
 function addEntry() {
   entries.value.push({ name: "", data: {} });
-  editorStore.markDirty(props.tabKey);
+  tabsStore.markDirty(props.tabId);
 }
 
 function removeEntry(i: number) {
   entries.value.splice(i, 1);
-  editorStore.markDirty(props.tabKey);
+  tabsStore.markDirty(props.tabId);
 }
 
 function onNameChange() {
-  editorStore.markDirty(props.tabKey);
+  tabsStore.markDirty(props.tabId);
 }
 
 function onEntryDataChange(i: number, data: Record<string, any>) {
   entries.value[i].data = data;
-  editorStore.markDirty(props.tabKey);
+  tabsStore.markDirty(props.tabId);
 }
 
 // ---------------------------------------------------------------------------

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import Button from "primevue/button";
-import { useEditorStore, type TabEntry } from "../../stores/editor";
+import { useTabsStore, type TabEntry } from "../../stores/tabs";
 import MonacoYamlEditor from "../editor/MonacoYamlEditor.vue";
 import CsvGridEditor from "../editor/CsvGridEditor.vue";
 import ConfigEditor from "../editor/ConfigEditor.vue";
@@ -10,20 +10,35 @@ import TechsEditor from "../editor/TechsEditor.vue";
 import NodesEditor from "../editor/NodesEditor.vue";
 import LinksEditor from "../editor/LinksEditor.vue";
 
-const editorStore = useEditorStore();
+const tabsStore = useTabsStore();
 
-// All open tabs as ordered entries
-const tabs = computed(() => [...editorStore.openTabs.entries()]);
+// Insertion-ordered; the store hands them over ready to render.
+const tabs = computed(() => tabsStore.ordered);
 
-// The active tab entry (works for any kind)
-const activeTab = computed(() => {
-  const k = editorStore.activeTabKey;
-  return k ? editorStore.openTabs.get(k) : undefined;
+const activeTab = computed(() => tabsStore.activeTab);
+
+/**
+ * Whether the active tab is showing a structured editor.
+ *
+ * Only section and entry tabs have a mode at all: a file is always raw, and a
+ * run has no editor. Narrowing on the discriminant says that, where reading a
+ * `.editorMode` that half the union does not have could not.
+ */
+const isStructured = computed(() => {
+  const tab = activeTab.value;
+  return (
+    (tab?.kind === "section" || tab?.kind === "entry") &&
+    tab.editorMode === "structured"
+  );
 });
 
-const isStructured = computed(
-  () => activeTab.value?.editorMode === "structured"
-);
+/** The section/entry tab currently in front, for the structured editors. */
+const structuredTab = computed(() => {
+  const tab = activeTab.value;
+  return (tab?.kind === "section" || tab?.kind === "entry") && isStructured.value
+    ? tab
+    : null;
+});
 
 
 // ---------------------------------------------------------------------------
@@ -48,32 +63,36 @@ function sectionIconClass(section: string): string {
 // Tab bar helpers
 // ---------------------------------------------------------------------------
 
-function tabLabel(key: string, tab: TabEntry): string {
-  if (tab.kind === "file") return key.split("/").pop() ?? key;
+function tabLabel(tab: TabEntry): string {
+  // The title is computed once when the tab opens, so the bar stays dumb — but a
+  // section reads better title-cased than as its raw key.
   if (tab.kind === "section") {
     return tab.section.replace(/_/g, " ").replace(/^\w/, (c: string) => c.toUpperCase());
   }
-  return tab.entryName;
+  return tab.title;
 }
 
 function tabIconClass(tab: TabEntry): string {
+  if (tab.kind === "run") return "pi pi-chart-bar";
   if (tab.kind === "file") {
-    return tab.type === "csv"
+    return tab.fileType === "csv"
       ? "pi pi-table"
-      : tab.type === "yaml"
+      : tab.fileType === "yaml"
         ? "pi pi-file-edit"
         : "pi pi-file";
   }
   return sectionIconClass(tab.section);
 }
 
-function selectTab(key: string) {
-  editorStore.activeTabKey = key;
+function selectTab(id: string) {
+  // Through the store, not by assigning activeId: activating is what marks a
+  // tab mounted and keeps the run-pane LRU honest.
+  tabsStore.activate(id);
 }
 
-function closeTab(key: string, e: MouseEvent) {
+function closeTab(id: string, e: MouseEvent) {
   e.stopPropagation();
-  editorStore.closeTab(key);
+  tabsStore.closeTab(id);
 }
 
 // ---------------------------------------------------------------------------
@@ -81,15 +100,11 @@ function closeTab(key: string, e: MouseEvent) {
 // ---------------------------------------------------------------------------
 
 function switchToStructured() {
-  const key = editorStore.activeTabKey;
-  if (!key) return;
-  editorStore.setEditorMode(key, "structured");
+  if (tabsStore.activeId) tabsStore.setEditorMode(tabsStore.activeId, "structured");
 }
 
 function switchToRaw() {
-  const key = editorStore.activeTabKey;
-  if (!key) return;
-  editorStore.setEditorMode(key, "raw");
+  if (tabsStore.activeId) tabsStore.setEditorMode(tabsStore.activeId, "raw");
 }
 </script>
 
@@ -98,21 +113,25 @@ function switchToRaw() {
     <!-- Tab bar -->
     <div v-if="tabs.length > 0" class="tab-bar">
       <div
-        v-for="[key, tab] in tabs"
-        :key="key"
+        v-for="tab in tabs"
+        :key="tab.id"
         class="tab"
-        :class="{ active: key === editorStore.activeTabKey }"
-        @click="selectTab(key)"
+        :class="{ active: tab.id === tabsStore.activeId }"
+        @click="selectTab(tab.id)"
       >
         <i :class="tabIconClass(tab)" class="tab-icon" />
-        <span class="tab-name">{{ tabLabel(key, tab) }}</span>
+        <span class="tab-name">{{ tabLabel(tab) }}</span>
         <span v-if="tab.kind === 'entry'" class="tab-section-suffix">· {{ tab.section }}</span>
         <span v-if="tab.isDirty" class="dirty-indicator" title="Unsaved">●</span>
-        <button class="close-btn" @click="closeTab(key, $event)" title="Close">×</button>
+        <button class="close-btn" @click="closeTab(tab.id, $event)" title="Close">×</button>
       </div>
 
-      <!-- Raw / Structured toggle (section/entry tabs only; file tabs are always raw) -->
-      <div v-if="activeTab?.kind !== 'file'" class="mode-toggle">
+      <!-- Raw / Structured toggle: only the tabs that have both. A file is
+           always raw and a run has no editor at all. -->
+      <div
+        v-if="activeTab?.kind === 'section' || activeTab?.kind === 'entry'"
+        class="mode-toggle"
+      >
         <Button
           label="Raw"
           size="small"
@@ -137,59 +156,64 @@ function switchToRaw() {
 
     <!-- Editor area -->
     <div v-else class="editor-content">
-      <!-- Monaco: one persistent instance for all tab types in raw mode -->
+      <!-- Monaco: one persistent instance for every raw YAML buffer, ever.
+           `v-show`, never `v-if` — unmounting disposes every model, so a
+           `v-if` here would silently discard unsaved edits the moment the user
+           looked at a CSV or a run and came back. -->
       <MonacoYamlEditor
-        v-show="activeTab?.type !== 'csv' && (activeTab?.kind === 'file' || !isStructured)"
-        :versionId="editorStore.versionId"
+        v-show="
+          (activeTab?.kind === 'file' && activeTab.fileType !== 'csv') ||
+          ((activeTab?.kind === 'section' || activeTab?.kind === 'entry') && !isStructured)
+        "
+        :versionId="tabsStore.versionId"
         class="editor-fill"
       />
 
       <!-- CSV editor (file tabs only) -->
       <CsvGridEditor
-        v-if="activeTab?.kind === 'file' && activeTab?.type === 'csv' && editorStore.activeFilePath"
-        :key="editorStore.activeFilePath"
-        :versionId="editorStore.versionId"
-        :filePath="editorStore.activeFilePath"
+        v-if="activeTab?.kind === 'file' && activeTab.fileType === 'csv'"
+        :key="activeTab.path"
+        :versionId="tabsStore.versionId"
+        :filePath="activeTab.path"
         class="editor-fill"
       />
 
-      <!-- SECTION / ENTRY tab structured view (section fixed, no sub-tabs) -->
-      <div
-        v-if="(activeTab?.kind === 'section' || activeTab?.kind === 'entry') && isStructured"
-        class="structured-view section-content"
-      >
+      <!-- SECTION / ENTRY tab structured view (section fixed, no sub-tabs).
+           `structuredTab` is narrowed to the two kinds that have a section, so
+           none of this needs a non-null assertion any more. -->
+      <div v-if="structuredTab" class="structured-view section-content">
         <ConfigEditor
-          v-if="activeTab?.section === 'config'"
-          :versionId="editorStore.versionId!"
-          :filePath="activeTab!.filePath"
-          :tabKey="editorStore.activeTabKey!"
+          v-if="structuredTab.section === 'config'"
+          :versionId="tabsStore.versionId!"
+          :filePath="structuredTab.filePath"
+          :tabId="structuredTab.id"
         />
         <DataTablesEditor
-          v-else-if="activeTab?.section === 'data_tables'"
-          :versionId="editorStore.versionId!"
-          :filePath="activeTab!.filePath"
-          :tabKey="editorStore.activeTabKey!"
+          v-else-if="structuredTab.section === 'data_tables'"
+          :versionId="tabsStore.versionId!"
+          :filePath="structuredTab.filePath"
+          :tabId="structuredTab.id"
         />
         <TechsEditor
-          v-else-if="activeTab?.section === 'techs'"
-          :versionId="editorStore.versionId!"
-          :filePath="activeTab!.filePath"
-          :tabKey="editorStore.activeTabKey!"
-          :entryName="activeTab?.kind === 'entry' ? activeTab.entryName : null"
+          v-else-if="structuredTab.section === 'techs'"
+          :versionId="tabsStore.versionId!"
+          :filePath="structuredTab.filePath"
+          :tabId="structuredTab.id"
+          :entryName="structuredTab.kind === 'entry' ? structuredTab.entryName : null"
         />
         <NodesEditor
-          v-else-if="activeTab?.section === 'nodes'"
-          :versionId="editorStore.versionId!"
-          :filePath="activeTab!.filePath"
-          :tabKey="editorStore.activeTabKey!"
-          :entryName="activeTab?.kind === 'entry' ? activeTab.entryName : null"
+          v-else-if="structuredTab.section === 'nodes'"
+          :versionId="tabsStore.versionId!"
+          :filePath="structuredTab.filePath"
+          :tabId="structuredTab.id"
+          :entryName="structuredTab.kind === 'entry' ? structuredTab.entryName : null"
         />
         <LinksEditor
-          v-else-if="activeTab?.section === 'links'"
-          :versionId="editorStore.versionId!"
-          :filePath="activeTab!.filePath"
-          :tabKey="editorStore.activeTabKey!"
-          :entryName="activeTab?.kind === 'entry' ? activeTab.entryName : null"
+          v-else-if="structuredTab.section === 'links'"
+          :versionId="tabsStore.versionId!"
+          :filePath="structuredTab.filePath"
+          :tabId="structuredTab.id"
+          :entryName="structuredTab.kind === 'entry' ? structuredTab.entryName : null"
         />
         <div v-else class="structured-placeholder">
           No structured editor available for this section.

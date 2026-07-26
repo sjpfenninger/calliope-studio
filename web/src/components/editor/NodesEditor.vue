@@ -5,7 +5,7 @@
  * Supports three modes via props:
  *   - Section tab (entryName=null): shows all nodes in the file
  *   - Entry tab (entryName="region1"): shows only the named node
- *   - File structured view (tabKey=filePath, entryName=null): shows all nodes
+ *   - File structured view (tabId=filePath, entryName=null): shows all nodes
  *
  * Saves always write the full section back to the file.
  */
@@ -19,7 +19,7 @@ import InputNumber from "primevue/inputnumber";
 import ToggleSwitch from "primevue/toggleswitch";
 import Button from "primevue/button";
 import client from "../../api/client";
-import { useEditorStore } from "../../stores/editor";
+import { useTabsStore } from "../../stores/tabs";
 import { useSectionDataStore } from "../../stores/sectionData";
 import { useComponentTreeStore } from "../../stores/componentTree";
 import ScalarOrDataVar from "./ScalarOrDataVar.vue";
@@ -28,11 +28,11 @@ import NodesMapView from "./NodesMapView.vue";
 const props = defineProps<{
   versionId: string;
   filePath: string;
-  tabKey: string;
+  tabId: string;
   entryName?: string | null;
 }>();
 
-const editorStore = useEditorStore();
+const tabsStore = useTabsStore();
 const sectionDataStore = useSectionDataStore();
 const componentTreeStore = useComponentTreeStore();
 const isLoading = ref(true);
@@ -221,14 +221,14 @@ async function save() {
       { data: payload }
     );
     sectionDataStore.set(props.versionId, props.filePath, "nodes", payload);
-    editorStore.markClean(props.tabKey);
+    tabsStore.markClean(props.tabId);
   } finally {
     isSaving.value = false;
   }
 }
 
 function onChange() {
-  editorStore.markDirty(props.tabKey);
+  tabsStore.markDirty(props.tabId);
 }
 
 function addEntry() {

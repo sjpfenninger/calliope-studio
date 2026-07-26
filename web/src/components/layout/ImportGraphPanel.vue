@@ -13,7 +13,7 @@ import Dialog from "primevue/dialog";
 import Button from "primevue/button";
 import { VueFlow, type Node, type Edge, Position } from "@vue-flow/core";
 import client from "../../api/client";
-import { useEditorStore } from "../../stores/editor";
+import { useTabsStore } from "../../stores/tabs";
 
 const props = defineProps<{
   versionId: string;
@@ -24,7 +24,7 @@ const emit = defineEmits<{
   "update:visible": [value: boolean];
 }>();
 
-const editorStore = useEditorStore();
+const tabsStore = useTabsStore();
 
 interface GraphData {
   nodes: Array<{ id: string; label: string; type: string }>;
@@ -140,7 +140,7 @@ const flowGraph = computed(() => {
 
 function onNodeClick(event: { node: Node }) {
   const file = event.node.id;
-  editorStore.openTab(file, "yaml");
+  tabsStore.openFile(file);
   emit("update:visible", false);
 }
 </script>

@@ -8,13 +8,13 @@ import ExplorerPanel from "../components/layout/ExplorerPanel.vue";
 import EditorPanel from "../components/layout/EditorPanel.vue";
 import SidePanel from "../components/layout/SidePanel.vue";
 import { useVersionStore } from "../stores/version";
-import { useEditorStore } from "../stores/editor";
+import { useTabsStore } from "../stores/tabs";
 import { useProjectStore } from "../stores/project";
 import { useUiStore } from "../stores/ui";
 
 const route = useRoute();
 const versionStore = useVersionStore();
-const editorStore = useEditorStore();
+const tabsStore = useTabsStore();
 const projectStore = useProjectStore();
 // Panel geometry is UI state, so it belongs in a store rather than in this
 // component's own localStorage calls.
@@ -30,7 +30,7 @@ onMounted(() => {
   const projectId = route.params.id as string;
   const versionId = route.params.versionId as string;
   projectStore.loadProject(projectId);
-  editorStore.setVersion(versionId);
+  tabsStore.setVersion(versionId);
   versionStore.loadFileTree(versionId);
   initMonacoYaml();
 });

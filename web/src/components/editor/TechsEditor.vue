@@ -5,7 +5,7 @@
  * Supports three modes via props:
  *   - Section tab (entryName=null): shows all techs in the file
  *   - Entry tab (entryName="csp"): shows only the named tech
- *   - File structured view (tabKey=filePath, entryName=null): shows all techs
+ *   - File structured view (tabId=filePath, entryName=null): shows all techs
  *
  * Transmission technologies are excluded: they are edited by LinksEditor, which
  * promotes the two nodes they join. They still share this YAML section, so a
@@ -21,7 +21,7 @@ import Select from "primevue/select";
 import ToggleSwitch from "primevue/toggleswitch";
 import Button from "primevue/button";
 import client from "../../api/client";
-import { useEditorStore } from "../../stores/editor";
+import { useTabsStore } from "../../stores/tabs";
 import { useSectionDataStore } from "../../stores/sectionData";
 import { useComponentTreeStore } from "../../stores/componentTree";
 import ScalarOrDataVar from "./ScalarOrDataVar.vue";
@@ -30,11 +30,11 @@ import { isTransmission, mergeIntoSection, type RawTech } from "../../lib/techs"
 const props = defineProps<{
   versionId: string;
   filePath: string;
-  tabKey: string;
+  tabId: string;
   entryName?: string | null;
 }>();
 
-const editorStore = useEditorStore();
+const tabsStore = useTabsStore();
 const sectionDataStore = useSectionDataStore();
 const componentTreeStore = useComponentTreeStore();
 const isLoading = ref(true);
@@ -208,7 +208,7 @@ async function save() {
     );
     sectionDataStore.set(props.versionId, props.filePath, "techs", payload);
     originalSection.value = payload;
-    editorStore.markClean(props.tabKey);
+    tabsStore.markClean(props.tabId);
   } finally {
     isSaving.value = false;
   }
@@ -216,27 +216,27 @@ async function save() {
 
 function addEntry() {
   entries.value.push({ name: "", template: null, base_tech: null, active: true, extraParams: [] });
-  editorStore.markDirty(props.tabKey);
+  tabsStore.markDirty(props.tabId);
 }
 
 function removeEntry(entry: TechEntry) {
   const i = entries.value.indexOf(entry);
   if (i !== -1) entries.value.splice(i, 1);
-  editorStore.markDirty(props.tabKey);
+  tabsStore.markDirty(props.tabId);
 }
 
 function addParam(entry: TechEntry) {
   entry.extraParams.push({ key: "", value: null });
-  editorStore.markDirty(props.tabKey);
+  tabsStore.markDirty(props.tabId);
 }
 
 function removeParam(entry: TechEntry, j: number) {
   entry.extraParams.splice(j, 1);
-  editorStore.markDirty(props.tabKey);
+  tabsStore.markDirty(props.tabId);
 }
 
 function onChange() {
-  editorStore.markDirty(props.tabKey);
+  tabsStore.markDirty(props.tabId);
 }
 
 function onKeydown(e: KeyboardEvent) {

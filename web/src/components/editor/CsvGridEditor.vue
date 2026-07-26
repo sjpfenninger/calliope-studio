@@ -4,7 +4,8 @@ import { AgGridVue } from "ag-grid-vue3";
 import { AllCommunityModule, ModuleRegistry } from "ag-grid-community";
 import client from "../../api/client";
 import { gridTheme } from "../../lib/agTheme";
-import { useEditorStore } from "../../stores/editor";
+import { fileTabId } from "../../lib/tabId";
+import { useTabsStore } from "../../stores/tabs";
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
@@ -13,7 +14,7 @@ const props = defineProps<{
   filePath: string;
 }>();
 
-const editorStore = useEditorStore();
+const tabsStore = useTabsStore();
 
 interface CsvColumn {
   name: string;
@@ -55,7 +56,10 @@ onMounted(async () => {
 });
 
 function onCellValueChanged() {
-  editorStore.markDirty(props.filePath);
+  // A file tab's id is no longer its bare path, so this has to be built. It used
+  // to be passed raw, which worked only because the two happened to be the same
+  // string — and would now silently mark nothing, leaving the dirty dot off.
+  tabsStore.markDirty(fileTabId(props.filePath));
 }
 
 async function save() {
@@ -63,7 +67,7 @@ async function save() {
   const rows = rowData.value.map((row) =>
     originalColumns.map((col) => row[col.name] ?? "")
   );
-  await editorStore.saveCsvFile(props.filePath, originalColumns, rows);
+  await tabsStore.saveCsvFile(props.filePath, originalColumns, rows);
 }
 
 // Keyboard shortcut: Ctrl/Cmd+S

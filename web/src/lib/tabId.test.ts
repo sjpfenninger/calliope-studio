@@ -1,0 +1,102 @@
+import { describe, expect, it } from "vitest";
+
+import {
+  entryTabId,
+  fileTabId,
+  parseTabId,
+  runTabId,
+  sectionTabId,
+  tabId,
+  type TabSpec,
+} from "./tabId";
+
+/**
+ * Tab ids are a Map key, a DOM key and a URL query value at once, so the round
+ * trip has to be exact and parsing has to be total.
+ *
+ * The scheme this replaced guessed where a file path ended by taking the last
+ * colon in the string, so an entry named `cost:monetary` — which Calliope
+ * permits — silently produced the wrong tab. That case is pinned below.
+ */
+const specs: TabSpec[] = [
+  { kind: "file", path: "model.yaml" },
+  { kind: "file", path: "model_config/techs.yaml" },
+  { kind: "section", section: "techs", filePath: "model_config/techs.yaml" },
+  {
+    kind: "entry",
+    section: "techs",
+    filePath: "model_config/techs.yaml",
+    entryName: "ccgt",
+  },
+  { kind: "run", runId: "0d1e2f34-5678-4abc-8def-000000000000", handle: null },
+  { kind: "run", runId: null, handle: "2d3f9a1b4c5d6e7f" },
+];
+
+describe("tabId", () => {
+  it.each(specs)("round-trips %o", (spec) => {
+    expect(parseTabId(tabId(spec))).toEqual(spec);
+  });
+
+  it("is stable, because the same tab must be one Map entry", () => {
+    const spec: TabSpec = { kind: "file", path: "a/b.yaml" };
+    expect(tabId(spec)).toBe(tabId({ ...spec }));
+  });
+
+  it.each([
+    ["a slash", "model_config/techs.yaml"],
+    ["a colon", "odd:name.yaml"],
+    ["a space", "my model.yaml"],
+    ["a hash", "a#b.yaml"],
+    ["a question mark", "a?b.yaml"],
+    ["an ampersand", "a&b.yaml"],
+    ["unicode", "modèle/ünïcode.yaml"],
+  ])("survives a path containing %s", (_label, path) => {
+    expect(parseTabId(fileTabId(path))).toEqual({ kind: "file", path });
+  });
+
+  it("survives an entry name containing a colon", () => {
+    // The previous scheme split on the *last* colon to find the entry name, so
+    // this produced a file path of "…techs.yaml:cost" and an entry of "monetary".
+    const id = entryTabId("techs", "model_config/techs.yaml", "cost:monetary");
+    expect(parseTabId(id)).toEqual({
+      kind: "entry",
+      section: "techs",
+      filePath: "model_config/techs.yaml",
+      entryName: "cost:monetary",
+    });
+  });
+
+  it("keeps a section tab distinct from the file it came from", () => {
+    expect(sectionTabId("techs", "techs.yaml")).not.toBe(fileTabId("techs.yaml"));
+  });
+
+  it("keeps a run and a bare results file distinct", () => {
+    expect(runTabId("abc")).not.toBe(runTabId(null, "abc"));
+    expect(parseTabId(runTabId(null, "abc"))).toEqual({
+      kind: "run",
+      runId: null,
+      handle: "abc",
+    });
+  });
+
+  it("is URL-safe, so a tab can be named in a query param", () => {
+    for (const spec of specs) {
+      const id = tabId(spec);
+      // Round-tripping through URLSearchParams must not change it, or the
+      // ?tab= value and the Map key would drift apart.
+      const query = new URLSearchParams({ tab: id });
+      expect(new URLSearchParams(query.toString()).get("tab")).toBe(id);
+    }
+  });
+
+  it.each([
+    ["an unknown prefix", "widget:thing"],
+    ["no prefix at all", "model.yaml"],
+    ["too few parts", "entry:techs"],
+    ["too many parts", "file:a:b"],
+    ["an empty string", ""],
+    ["a legacy sentinel key", "\0s:techs:techs.yaml"],
+  ])("returns null for %s rather than throwing", (_label, id) => {
+    expect(parseTabId(id)).toBeNull();
+  });
+});

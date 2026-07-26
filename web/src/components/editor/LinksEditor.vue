@@ -19,7 +19,7 @@ import InputText from "primevue/inputtext";
 import Select from "primevue/select";
 import Button from "primevue/button";
 import client from "../../api/client";
-import { useEditorStore } from "../../stores/editor";
+import { useTabsStore } from "../../stores/tabs";
 import { useSectionDataStore } from "../../stores/sectionData";
 import { useComponentTreeStore } from "../../stores/componentTree";
 import ScalarOrDataVar from "./ScalarOrDataVar.vue";
@@ -28,11 +28,11 @@ import { isTransmission, mergeIntoSection, type RawTech } from "../../lib/techs"
 const props = defineProps<{
   versionId: string;
   filePath: string;
-  tabKey: string;
+  tabId: string;
   entryName?: string | null;
 }>();
 
-const editorStore = useEditorStore();
+const tabsStore = useTabsStore();
 const sectionDataStore = useSectionDataStore();
 const componentTreeStore = useComponentTreeStore();
 
@@ -167,7 +167,7 @@ async function save() {
     );
     sectionDataStore.set(props.versionId, props.filePath, "techs", payload);
     originalSection.value = payload;
-    editorStore.markClean(props.tabKey);
+    tabsStore.markClean(props.tabId);
     // Adding or removing a link changes the explorer and the map.
     await componentTreeStore.refresh(props.versionId);
   } finally {
@@ -176,7 +176,7 @@ async function save() {
 }
 
 function onChange() {
-  editorStore.markDirty(props.tabKey);
+  tabsStore.markDirty(props.tabId);
 }
 
 function addEntry() {

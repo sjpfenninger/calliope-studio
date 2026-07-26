@@ -2,14 +2,15 @@
 import { ref, computed, onMounted, watch } from "vue";
 import Tree from "primevue/tree";
 import Button from "primevue/button";
+import { fileTabId } from "../../lib/tabId";
 import type { TreeNode } from "../../stores/version";
 import { useVersionStore } from "../../stores/version";
-import { useEditorStore } from "../../stores/editor";
+import { useTabsStore } from "../../stores/tabs";
 import { useComponentTreeStore } from "../../stores/componentTree";
 import ImportGraphPanel from "./ImportGraphPanel.vue";
 
 const versionStore = useVersionStore();
-const editorStore = useEditorStore();
+const tabsStore = useTabsStore();
 const componentTreeStore = useComponentTreeStore();
 
 type ExplorerTab = "files" | "model";
@@ -94,8 +95,8 @@ const modelNodes = computed<ModelTreeNode[]>(() => {
 
 function switchToModel() {
   activeTab.value = "model";
-  if (editorStore.versionId) {
-    componentTreeStore.load(editorStore.versionId);
+  if (tabsStore.versionId) {
+    componentTreeStore.load(tabsStore.versionId);
   }
 }
 
@@ -104,7 +105,7 @@ onMounted(() => switchToModel());
 // The version is set from the route after this panel mounts, so loading only on
 // mount left the model tree permanently empty.
 watch(
-  () => editorStore.versionId,
+  () => tabsStore.versionId,
   (versionId) => {
     if (versionId) componentTreeStore.load(versionId);
   },
@@ -112,8 +113,8 @@ watch(
 );
 
 function refreshModel() {
-  if (editorStore.versionId) {
-    componentTreeStore.refresh(editorStore.versionId);
+  if (tabsStore.versionId) {
+    componentTreeStore.refresh(tabsStore.versionId);
   }
 }
 
@@ -124,7 +125,7 @@ function refreshModel() {
 function onFileNodeSelect(node: TreeNode) {
   if (!node.leaf) return;
   const type = node.type === "csv" ? "csv" : node.type === "yaml" ? "yaml" : "other";
-  editorStore.openTab(node.key, type);
+  tabsStore.openFile(node.key, type);
 }
 
 // ---------------------------------------------------------------------------
@@ -140,14 +141,14 @@ function onModelNodeSelect(node: ModelTreeNode) {
 
   if (!STRUCTURED_SECTIONS.has(section)) {
     // Sections without a structured editor (overrides, scenarios): open the file in raw YAML
-    editorStore.openTab(file, "yaml");
+    tabsStore.openFile(file, "yaml");
     return;
   }
 
   if (entryName) {
-    editorStore.openEntryTab(section, file, entryName);
+    tabsStore.openEntry(section, file, entryName);
   } else {
-    editorStore.openSectionTab(section, file);
+    tabsStore.openSection(section, file);
   }
 }
 </script>
@@ -189,7 +190,7 @@ function onModelNodeSelect(node: ModelTreeNode) {
             <i :class="node.fileIcon" />
             <span class="file-name">{{ node.label }}</span>
             <span
-              v-if="node.leaf && editorStore.openTabs.get(node.key)?.isDirty"
+              v-if="node.leaf && tabsStore.get(fileTabId(node.key))?.isDirty"
               class="dirty-dot"
               title="Unsaved changes"
             />
@@ -220,8 +221,8 @@ function onModelNodeSelect(node: ModelTreeNode) {
         />
       </div>
       <ImportGraphPanel
-        v-if="editorStore.versionId"
-        :versionId="editorStore.versionId"
+        v-if="tabsStore.versionId"
+        :versionId="tabsStore.versionId"
         v-model:visible="showImportGraph"
       />
       <div v-if="componentTreeStore.isLoading" class="panel-placeholder">Loading…</div>

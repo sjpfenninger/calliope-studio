@@ -80,15 +80,19 @@ await page.goto(
 await page.waitForTimeout(2500);
 
 if (workspaceMode) {
-  // Open a YAML file and a CSV, so Monaco and AG Grid both mount.
-  const filesTab = page.locator("button.panel-tab", { hasText: /files/i });
-  if (await filesTab.count()) await filesTab.first().click();
+  // Open a YAML file and a CSV, so Monaco and AG Grid both mount. Selected on
+  // roles and test ids rather than on component class names: the previous
+  // selectors named PrimeVue's internals and died with it.
+  await page.getByRole("link", { name: "Files" }).click().catch(() => {});
+  await page.locator('[data-testid="file-tree"]').waitFor().catch(() => {});
   await page.waitForTimeout(600);
   await page.getByText("model.yaml", { exact: true }).first().click().catch(() => {});
   await page.waitForTimeout(2000);
 
   // CSVs live in a folder, which has to be expanded before they can be clicked.
-  const folder = page.locator(".p-tree-node-toggle-button, .p-tree-toggler").first();
+  const folder = page
+    .locator('[data-testid="file-tree"] [role="treeitem"][aria-expanded="false"]')
+    .first();
   if (await folder.count()) await folder.click().catch(() => {});
   await page.waitForTimeout(600);
   await page.getByText(/\.csv$/).first().click().catch(() => {});

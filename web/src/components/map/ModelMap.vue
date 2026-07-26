@@ -363,10 +363,10 @@ watch(
   justify-content: center;
   gap: 0.4rem;
   z-index: 1;
-  background: var(--p-surface-0, #fff);
+  background: var(--cg-surface);
   text-align: center;
-  font-size: 0.875rem;
-  color: var(--p-text-muted-color, #888);
+  font-size: 12px;
+  color: var(--cg-text-muted);
 }
 
 .hint {

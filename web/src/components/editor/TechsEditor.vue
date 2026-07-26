@@ -12,20 +12,31 @@
  * save writes them back untouched rather than dropping them.
  */
 import { ref, computed, onMounted, onUnmounted, watch } from "vue";
-import Accordion from "primevue/accordion";
-import AccordionPanel from "primevue/accordionpanel";
-import AccordionHeader from "primevue/accordionheader";
-import AccordionContent from "primevue/accordioncontent";
-import InputText from "primevue/inputtext";
-import Select from "primevue/select";
-import ToggleSwitch from "primevue/toggleswitch";
-import Button from "primevue/button";
-import client from "../../api/client";
-import { useTabsStore } from "../../stores/tabs";
-import { useSectionDataStore } from "../../stores/sectionData";
-import { useComponentTreeStore } from "../../stores/componentTree";
+import { Plus, Trash2, X } from "lucide-vue-next";
+
+import client from "@/api/client";
+import EditorToolbar from "./EditorToolbar.vue";
+import InheritedFields from "./InheritedFields.vue";
 import ScalarOrDataVar from "./ScalarOrDataVar.vue";
-import { isTransmission, mergeIntoSection, type RawTech } from "../../lib/techs";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
+import { Switch } from "@/components/ui/switch";
+import {
+  DANGER_ICON_BUTTON,
+  FIELD,
+  FIELD_LABEL,
+  GHOST_BUTTON,
+} from "@/lib/formClasses";
+import { ICON_STROKE_WIDTH } from "@/lib/icons";
+import { cn } from "@/lib/utils";
+import { useTabsStore } from "@/stores/tabs";
+import { useSectionDataStore } from "@/stores/sectionData";
+import { useComponentTreeStore } from "@/stores/componentTree";
+import { isTransmission, mergeIntoSection, type RawTech } from "@/lib/techs";
 
 const props = defineProps<{
   versionId: string;
@@ -239,6 +250,33 @@ function onChange() {
   tabsStore.markDirty(props.tabId);
 }
 
+/** Template fields, as displayable strings. */
+function templateFields(name: string | null): Record<string, string> {
+  const raw = (name && templatesData.value[name]) || {};
+  return Object.fromEntries(
+    Object.entries(raw).map(([key, value]) => [key, formatTemplateValue(value)]),
+  );
+}
+
+/** Data-table values for one technology, and which table each came from. */
+function dataTableFields(name: string): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(dataTableParams.value[name] ?? {}).map(([key, param]) => [
+      key,
+      param.time_varying ? "time-varying" : String(param.value),
+    ]),
+  );
+}
+
+function dataTableSources(name: string): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(dataTableParams.value[name] ?? {}).map(([key, param]) => [
+      key,
+      param.source,
+    ]),
+  );
+}
+
 function onKeydown(e: KeyboardEvent) {
   if ((e.metaKey || e.ctrlKey) && e.key === "s") {
     e.preventDefault();
@@ -259,346 +297,174 @@ watch(() => props.filePath, load);
 </script>
 
 <template>
-  <div class="techs-editor">
-    <template v-if="isLoading">
-      <div class="placeholder">Loading techs...</div>
-    </template>
-    <template v-else-if="error">
-      <div class="placeholder error">{{ error }}</div>
-    </template>
-    <template v-else>
-      <div class="toolbar">
-        <Button label="Save" icon="pi pi-save" size="small" :loading="isSaving" @click="save" />
-        <Button
-          v-if="!entryName"
-          label="Add tech"
-          icon="pi pi-plus"
-          size="small"
-          severity="secondary"
-          @click="addEntry"
-        />
-        <span class="hint">or Ctrl/Cmd+S</span>
-      </div>
+  <div class="flex min-h-0 flex-1 flex-col">
+    <p v-if="isLoading" class="p-6 text-center text-sm text-muted-foreground">
+      Loading techs…
+    </p>
+    <p v-else-if="error" class="p-6 text-center text-sm text-danger-text">{{ error }}</p>
 
-      <div class="entry-list">
-        <div v-if="visibleEntries.length === 0" class="placeholder">
-          {{
-            entryName
-              ? `Tech "${entryName}" not found.`
-              : 'No techs defined. Click "Add tech" to create one.'
-          }}
-        </div>
+    <template v-else>
+      <EditorToolbar :saving="isSaving" @save="save">
+        <button v-if="!entryName" type="button" :class="GHOST_BUTTON" @click="addEntry">
+          <Plus class="size-3.5" :stroke-width="ICON_STROKE_WIDTH" />
+          Add tech
+        </button>
+      </EditorToolbar>
+
+      <div class="min-h-0 flex-1 overflow-auto">
+        <p
+          v-if="!visibleEntries.length"
+          class="p-6 text-center text-sm text-muted-foreground"
+        >
+          {{ entryName ? `No tech called "${entryName}".` : "No techs defined yet." }}
+        </p>
 
         <Accordion
           v-else
-          :multiple="true"
-          :value="visibleEntries.map((e) => e.name || String(entries.indexOf(e)))"
+          type="multiple"
+          :default-value="visibleEntries.map((e) => e.name || String(entries.indexOf(e)))"
+          class="px-2"
         >
-          <AccordionPanel
+          <AccordionItem
             v-for="entry in visibleEntries"
             :key="entry.name || String(entries.indexOf(entry))"
             :value="entry.name || String(entries.indexOf(entry))"
           >
-            <AccordionHeader>
-              <span class="entry-title">{{ entry.name || "(unnamed)" }}</span>
-              <span v-if="entry.base_tech" class="base-tech-badge">{{ entry.base_tech }}</span>
-              <Button
-                icon="pi pi-trash"
-                size="small"
-                severity="danger"
-                text
-                class="delete-btn"
+            <div class="flex items-center gap-1.5">
+              <AccordionTrigger
+                class="min-w-0 flex-1 items-center py-1.5 font-mono text-sm hover:no-underline"
+              >
+                {{ entry.name || "(unnamed)" }}
+              </AccordionTrigger>
+              <span
+                v-if="entry.base_tech"
+                class="shrink-0 rounded-xs bg-accent-soft px-1 text-2xs text-accent-text"
+              >
+                {{ entry.base_tech }}
+              </span>
+              <button
+                type="button"
+                title="Remove this tech"
+                :class="DANGER_ICON_BUTTON"
                 @click.stop="removeEntry(entry)"
-              />
-            </AccordionHeader>
+              >
+                <Trash2 class="size-3.5" :stroke-width="ICON_STROKE_WIDTH" />
+              </button>
+            </div>
 
             <AccordionContent>
-              <div class="entry-form">
-                <!-- Name (dict key) -->
-                <div class="field">
-                  <label>name</label>
-                  <InputText v-model="entry.name" size="small" class="w-full" @input="onChange" />
+              <div class="flex flex-col gap-2 pb-2">
+                <!-- name is the mapping key, not a parameter. -->
+                <div class="flex flex-col gap-1">
+                  <label :class="FIELD_LABEL">name</label>
+                  <input
+                    v-model="entry.name"
+                    type="text"
+                    :class="FIELD"
+                    @input="onChange"
+                  />
                 </div>
 
-                <!-- template -->
-                <div class="field">
-                  <label>template</label>
-                  <InputText
-                    :modelValue="entry.template ?? ''"
-                    size="small"
-                    class="w-full"
+                <div class="flex flex-col gap-1">
+                  <label :class="FIELD_LABEL">template</label>
+                  <input
+                    :value="entry.template ?? ''"
+                    type="text"
                     placeholder="(none)"
-                    @update:modelValue="entry.template = ($event as string) || null; onChange()"
+                    :class="FIELD"
+                    @change="
+                      entry.template =
+                        ($event.target as HTMLInputElement).value || null;
+                      onChange();
+                    "
                   />
                 </div>
 
-                <!-- base_tech -->
-                <div class="field">
-                  <label>base_tech</label>
-                  <Select
-                    v-model="entry.base_tech"
-                    :options="BASE_TECH_OPTIONS"
-                    size="small"
-                    class="w-full"
-                    showClear
-                    @update:modelValue="onChange"
-                  />
+                <div class="flex flex-col gap-1">
+                  <label :class="FIELD_LABEL">base_tech</label>
+                  <select
+                    :value="entry.base_tech ?? ''"
+                    :class="FIELD"
+                    @change="
+                      entry.base_tech =
+                        ($event.target as HTMLSelectElement).value || null;
+                      onChange();
+                    "
+                  >
+                    <!-- Blank first: base_tech usually comes from the template,
+                         and setting it here is an override, not a requirement. -->
+                    <option value="">—</option>
+                    <option v-for="option in BASE_TECH_OPTIONS" :key="option" :value="option">
+                      {{ option }}
+                    </option>
+                  </select>
                 </div>
 
-                <!-- active -->
-                <div class="field inline-field">
-                  <label>active</label>
-                  <ToggleSwitch v-model="entry.active" @update:modelValue="onChange" />
+                <div class="flex items-center justify-between gap-2">
+                  <label :class="FIELD_LABEL">active</label>
+                  <Switch v-model="entry.active" @update:model-value="onChange" />
                 </div>
 
-                <!-- Extra parameters (additionalProperties) -->
-                <div v-if="entry.extraParams.length > 0" class="extra-params">
-                  <div v-for="(param, j) in entry.extraParams" :key="j" class="param-row">
-                    <InputText
+                <div v-if="entry.extraParams.length" class="flex flex-col gap-1">
+                  <div
+                    v-for="(param, j) in entry.extraParams"
+                    :key="j"
+                    class="flex items-start gap-1"
+                  >
+                    <input
                       v-model="param.key"
-                      size="small"
-                      class="param-key"
+                      type="text"
                       placeholder="parameter"
+                      :class="cn(FIELD, 'w-36 shrink-0')"
                       @input="onChange"
                     />
                     <ScalarOrDataVar
-                      :modelValue="param.value"
-                      @update:modelValue="param.value = $event; onChange()"
+                      :model-value="param.value"
+                      @update:model-value="
+                        param.value = $event;
+                        onChange();
+                      "
                     />
-                    <Button
-                      icon="pi pi-times"
-                      size="small"
-                      text
-                      severity="danger"
+                    <button
+                      type="button"
+                      title="Remove this parameter"
+                      :class="DANGER_ICON_BUTTON"
                       @click="removeParam(entry, j)"
-                    />
+                    >
+                      <X class="size-3.5" :stroke-width="2" />
+                    </button>
                   </div>
                 </div>
 
-                <Button
-                  label="Add parameter"
-                  icon="pi pi-plus"
-                  size="small"
-                  text
-                  severity="secondary"
+                <button
+                  type="button"
+                  :class="cn(GHOST_BUTTON, 'self-start')"
                   @click="addParam(entry)"
+                >
+                  <Plus class="size-3.5" :stroke-width="ICON_STROKE_WIDTH" />
+                  Add parameter
+                </button>
+
+                <InheritedFields
+                  v-if="entry.template"
+                  :label="`From: ${entry.template}`"
+                  :fields="templateFields(entry.template)"
+                  :is-overridden="(key) => isTechFieldOverridden(entry, key)"
+                  empty-text="Template definition not available."
                 />
 
-                <!-- Template inherited fields -->
-                <div v-if="entry.template" class="sub-section template-ref">
-                  <div class="sub-section-header">
-                    <span class="sub-section-label">From: {{ entry.template }}</span>
-                  </div>
-                  <template v-if="templatesData[entry.template]">
-                    <div
-                      v-for="[k, v] in Object.entries(templatesData[entry.template])"
-                      :key="k"
-                      class="template-field-row"
-                    >
-                      <span class="template-field-key">{{ k }}</span>
-                      <span
-                        class="template-field-value"
-                        :class="{ 'is-overridden': isTechFieldOverridden(entry, k) }"
-                      >{{ formatTemplateValue(v) }}</span>
-                      <span v-if="isTechFieldOverridden(entry, k)" class="override-tag">overridden</span>
-                    </div>
-                  </template>
-                  <div v-else class="sub-placeholder">Template definition not available.</div>
-                </div>
-
-                <!-- Data table values -->
-                <div
-                  v-if="dataTableParams[entry.name] && Object.keys(dataTableParams[entry.name]).length > 0"
-                  class="sub-section data-table-ref"
-                >
-                  <div class="sub-section-header">
-                    <span class="sub-section-label">From data tables</span>
-                  </div>
-                  <div
-                    v-for="[k, v] in Object.entries(dataTableParams[entry.name])"
-                    :key="k"
-                    class="template-field-row"
-                  >
-                    <span class="template-field-key">{{ k }}</span>
-                    <span
-                      class="template-field-value"
-                      :class="{ 'is-overridden': isTechFieldOverridden(entry, k) }"
-                    >{{ v.time_varying ? 'time-varying' : v.value }}</span>
-                    <span class="dt-source-tag">{{ v.source }}</span>
-                    <span v-if="isTechFieldOverridden(entry, k)" class="override-tag">overridden</span>
-                  </div>
-                </div>
+                <InheritedFields
+                  v-if="Object.keys(dataTableParams[entry.name] ?? {}).length"
+                  label="From data tables"
+                  :fields="dataTableFields(entry.name)"
+                  :sources="dataTableSources(entry.name)"
+                  :is-overridden="(key) => isTechFieldOverridden(entry, key)"
+                />
               </div>
             </AccordionContent>
-          </AccordionPanel>
+          </AccordionItem>
         </Accordion>
       </div>
     </template>
   </div>
 </template>
-
-<style scoped>
-.techs-editor {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  overflow: hidden;
-}
-
-.placeholder {
-  padding: 2rem;
-  text-align: center;
-  color: var(--p-text-muted-color, #888);
-  font-size: 0.875rem;
-}
-
-.placeholder.error {
-  color: #ef4444;
-}
-
-.toolbar {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 0.5rem 1rem;
-  flex-shrink: 0;
-  border-bottom: 1px solid var(--p-content-border-color, #e0e0e0);
-}
-
-.hint {
-  font-size: 0.75rem;
-  color: var(--p-text-muted-color, #888);
-}
-
-.entry-list {
-  flex: 1;
-  overflow-y: auto;
-  padding: 0.75rem 1rem;
-}
-
-.entry-title {
-  font-family: monospace;
-  font-size: 0.875rem;
-  flex: 1;
-}
-
-.base-tech-badge {
-  font-size: 0.7rem;
-  background: var(--p-primary-50, #eef2ff);
-  color: var(--p-primary-color, #6366f1);
-  border-radius: 4px;
-  padding: 0.1rem 0.4rem;
-  margin-right: 0.5rem;
-}
-
-.delete-btn {
-  margin-left: auto;
-}
-
-.entry-form {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  padding: 0.5rem 0;
-}
-
-.field {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-}
-
-.field label {
-  font-size: 0.8rem;
-  font-family: monospace;
-  color: var(--p-text-muted-color, #666);
-}
-
-.inline-field {
-  flex-direction: row;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.extra-params {
-  display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
-}
-
-.param-row {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.4rem;
-}
-
-.param-key {
-  width: 9rem;
-  flex-shrink: 0;
-}
-
-.w-full {
-  width: 100%;
-}
-
-.sub-section {
-  border: 1px solid var(--p-content-border-color, #e0e0e0);
-  border-radius: 4px;
-  padding: 0.5rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
-}
-
-.sub-section-header { display: flex; align-items: center; justify-content: space-between; }
-.sub-section-label { font-size: 0.8rem; font-family: monospace; font-weight: 600; color: var(--p-text-muted-color, #666); }
-.sub-placeholder { font-size: 0.8rem; color: var(--p-text-muted-color, #888); text-align: center; padding: 0.25rem; }
-
-.template-ref { background: var(--p-surface-50, #f9fafb); }
-
-.template-field-row {
-  display: flex;
-  align-items: baseline;
-  gap: 0.4rem;
-  font-size: 0.8rem;
-  padding: 0.1rem 0;
-}
-
-.template-field-key {
-  font-family: monospace;
-  color: var(--p-text-muted-color, #666);
-  flex-shrink: 0;
-  min-width: 8rem;
-}
-
-.template-field-value {
-  font-family: monospace;
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.template-field-value.is-overridden {
-  color: var(--p-text-muted-color, #aaa);
-  text-decoration: line-through;
-}
-
-.override-tag {
-  font-size: 0.65rem;
-  color: var(--p-primary-color, #6366f1);
-  background: var(--p-primary-50, #eef2ff);
-  border-radius: 3px;
-  padding: 0.05rem 0.3rem;
-  flex-shrink: 0;
-}
-
-.data-table-ref { background: var(--p-surface-50, #f9fafb); }
-
-.dt-source-tag {
-  font-size: 0.65rem;
-  color: var(--p-text-muted-color, #888);
-  font-family: monospace;
-  flex-shrink: 0;
-}
-</style>

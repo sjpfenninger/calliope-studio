@@ -2,6 +2,21 @@ import { ref } from "vue";
 import { defineStore } from "pinia";
 import client from "../api/client";
 
+/**
+ * Calliope's own schemas, resolved once and navigated by path.
+ *
+ * The server generates these from the installed Calliope rather than checking
+ * them in, so they can never describe a different version from the one that will
+ * run the model. The payload's top level is the *model definition* schema —
+ * which is what Monaco's YAML integration wants — with the others (config, math,
+ * data tables) alongside it under `x-calliope.schemas`.
+ *
+ * That shape is why `config` is grafted in below. `subschema("config.init")`
+ * looks for `properties.config`, which the model schema does not have and never
+ * will: a Calliope model's `config:` block is validated by a separate pydantic
+ * model. Without the graft the config editor rendered no fields at all — only
+ * the one field it draws by hand.
+ */
 export const useSchemaStore = defineStore("schema", () => {
   const resolved = ref<Record<string, any> | null>(null);
   const isLoaded = ref(false);
@@ -10,7 +25,7 @@ export const useSchemaStore = defineStore("schema", () => {
   function deref(
     obj: any,
     defs: Record<string, any>,
-    visited: Set<string> = new Set()
+    visited: Set<string> = new Set(),
   ): any {
     if (obj === null || typeof obj !== "object") return obj;
     if (Array.isArray(obj)) return obj.map((item) => deref(item, defs, visited));
@@ -19,7 +34,7 @@ export const useSchemaStore = defineStore("schema", () => {
       const refStr = obj.$ref as string;
       // Merge non-$ref sibling keys (e.g. "default", "description") with resolved def.
       const rest = Object.fromEntries(
-        Object.entries(obj).filter(([k]) => k !== "$ref")
+        Object.entries(obj).filter(([k]) => k !== "$ref"),
       );
       if (visited.has(refStr)) {
         // Cycle guard — return just the sibling keys to avoid infinite recursion.
@@ -37,8 +52,26 @@ export const useSchemaStore = defineStore("schema", () => {
     }
 
     return Object.fromEntries(
-      Object.entries(obj).map(([k, v]) => [k, deref(v, defs, visited)])
+      Object.entries(obj).map(([k, v]) => [k, deref(v, defs, visited)]),
     );
+  }
+
+  /**
+   * Folds the sibling schemas into the model schema's `properties`.
+   *
+   * So that every editor addresses what it needs by the same dot path it would
+   * write in YAML — `config.init`, `data_tables` — rather than each one knowing
+   * where in the payload its schema happens to live.
+   */
+  function graftSiblings(payload: Record<string, any>): Record<string, any> {
+    const siblings: Record<string, any> = payload["x-calliope"]?.schemas ?? {};
+    const extra: Record<string, any> = {};
+    if (siblings.config) extra.config = siblings.config;
+    if (siblings.math) extra.math = siblings.math;
+    return {
+      ...payload,
+      properties: { ...(payload.properties ?? {}), ...extra },
+    };
   }
 
   /** Fetch the Calliope schema from the API and deref it in place. */
@@ -46,7 +79,7 @@ export const useSchemaStore = defineStore("schema", () => {
     if (isLoaded.value) return;
     try {
       const res = await client.get<Record<string, any>>("/api/schema/calliope/");
-      const schema = res.data;
+      const schema = graftSiblings(res.data);
       const defs: Record<string, any> = schema.$defs ?? schema.definitions ?? {};
       resolved.value = deref(schema, defs);
       isLoaded.value = true;

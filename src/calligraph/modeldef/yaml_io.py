@@ -72,14 +72,21 @@ def _round_trip_yaml(text: str | None = None) -> YAML:
     return yaml
 
 
+#: How a non-finite float travels over JSON, which cannot represent one.
+#:
+#: The spelling is YAML's own, so the editor shows `.inf` in the field — which is
+#: both what the file says and what a user would type to mean it. The previous
+#: mapping to `None` was worse than it looked: an unbounded parameter appeared as
+#: an *empty* field, and the editors drop empty values, so opening the techs
+#: editor and pressing Save deleted every `.inf` line in the user's file.
+NON_FINITE = {float("inf"): ".inf", float("-inf"): "-.inf"}
+NON_FINITE_NAMES = {".inf": float("inf"), "-.inf": float("-inf"), ".nan": float("nan")}
+
+
 def to_plain(obj: Any) -> Any:
     """Converts ruamel's comment-carrying containers to plain Python.
 
-    Non-finite floats become `None`: Calliope uses `.inf` for unbounded
-    parameters and JSON cannot represent it. The frontend renders `None` as an
-    empty field, and writing an empty field back omits the key rather than
-    setting infinity — so a round-trip through the UI does not silently bound an
-    unbounded parameter.
+    Non-finite floats become their YAML spelling as a string; see `NON_FINITE`.
     """
     if isinstance(obj, CommentedMap):
         return {key: to_plain(value) for key, value in obj.items()}
@@ -90,7 +97,24 @@ def to_plain(obj: Any) -> Any:
     if isinstance(obj, list):
         return [to_plain(value) for value in obj]
     if isinstance(obj, float) and not math.isfinite(obj):
-        return None
+        return NON_FINITE.get(obj, ".nan")
+    return obj
+
+
+def from_plain(obj: Any) -> Any:
+    """The inverse of `to_plain`, applied to whatever the frontend sends back.
+
+    Only the three YAML spellings are converted, and only from strings. No real
+    Calliope value is the literal text `.inf`, so there is nothing to collide
+    with — and being explicit about the set keeps this from turning into a
+    general-purpose "parse anything that looks like a number".
+    """
+    if isinstance(obj, dict):
+        return {key: from_plain(value) for key, value in obj.items()}
+    if isinstance(obj, list):
+        return [from_plain(value) for value in obj]
+    if isinstance(obj, str) and obj in NON_FINITE_NAMES:
+        return NON_FINITE_NAMES[obj]
     return obj
 
 
@@ -133,9 +157,9 @@ def _merge(existing: Any, new: Any) -> Any:
             return existing
         return new
 
-    # `to_plain` maps non-finite floats to None because JSON cannot carry them.
-    # Without this, a field the user never touched would come back as None and
-    # silently turn an unbounded parameter into a bounded one.
+    # Kept for a client that still sends the old shape: `to_plain` used to map a
+    # non-finite float to None, and a field the user never touched would then
+    # come back as None and silently bound an unbounded parameter.
     if new is None and isinstance(existing, float) and not math.isfinite(existing):
         return existing
 
@@ -154,7 +178,7 @@ def write_section(path: Path, section: str, data: Any) -> None:
     if document is None or section not in document:
         raise SectionNotFound(section)
 
-    document[section] = _merge(document[section], data)
+    document[section] = _merge(document[section], from_plain(data))
     buffer = io.StringIO()
     yaml.dump(document, buffer)
     path.write_text(buffer.getvalue())

@@ -114,6 +114,21 @@ export const useUiStore = defineStore("ui", () => {
     localStorage.setItem(SPLITTER_KEY, JSON.stringify(sizes));
   }
 
+  // ── Nodes editor view ────────────────────────────────────────────────────
+
+  /**
+   * Whether the nodes editor shows a list or a map.
+   *
+   * Here rather than as a `ref` inside the component, because CLAUDE.md's rule
+   * that UI state lives in a store exists precisely for this: as a local ref it
+   * reset every time the tab was switched away from and back.
+   */
+  const nodesView = ref<"structured" | "map">("structured");
+
+  function toggleNodesView() {
+    nodesView.value = nodesView.value === "map" ? "structured" : "map";
+  }
+
   return {
     preference,
     mode,
@@ -123,5 +138,7 @@ export const useUiStore = defineStore("ui", () => {
     cycleTheme,
     splitterSizes,
     setSplitterSizes,
+    nodesView,
+    toggleNodesView,
   };
 });

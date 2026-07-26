@@ -2,10 +2,11 @@
 import { ref, onMounted } from "vue";
 import { AgGridVue } from "ag-grid-vue3";
 import { AllCommunityModule, ModuleRegistry } from "ag-grid-community";
-import client from "../../api/client";
-import { gridTheme } from "../../lib/agTheme";
-import { fileTabId } from "../../lib/tabId";
-import { useTabsStore } from "../../stores/tabs";
+import client from "@/api/client";
+import EditorToolbar from "./EditorToolbar.vue";
+import { gridTheme } from "@/lib/agTheme";
+import { fileTabId } from "@/lib/tabId";
+import { useTabsStore } from "@/stores/tabs";
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
@@ -80,65 +81,20 @@ function onKeyDown(e: KeyboardEvent) {
 </script>
 
 <template>
-  <div class="csv-editor" @keydown="onKeyDown" tabindex="-1">
-    <div v-if="isLoading" class="csv-status">Loading…</div>
-    <div v-else-if="error" class="csv-status csv-error">{{ error }}</div>
+  <div class="flex min-h-0 flex-1 flex-col outline-none" tabindex="-1" @keydown="onKeyDown">
+    <p v-if="isLoading" class="p-6 text-center text-sm text-muted-foreground">Loading…</p>
+    <p v-else-if="error" class="p-6 text-center text-sm text-danger-text">{{ error }}</p>
+
     <template v-else>
-      <div class="csv-toolbar">
-        <button class="save-btn" @click="save">Save</button>
-      </div>
+      <EditorToolbar @save="save" />
       <AgGridVue
-        class="csv-grid"
+        class="min-h-0 flex-1"
         :theme="gridTheme"
-        :columnDefs="columnDefs"
-        :rowData="rowData"
-        :defaultColDef="{ resizable: true, sortable: true, filter: true }"
-        @cellValueChanged="onCellValueChanged"
+        :column-defs="columnDefs"
+        :row-data="rowData"
+        :default-col-def="{ resizable: true, sortable: true, filter: true }"
+        @cell-value-changed="onCellValueChanged"
       />
     </template>
   </div>
 </template>
-
-<style scoped>
-.csv-editor {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  outline: none;
-}
-
-.csv-status {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--p-text-muted-color, #888);
-  font-size: 0.875rem;
-}
-
-.csv-error {
-  color: var(--p-red-500, #ef4444);
-}
-
-.csv-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.4rem 0.75rem;
-  border-bottom: 1px solid var(--p-content-border-color, #e0e0e0);
-  flex-shrink: 0;
-}
-
-.save-btn {
-  padding: 0.2rem 0.75rem;
-  font-size: 0.8rem;
-  cursor: pointer;
-  border-radius: 4px;
-  border: 1px solid var(--p-content-border-color, #ccc);
-  background: var(--p-surface-100, #f3f4f6);
-}
-
-.csv-grid {
-  flex: 1;
-}
-</style>

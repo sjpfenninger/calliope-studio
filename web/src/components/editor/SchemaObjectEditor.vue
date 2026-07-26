@@ -1,10 +1,20 @@
 <script setup lang="ts">
+/**
+ * A form built from a JSON Schema, for the parts of a model that have one.
+ *
+ * The widget for each property is inferred from its schema and can be overridden
+ * per key by the parent. That inference is the load-bearing part: Calliope's
+ * config schema uses `anyOf` heavily, so "a string or a list of strings" and "a
+ * mapping of anything" both have to be recognised from their variants rather
+ * than from a single `type`.
+ *
+ * Recursive: an object-typed property renders another one of these.
+ */
 import { reactive, computed, onMounted } from "vue";
-import InputText from "primevue/inputtext";
-import Select from "primevue/select";
-import ToggleSwitch from "primevue/toggleswitch";
-import InputNumber from "primevue/inputnumber";
-import Button from "primevue/button";
+import { Plus, X } from "lucide-vue-next";
+
+import { ICON_STROKE_WIDTH } from "@/lib/icons";
+import { Switch } from "@/components/ui/switch";
 // Self-import for recursive nested-object rendering.
 import SchemaObjectEditor from "./SchemaObjectEditor.vue";
 
@@ -24,7 +34,7 @@ export interface FieldConfig {
   widget?: WidgetType;
   /** Enum option list — replaces the schema's own enum values. */
   options?: string[];
-  /** Extra props forwarded verbatim to the PrimeVue component. */
+  /** Extra attributes forwarded verbatim to the rendered control. */
   inputProps?: Record<string, any>;
   /** Display label (defaults to the property key). */
   label?: string;
@@ -37,13 +47,13 @@ export type FieldOverlay = Record<string, FieldConfig>;
 // ---------------------------------------------------------------------------
 
 type WidgetType =
-  | "InputText"
-  | "Select"
-  | "ToggleSwitch"
-  | "InputNumber"
-  | "CommaSeparated" // string | string[] | null  ↔  comma-joined InputText
-  | "KVPairs" // {key: val} dict  ↔  dynamic key+value row list
-  | "SchemaObject"; // nested SchemaObjectEditor (recursive)
+  | "text"
+  | "select"
+  | "switch"
+  | "number"
+  | "commaSeparated" // string | string[] | null  ↔  one comma-joined field
+  | "keyValue" // {key: val} mapping  ↔  a list of key/value rows
+  | "object"; // nested SchemaObjectEditor (recursive)
 
 interface KVPair {
   key: string;
@@ -70,7 +80,7 @@ const props = defineProps<{
   overlay?: FieldOverlay;
   /** Extra values used by showIf conditions prefixed with '$ctx.'. */
   context?: Record<string, any>;
-  /** Per-key overlays forwarded to auto-rendered nested SchemaObjectEditor instances. */
+  /** Per-key overlays forwarded to auto-rendered nested editors. */
   nestedOverlays?: Record<string, FieldOverlay>;
 }>();
 
@@ -83,26 +93,26 @@ const emit = defineEmits<{
 // ---------------------------------------------------------------------------
 
 function detectWidget(fieldSchema: Record<string, any>): WidgetType {
-  if (fieldSchema.enum) return "Select";
+  if (fieldSchema.enum) return "select";
   const type = fieldSchema.type;
-  if (type === "boolean") return "ToggleSwitch";
-  if (type === "number" || type === "integer") return "InputNumber";
-  if (type === "string") return "InputText";
-  if (type === "object" && !fieldSchema.patternProperties) return "SchemaObject";
-  if (fieldSchema.patternProperties) return "KVPairs";
+  if (type === "boolean") return "switch";
+  if (type === "number" || type === "integer") return "number";
+  if (type === "string") return "text";
+  if (type === "object" && !fieldSchema.patternProperties) return "object";
+  if (fieldSchema.patternProperties) return "keyValue";
 
   // anyOf / oneOf — inspect variants
   const anyOf: any[] = fieldSchema.anyOf ?? fieldSchema.oneOf ?? [];
   if (anyOf.length) {
     const hasPatternProps = anyOf.some(
-      (s) => s.patternProperties || s.type === "object"
+      (s) => s.patternProperties || s.type === "object",
     );
-    if (hasPatternProps) return "KVPairs";
+    if (hasPatternProps) return "keyValue";
     const hasArray = anyOf.some((s) => s.type === "array");
-    if (hasArray) return "CommaSeparated";
-    if (anyOf.some((s) => s.type === "boolean")) return "ToggleSwitch";
+    if (hasArray) return "commaSeparated";
+    if (anyOf.some((s) => s.type === "boolean")) return "switch";
   }
-  return "InputText";
+  return "text";
 }
 
 // ---------------------------------------------------------------------------
@@ -129,7 +139,8 @@ const fieldEntries = computed<FieldEntry[]>(() => {
       if (!visible) continue;
     }
 
-    const widget: WidgetType = (fc.widget as WidgetType | undefined) ?? detectWidget(fieldSchema);
+    const widget: WidgetType =
+      (fc.widget as WidgetType | undefined) ?? detectWidget(fieldSchema);
     const options = fc.options ?? fieldSchema.enum ?? null;
 
     entries.push({
@@ -145,7 +156,7 @@ const fieldEntries = computed<FieldEntry[]>(() => {
 });
 
 // ---------------------------------------------------------------------------
-// Local mutable caches for CommaSeparated and KVPairs widgets.
+// Local mutable caches for commaSeparated and keyValue widgets.
 // Initialized from modelValue on mount; writes go up via emit.
 // The parent should use :key="<stable-id>" so this component remounts when
 // the underlying data source changes (e.g. on file switch).
@@ -158,11 +169,13 @@ function initCaches() {
   const properties: Record<string, any> = props.schema?.properties ?? {};
   for (const [key, rawSchema] of Object.entries(properties)) {
     const fieldSchema = rawSchema as Record<string, any>;
-    const widget = (props.overlay?.[key]?.widget as WidgetType | undefined) ?? detectWidget(fieldSchema);
-    if (widget === "CommaSeparated") {
+    const widget =
+      (props.overlay?.[key]?.widget as WidgetType | undefined) ??
+      detectWidget(fieldSchema);
+    if (widget === "commaSeparated") {
       const v = props.modelValue[key];
       commaSepCache[key] = Array.isArray(v) ? v.join(", ") : (v ?? "");
-    } else if (widget === "KVPairs") {
+    } else if (widget === "keyValue") {
       const v = props.modelValue[key];
       kvCache[key] =
         v && typeof v === "object" && !Array.isArray(v)
@@ -188,9 +201,14 @@ function updateCommaSep(key: string) {
     .split(",")
     .map((p) => p.trim())
     .filter(Boolean);
-  const val =
-    parts.length === 0 ? null : parts.length === 1 ? parts[0] : parts;
+  const val = parts.length === 0 ? null : parts.length === 1 ? parts[0] : parts;
   update(key, val);
+}
+
+/** A number field writes a number, or null — never the string the DOM gives. */
+function updateNumber(key: string, raw: string) {
+  const trimmed = raw.trim();
+  update(key, trimmed === "" ? null : Number(trimmed));
 }
 
 function addKVRow(key: string) {
@@ -206,182 +224,144 @@ function removeKVRow(key: string, i: number) {
 
 function flushKV(key: string) {
   const obj = Object.fromEntries(
-    (kvCache[key] ?? []).filter((p) => p.key).map((p) => [p.key, p.value])
+    (kvCache[key] ?? []).filter((p) => p.key).map((p) => [p.key, p.value]),
   );
   update(key, Object.keys(obj).length ? obj : null);
 }
+
+const FIELD =
+  "h-6 w-full min-w-0 rounded-xs border border-input bg-surface px-1.5 text-sm outline-none focus-visible:border-ring";
+const LABEL = "font-mono text-xs text-text-dim";
 </script>
 
 <template>
-  <div class="schema-fields">
+  <div class="flex flex-col gap-2">
     <template v-for="entry in fieldEntries" :key="entry.key">
-
-      <!-- ToggleSwitch — inline (label left, switch right) -->
-      <div v-if="entry.widget === 'ToggleSwitch'" class="field inline-field">
-        <label>{{ entry.label }}</label>
-        <ToggleSwitch
-          :modelValue="!!modelValue[entry.key]"
-          @update:modelValue="update(entry.key, $event)"
+      <!-- A switch reads better with its label beside it than above it. -->
+      <div
+        v-if="entry.widget === 'switch'"
+        class="flex items-center justify-between gap-2"
+      >
+        <label :class="LABEL">{{ entry.label }}</label>
+        <Switch
+          :model-value="!!modelValue[entry.key]"
           v-bind="entry.inputProps"
+          @update:model-value="update(entry.key, $event)"
         />
       </div>
 
-      <!-- Select -->
-      <div v-else-if="entry.widget === 'Select'" class="field">
-        <label>{{ entry.label }}</label>
-        <Select
-          :modelValue="modelValue[entry.key] ?? null"
-          :options="entry.options ?? []"
-          @update:modelValue="update(entry.key, $event)"
-          size="small"
-          class="w-full"
-          showClear
+      <div v-else-if="entry.widget === 'select'" class="flex flex-col gap-1">
+        <label :class="LABEL">{{ entry.label }}</label>
+        <select
+          :value="modelValue[entry.key] ?? ''"
+          :class="FIELD"
           v-bind="entry.inputProps"
+          @change="
+            update(entry.key, ($event.target as HTMLSelectElement).value || null)
+          "
+        >
+          <!-- Blank first, so a value that was set can be unset again. -->
+          <option value="">—</option>
+          <option v-for="option in entry.options ?? []" :key="option" :value="option">
+            {{ option }}
+          </option>
+        </select>
+      </div>
+
+      <div v-else-if="entry.widget === 'number'" class="flex flex-col gap-1">
+        <label :class="LABEL">{{ entry.label }}</label>
+        <input
+          type="number"
+          :value="modelValue[entry.key] ?? ''"
+          :class="FIELD"
+          v-bind="entry.inputProps"
+          @change="updateNumber(entry.key, ($event.target as HTMLInputElement).value)"
         />
       </div>
 
-      <!-- InputNumber -->
-      <div v-else-if="entry.widget === 'InputNumber'" class="field">
-        <label>{{ entry.label }}</label>
-        <InputNumber
-          :modelValue="modelValue[entry.key] ?? null"
-          @update:modelValue="update(entry.key, $event)"
-          size="small"
-          class="w-full"
-          v-bind="entry.inputProps"
-        />
-      </div>
-
-      <!-- CommaSeparated: string | string[] | null ↔ comma-joined text -->
-      <div v-else-if="entry.widget === 'CommaSeparated'" class="field">
-        <label>{{ entry.label }}</label>
-        <InputText
+      <div v-else-if="entry.widget === 'commaSeparated'" class="flex flex-col gap-1">
+        <label :class="LABEL">{{ entry.label }}</label>
+        <input
           v-model="commaSepCache[entry.key]"
-          @change="updateCommaSep(entry.key)"
-          size="small"
-          class="w-full"
+          type="text"
+          :class="FIELD"
           v-bind="entry.inputProps"
+          @change="updateCommaSep(entry.key)"
         />
       </div>
 
-      <!-- KVPairs: {key: val} dict ↔ dynamic key+value row list -->
-      <div v-else-if="entry.widget === 'KVPairs'" class="field">
-        <div class="kv-header">
-          <label>{{ entry.label }}</label>
-          <Button icon="pi pi-plus" size="small" text @click="addKVRow(entry.key)" />
+      <div v-else-if="entry.widget === 'keyValue'" class="flex flex-col gap-1">
+        <div class="flex items-center justify-between">
+          <label :class="LABEL">{{ entry.label }}</label>
+          <button
+            type="button"
+            title="Add a row"
+            class="grid size-5 place-items-center rounded-xs text-text-faint hover:bg-hover hover:text-foreground"
+            @click="addKVRow(entry.key)"
+          >
+            <Plus class="size-3.5" :stroke-width="ICON_STROKE_WIDTH" />
+          </button>
         </div>
         <div
           v-for="(pair, j) in kvCache[entry.key] ?? []"
           :key="j"
-          class="kv-row"
+          class="flex items-center gap-1"
         >
-          <InputText
+          <input
             v-model="pair.key"
+            type="text"
             placeholder="key"
-            size="small"
+            :class="FIELD"
             @change="flushKV(entry.key)"
           />
-          <InputText
+          <input
             v-model="pair.value"
+            type="text"
             placeholder="value"
-            size="small"
+            :class="FIELD"
             @change="flushKV(entry.key)"
           />
-          <Button
-            icon="pi pi-times"
-            size="small"
-            text
-            severity="danger"
+          <button
+            type="button"
+            title="Remove this row"
+            class="grid size-6 shrink-0 place-items-center rounded-xs text-text-faint hover:bg-danger-soft hover:text-danger-text"
             @click="removeKVRow(entry.key, j)"
-          />
+          >
+            <X class="size-3.5" :stroke-width="2" />
+          </button>
         </div>
       </div>
 
-      <!-- Nested SchemaObjectEditor (recursive) -->
-      <div v-else-if="entry.widget === 'SchemaObject'" class="field nested-object">
-        <label class="nested-label">{{ entry.label }}</label>
+      <div
+        v-else-if="entry.widget === 'object'"
+        class="flex flex-col gap-1 rounded-sm border border-border p-2"
+      >
+        <label
+          class="mb-0.5 text-2xs font-semibold uppercase tracking-wide text-text-faint"
+        >
+          {{ entry.label }}
+        </label>
         <SchemaObjectEditor
           :schema="entry.fieldSchema"
-          :modelValue="modelValue[entry.key] ?? {}"
+          :model-value="modelValue[entry.key] ?? {}"
           :overlay="nestedOverlays?.[entry.key]"
           :context="context"
-          @update:modelValue="update(entry.key, $event)"
+          @update:model-value="update(entry.key, $event)"
         />
       </div>
 
-      <!-- InputText (default) -->
-      <div v-else class="field">
-        <label>{{ entry.label }}</label>
-        <InputText
-          :modelValue="modelValue[entry.key] != null ? String(modelValue[entry.key]) : ''"
-          @update:modelValue="update(entry.key, $event || null)"
-          size="small"
-          class="w-full"
+      <div v-else class="flex flex-col gap-1">
+        <label :class="LABEL">{{ entry.label }}</label>
+        <input
+          type="text"
+          :value="modelValue[entry.key] != null ? String(modelValue[entry.key]) : ''"
+          :class="FIELD"
           v-bind="entry.inputProps"
+          @change="
+            update(entry.key, ($event.target as HTMLInputElement).value || null)
+          "
         />
       </div>
-
     </template>
   </div>
 </template>
-
-<style scoped>
-.schema-fields {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.field {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-}
-
-.field label {
-  font-size: 0.8rem;
-  font-family: monospace;
-  color: var(--p-text-color, #333);
-}
-
-.inline-field {
-  flex-direction: row;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.kv-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.kv-row {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-}
-
-.kv-row :deep(.p-inputtext) {
-  flex: 1;
-}
-
-.nested-object {
-  padding: 0.5rem;
-  border: 1px solid var(--p-content-border-color, #e0e0e0);
-  border-radius: 4px;
-}
-
-.nested-label {
-  font-size: 0.75rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--p-text-muted-color, #888) !important;
-  margin-bottom: 0.25rem;
-}
-
-.w-full {
-  width: 100%;
-}
-</style>

@@ -10,7 +10,7 @@
 import { computed, ref, watch } from "vue";
 import { Network, RefreshCw, ShieldCheck } from "lucide-vue-next";
 
-import ImportGraphPanel from "@/components/layout/ImportGraphPanel.vue";
+import ImportGraphDialog from "@/components/layout/ImportGraphDialog.vue";
 import { Tree } from "@/components/ui/tree";
 import { ICON_STROKE_WIDTH, sectionIcon } from "@/lib/icons";
 import { buildModelTree, STRUCTURED_SECTIONS, type ModelTreeNode } from "@/lib/modelTree";
@@ -162,7 +162,7 @@ function validateDeep() {
       </button>
     </div>
 
-    <ImportGraphPanel
+    <ImportGraphDialog
       v-if="tabs.versionId"
       v-model:visible="showImportGraph"
       :versionId="tabs.versionId"

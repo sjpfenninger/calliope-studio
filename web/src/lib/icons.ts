@@ -20,8 +20,9 @@ import {
  *
  * The section-to-icon map used to be duplicated across three components, which
  * meant a section could be a bolt in the tree and a folder in the tab bar. They
- * are also components rather than class-name strings now: primeicons was a 40 kB
- * font loaded for two dozen glyphs, where lucide tree-shakes to the ones used.
+ * are also components rather than class-name strings now: the previous icon font
+ * was 40 kB loaded for two dozen glyphs, where lucide tree-shakes to the ones
+ * actually used.
  *
  * Stroke width 1.75 rather than lucide's default 2 — the default reads heavy
  * beside 12px text.

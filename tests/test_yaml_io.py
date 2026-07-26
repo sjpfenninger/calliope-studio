@@ -14,6 +14,7 @@ from calligraph.modeldef.paths import yaml_files
 from calligraph.modeldef.yaml_io import (
     SectionNotFound,
     _round_trip_yaml,
+    from_plain,
     load,
     read_section,
     to_plain,
@@ -70,10 +71,17 @@ class TestRoundTrip:
 
 
 class TestToPlain:
-    def test_infinity_becomes_none(self, sample_file):
-        # Calliope uses .inf for unbounded parameters; JSON cannot carry it.
+    def test_infinity_travels_as_its_yaml_spelling(self, sample_file):
+        """`.inf` has to survive a JSON round trip, which cannot carry a float.
+
+        It used to become `None`, which reached the editor as an *empty* field —
+        and the editors drop empty values, so opening the techs editor and
+        pressing Save deleted every `.inf` line in the user's file. Carrying the
+        YAML spelling instead means the field shows `.inf`, which is both what
+        the file says and what someone would type to mean it.
+        """
         techs = read_section(sample_file, "techs")
-        assert techs["battery"]["flow_cap_max"] is None
+        assert techs["battery"]["flow_cap_max"] == ".inf"
 
     def test_nested_containers_become_plain_types(self, sample_file):
         document = to_plain(load(sample_file))
@@ -82,8 +90,33 @@ class TestToPlain:
 
     def test_finite_floats_survive(self):
         assert to_plain(1.5) == 1.5
-        assert to_plain(float("nan")) is None
-        assert to_plain(-math.inf) is None
+        assert to_plain(float("nan")) == ".nan"
+        assert to_plain(-math.inf) == "-.inf"
+
+    def test_the_spellings_convert_back(self):
+        assert from_plain(".inf") == math.inf
+        assert from_plain("-.inf") == -math.inf
+        assert math.isnan(from_plain(".nan"))
+
+    def test_only_the_exact_spellings_convert(self):
+        # A general "parse anything numeric-looking" would eventually mangle a
+        # technology named after a number, or a unit string.
+        assert from_plain("inf") == "inf"
+        assert from_plain("1.5") == "1.5"
+        assert from_plain(None) is None
+
+    def test_an_unbounded_parameter_survives_a_no_op_save(self, sample_file):
+        """The whole point: read a section, write it straight back, lose nothing.
+
+        This is the failure the browser check found — `area_use_max: .inf` and
+        `storage_cap_max: .inf` vanished from `techs.yaml` the first time anyone
+        pressed Save.
+        """
+        before = sample_file.read_text()
+        write_section(sample_file, "techs", read_section(sample_file, "techs"))
+
+        assert ".inf" in sample_file.read_text()
+        assert_faithful_rewrite(before, sample_file.read_text(), "techs round trip")
 
 
 def _comments(text: str) -> list[str]:

@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, watch } from "vue";
-import InputText from "primevue/inputtext";
-import Button from "primevue/button";
-import client from "../../api/client";
-import { useTabsStore } from "../../stores/tabs";
-import { useSchemaStore } from "../../stores/schema";
+import { ref, reactive, computed, nextTick, onMounted, watch } from "vue";
+
+import client from "@/api/client";
+import EditorToolbar from "./EditorToolbar.vue";
+import { FIELD, FIELD_LABEL, SECTION, SECTION_HEADING } from "@/lib/formClasses";
+import { useTabsStore } from "@/stores/tabs";
+import { useSchemaStore } from "@/stores/schema";
 import SchemaObjectEditor, { type FieldOverlay } from "./SchemaObjectEditor.vue";
 
 const props = defineProps<{
@@ -30,9 +31,9 @@ const configData = reactive<{
   solve: Record<string, any>;
 }>({ init: {}, build: {}, solve: {} });
 
-// time_subset is split into two inputs; it is NOT in the Calliope schema as a
-// top-level init property, so SchemaObjectEditor won't render it. We handle
-// it manually below the init SchemaObjectEditor.
+// The time subset is two inputs rather than one list field, because it is a
+// start and an end. Rendered by hand: `subset` is a mapping of dimension name to
+// range in the schema, which the generic renderer would show as a key/value grid.
 const timeSubsetStart = ref("");
 const timeSubsetEnd = ref("");
 
@@ -51,10 +52,10 @@ const solveSchema = computed(() => schemaStore.subschema("config.solve") ?? {});
 // ---------------------------------------------------------------------------
 
 const initOverlay: FieldOverlay = {
-  // Visible: name (InputText auto), mode (Select auto from schema enum).
+  // Visible: name (a text field), mode (a select, from the schema enum).
   calliope_version: { hidden: true },
   broadcast_input_data: { hidden: true },
-  subset: { hidden: true }, // rendered manually as the time_subset split pair
+  subset: { hidden: true }, // rendered manually as the two fields below
   resample: { hidden: true },
   time_cluster: { hidden: true },
   datetime_format: { hidden: true },
@@ -68,18 +69,19 @@ const initOverlay: FieldOverlay = {
 const buildOverlay: FieldOverlay = {
   // backend: schema enum is pyomo/gurobi; we override to reflect common backends.
   backend: { options: ["pyomo", "highs", "gurobi"] },
-  // ensure_feasibility: auto-detected as ToggleSwitch.
+  // ensure_feasibility: auto-detected as a switch.
   objective: { hidden: true },
   operate: { hidden: true },
 };
 
 const solveOverlay: FieldOverlay = {
-  // solver: schema type is free string; add a curated Select.
+  // solver: the schema type is a free string; offer the ones that exist.
   solver: {
-    widget: "Select",
+    widget: "select",
     options: ["cbc", "glpk", "highs", "gurobi", "cplex", "cpsat"],
   },
-  zero_threshold: { inputProps: { minFractionDigits: 0, maxFractionDigits: 15 } },
+  // A tolerance like 1e-10 must not be rounded by a stepper.
+  zero_threshold: { inputProps: { step: "any" } },
   // spores: show only when mode === 'spores' (checked via context prop).
   spores: { showIf: { field: "$ctx.mode", eq: "spores" } },
   // Hide less-common solve fields.
@@ -115,28 +117,41 @@ async function load() {
     configData.build = d.build ?? {};
     configData.solve = d.solve ?? {};
 
-    // time_subset is stored as an array [start, end] in init.
-    const ts =
-      configData.init.time_subset ??
-      configData.init.subset?.timesteps ??
-      null;
+    // `config.init.subset.timesteps` is where Calliope 0.7 keeps it. The
+    // pre-0.7 `time_subset` is still read, so a model carrying one still opens.
+    const ts = configData.init.subset?.timesteps ?? configData.init.time_subset ?? null;
     timeSubsetStart.value = Array.isArray(ts) ? (ts[0] ?? "") : "";
     timeSubsetEnd.value = Array.isArray(ts) ? (ts[1] ?? "") : "";
   } catch (e: any) {
     error.value = e?.response?.data?.detail ?? "Failed to load config section.";
   } finally {
     isLoading.value = false;
+    // The dirty watchers below are post-flush, so they fire once *after*
+    // `isLoading` goes false — with the values load() just wrote. Without this
+    // the tab acquired an unsaved-changes dot from merely being opened.
+    await nextTick();
+    tabsStore.markClean(props.tabId);
   }
 }
 
 function buildPayload() {
   const init = { ...configData.init };
-  // Always write time_subset from the split-pair inputs; remove old subset key.
-  delete init.subset;
+  // Written back where Calliope 0.7 reads it. This used to write `time_subset`,
+  // which is the *pre*-0.7 spelling and not in the schema at all — so opening
+  // the config editor and pressing Save replaced a working `subset:` block with
+  // a key Calliope does not accept.
+  const { timesteps: _dropped, ...otherSubsets } = (init.subset ?? {}) as Record<
+    string,
+    unknown
+  >;
   delete init.time_subset;
+  const subset: Record<string, unknown> = { ...otherSubsets };
   if (timeSubsetStart.value || timeSubsetEnd.value) {
-    init.time_subset = [timeSubsetStart.value, timeSubsetEnd.value];
+    subset.timesteps = [timeSubsetStart.value, timeSubsetEnd.value];
   }
+  if (Object.keys(subset).length) init.subset = subset;
+  else delete init.subset;
+
   return { init, build: { ...configData.build }, solve: { ...configData.solve } };
 }
 
@@ -187,136 +202,68 @@ watch(() => props.filePath, load);
 </script>
 
 <template>
-  <div class="config-editor">
-    <div v-if="isLoading" class="placeholder">Loading config…</div>
-    <div v-else-if="error" class="placeholder error">{{ error }}</div>
+  <div class="flex min-h-0 flex-1 flex-col">
+    <p v-if="isLoading" class="p-6 text-center text-sm text-muted-foreground">
+      Loading config…
+    </p>
+    <p v-else-if="error" class="p-6 text-center text-sm text-danger-text">{{ error }}</p>
+
     <template v-else>
-      <div class="toolbar">
-        <Button label="Save" icon="pi pi-save" size="small" :loading="isSaving" @click="save" />
-        <span class="hint">or Ctrl/Cmd+S</span>
-      </div>
+      <EditorToolbar :saving="isSaving" @save="save" />
 
-      <!-- init section -->
-      <section class="form-section">
-        <h3 class="section-heading">init</h3>
-        <SchemaObjectEditor
-          :key="filePath + ':init'"
-          :schema="initSchema"
-          v-model="configData.init"
-          :overlay="initOverlay"
-        />
-        <!-- time_subset — manual split-pair field (not in schema as a property) -->
-        <div class="field">
-          <label>time_subset</label>
-          <div class="inline-pair">
-            <InputText v-model="timeSubsetStart" placeholder="start" size="small" />
-            <span>→</span>
-            <InputText v-model="timeSubsetEnd" placeholder="end" size="small" />
+      <div class="flex min-h-0 flex-1 flex-col gap-2 overflow-auto p-2">
+        <section :class="SECTION">
+          <h3 :class="SECTION_HEADING">init</h3>
+          <SchemaObjectEditor
+            :key="filePath + ':init'"
+            v-model="configData.init"
+            :schema="initSchema"
+            :overlay="initOverlay"
+          />
+          <!-- time_subset is not a schema property, so it is rendered by hand:
+               two fields, because it is a start and an end rather than a list. -->
+          <div class="flex flex-col gap-1">
+            <label :class="FIELD_LABEL">time_subset</label>
+            <div class="flex items-center gap-2">
+              <input
+                v-model="timeSubsetStart"
+                type="text"
+                placeholder="start"
+                :class="FIELD"
+              />
+              <span class="text-text-faint">→</span>
+              <input
+                v-model="timeSubsetEnd"
+                type="text"
+                placeholder="end"
+                :class="FIELD"
+              />
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
 
-      <!-- build section -->
-      <section class="form-section">
-        <h3 class="section-heading">build</h3>
-        <SchemaObjectEditor
-          :key="filePath + ':build'"
-          :schema="buildSchema"
-          v-model="configData.build"
-          :overlay="buildOverlay"
-        />
-      </section>
+        <section :class="SECTION">
+          <h3 :class="SECTION_HEADING">build</h3>
+          <SchemaObjectEditor
+            :key="filePath + ':build'"
+            v-model="configData.build"
+            :schema="buildSchema"
+            :overlay="buildOverlay"
+          />
+        </section>
 
-      <!-- solve section -->
-      <section class="form-section">
-        <h3 class="section-heading">solve</h3>
-        <SchemaObjectEditor
-          :key="filePath + ':solve'"
-          :schema="solveSchema"
-          v-model="configData.solve"
-          :overlay="solveOverlay"
-          :context="{ mode: configData.init.mode }"
-          :nestedOverlays="{ spores: sporesOverlay }"
-        />
-      </section>
+        <section :class="SECTION">
+          <h3 :class="SECTION_HEADING">solve</h3>
+          <SchemaObjectEditor
+            :key="filePath + ':solve'"
+            v-model="configData.solve"
+            :schema="solveSchema"
+            :overlay="solveOverlay"
+            :context="{ mode: configData.init.mode }"
+            :nested-overlays="{ spores: sporesOverlay }"
+          />
+        </section>
+      </div>
     </template>
   </div>
 </template>
-
-<style scoped>
-.config-editor {
-  display: flex;
-  flex-direction: column;
-  padding: 1rem;
-  gap: 0.5rem;
-  overflow: auto;
-  height: 100%;
-}
-
-.placeholder {
-  padding: 2rem;
-  text-align: center;
-  color: var(--p-text-muted-color, #888);
-  font-size: 0.875rem;
-}
-
-.placeholder.error {
-  color: #ef4444;
-}
-
-.toolbar {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  margin-bottom: 0.5rem;
-}
-
-.hint {
-  font-size: 0.75rem;
-  color: var(--p-text-muted-color, #888);
-}
-
-.form-section {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  padding: 0.75rem;
-  border: 1px solid var(--p-content-border-color, #e0e0e0);
-  border-radius: 6px;
-}
-
-.section-heading {
-  margin: 0 0 0.25rem;
-  font-size: 0.8rem;
-  font-weight: 600;
-  color: var(--p-text-muted-color, #666);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-.field {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-}
-
-.field label {
-  font-size: 0.8rem;
-  font-family: monospace;
-  color: var(--p-text-color, #333);
-}
-
-.inline-pair {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.inline-pair :deep(.p-inputtext) {
-  flex: 1;
-}
-
-.w-full {
-  width: 100%;
-}
-</style>

@@ -1,17 +1,19 @@
 <script setup lang="ts">
 /**
- * ScalarOrDataVar — two-mode input for Calliope tech/node parameters.
+ * A parameter value, which in Calliope is either a scalar or an indexed table.
  *
- * Simple mode (default): a single InputText for scalar values (strings, numbers).
- * Structured mode: three InputText fields for `data`, `index`, and `dims`
- *   matching Calliope's IndexedTechNodeParam schema.
+ * Simple mode is one field. Structured mode is `data`, `index` and `dims`,
+ * matching Calliope's `IndexedTechNodeParam`. The toggle switches between them:
+ * going simple takes `data[0]` as the scalar, going structured puts the scalar
+ * into `data`.
  *
- * The ⊞ toggle button switches between modes. Switching to simple mode
- * serialises data[0] as the scalar; switching to structured expands.
+ * Both shapes have to be editable in place, because a model mixes them freely —
+ * `flow_cap_max: 100` next to a `cost_flow_cap` indexed over cost classes.
  */
 import { ref } from "vue";
-import InputText from "primevue/inputtext";
-import Button from "primevue/button";
+import { MinusCircle, Table2 } from "lucide-vue-next";
+
+import { ICON_STROKE_WIDTH } from "@/lib/icons";
 
 const props = defineProps<{
   modelValue: any;
@@ -30,7 +32,7 @@ const structured = ref(isStructuredValue(props.modelValue));
 
 // Local reactive state — avoid mutating props.
 const scalarText = ref<string>(
-  structured.value ? "" : (props.modelValue != null ? String(props.modelValue) : "")
+  structured.value ? "" : props.modelValue != null ? String(props.modelValue) : "",
 );
 
 function valueToDataString(v: any): string {
@@ -46,17 +48,20 @@ function valueToString(v: any): string {
 }
 
 const dataText = ref<string>(
-  structured.value ? valueToDataString(props.modelValue?.data) : ""
+  structured.value ? valueToDataString(props.modelValue?.data) : "",
 );
 const indexText = ref<string>(
-  structured.value ? valueToString(props.modelValue?.index) : ""
+  structured.value ? valueToString(props.modelValue?.index) : "",
 );
 const dimsText = ref<string>(
-  structured.value ? valueToString(props.modelValue?.dims) : ""
+  structured.value ? valueToString(props.modelValue?.dims) : "",
 );
 
 function parseCommaSep(s: string): string | string[] | null {
-  const parts = s.split(",").map((p) => p.trim()).filter(Boolean);
+  const parts = s
+    .split(",")
+    .map((p) => p.trim())
+    .filter(Boolean);
   if (parts.length === 0) return null;
   if (parts.length === 1) return parts[0];
   return parts;
@@ -99,116 +104,69 @@ function toggleMode() {
     emitStructured();
   }
 }
+
+const FIELD =
+  "h-6 w-full min-w-0 rounded-xs border border-input bg-surface px-1.5 text-sm outline-none focus-visible:border-ring";
+const TOGGLE =
+  "grid size-6 shrink-0 place-items-center rounded-xs text-text-faint hover:bg-hover hover:text-foreground";
+const SUB_LABEL = "w-10 shrink-0 text-right font-mono text-2xs text-text-faint";
 </script>
 
 <template>
-  <div class="sdv-root">
-    <!-- Simple mode -->
+  <div class="flex w-full items-start gap-1">
     <template v-if="!structured">
-      <InputText
-        v-model="scalarText"
-        size="small"
-        class="sdv-scalar"
-        @change="emitScalar"
-      />
-      <Button
-        icon="pi pi-table"
-        size="small"
-        text
-        severity="secondary"
-        class="sdv-toggle"
+      <input v-model="scalarText" type="text" :class="FIELD" @change="emitScalar" />
+      <button
+        type="button"
+        :class="TOGGLE"
         title="Switch to indexed form"
         @click="toggleMode"
-      />
+      >
+        <Table2 class="size-3.5" :stroke-width="ICON_STROKE_WIDTH" />
+      </button>
     </template>
 
-    <!-- Structured mode -->
     <template v-else>
-      <div class="sdv-structured">
-        <div class="sdv-row">
-          <span class="sdv-sub-label">data</span>
-          <InputText
+      <div class="flex min-w-0 flex-1 flex-col gap-0.5">
+        <label class="flex items-center gap-1.5">
+          <span :class="SUB_LABEL">data</span>
+          <input
             v-model="dataText"
-            size="small"
-            class="sdv-input"
+            type="text"
+            :class="FIELD"
             placeholder="value(s)"
             @change="emitStructured"
           />
-        </div>
-        <div class="sdv-row">
-          <span class="sdv-sub-label">index</span>
-          <InputText
+        </label>
+        <label class="flex items-center gap-1.5">
+          <span :class="SUB_LABEL">index</span>
+          <input
             v-model="indexText"
-            size="small"
-            class="sdv-input"
+            type="text"
+            :class="FIELD"
             placeholder="index value(s)"
             @change="emitStructured"
           />
-        </div>
-        <div class="sdv-row">
-          <span class="sdv-sub-label">dims</span>
-          <InputText
+        </label>
+        <label class="flex items-center gap-1.5">
+          <span :class="SUB_LABEL">dims</span>
+          <input
             v-model="dimsText"
-            size="small"
-            class="sdv-input"
+            type="text"
+            :class="FIELD"
             placeholder="dimension name(s)"
             @change="emitStructured"
           />
-        </div>
+        </label>
       </div>
-      <Button
-        icon="pi pi-minus-circle"
-        size="small"
-        text
-        severity="secondary"
-        class="sdv-toggle"
+      <button
+        type="button"
+        :class="TOGGLE"
         title="Switch to scalar form"
         @click="toggleMode"
-      />
+      >
+        <MinusCircle class="size-3.5" :stroke-width="ICON_STROKE_WIDTH" />
+      </button>
     </template>
   </div>
 </template>
-
-<style scoped>
-.sdv-root {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.25rem;
-  width: 100%;
-}
-
-.sdv-scalar {
-  flex: 1;
-}
-
-.sdv-toggle {
-  flex-shrink: 0;
-  padding: 0.15rem 0.3rem;
-}
-
-.sdv-structured {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
-}
-
-.sdv-row {
-  display: flex;
-  align-items: center;
-  gap: 0.35rem;
-}
-
-.sdv-sub-label {
-  font-size: 0.75rem;
-  font-family: monospace;
-  color: var(--p-text-muted-color, #888);
-  width: 2.5rem;
-  flex-shrink: 0;
-  text-align: right;
-}
-
-.sdv-input {
-  flex: 1;
-}
-</style>

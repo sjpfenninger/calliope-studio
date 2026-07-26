@@ -11,19 +11,29 @@
  * section on save and writes back the entries it does not own untouched.
  */
 import { ref, computed, onMounted, onUnmounted, watch } from "vue";
-import Accordion from "primevue/accordion";
-import AccordionPanel from "primevue/accordionpanel";
-import AccordionHeader from "primevue/accordionheader";
-import AccordionContent from "primevue/accordioncontent";
-import InputText from "primevue/inputtext";
-import Select from "primevue/select";
-import Button from "primevue/button";
-import client from "../../api/client";
-import { useTabsStore } from "../../stores/tabs";
-import { useSectionDataStore } from "../../stores/sectionData";
-import { useComponentTreeStore } from "../../stores/componentTree";
+import { Plus, Trash2, X } from "lucide-vue-next";
+
+import client from "@/api/client";
+import EditorToolbar from "./EditorToolbar.vue";
 import ScalarOrDataVar from "./ScalarOrDataVar.vue";
-import { isTransmission, mergeIntoSection, type RawTech } from "../../lib/techs";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
+import {
+  DANGER_ICON_BUTTON,
+  FIELD,
+  FIELD_LABEL,
+  GHOST_BUTTON,
+} from "@/lib/formClasses";
+import { ICON_STROKE_WIDTH } from "@/lib/icons";
+import { cn } from "@/lib/utils";
+import { useTabsStore } from "@/stores/tabs";
+import { useSectionDataStore } from "@/stores/sectionData";
+import { useComponentTreeStore } from "@/stores/componentTree";
+import { isTransmission, mergeIntoSection, type RawTech } from "@/lib/techs";
 
 const props = defineProps<{
   versionId: string;
@@ -230,265 +240,160 @@ watch(() => props.filePath, load);
 </script>
 
 <template>
-  <div class="links-editor">
-    <div v-if="isLoading" class="placeholder">Loading transmission technologies…</div>
-    <div v-else-if="error" class="placeholder error">{{ error }}</div>
+  <div class="flex min-h-0 flex-1 flex-col">
+    <p v-if="isLoading" class="p-6 text-center text-sm text-muted-foreground">
+      Loading transmission technologies…
+    </p>
+    <p v-else-if="error" class="p-6 text-center text-sm text-danger-text">{{ error }}</p>
 
     <template v-else>
-      <div class="toolbar">
-        <Button
-          label="Save"
-          icon="pi pi-save"
-          size="small"
-          :loading="isSaving"
-          @click="save"
-        />
-        <Button
-          v-if="!entryName"
-          label="Add link"
-          icon="pi pi-plus"
-          size="small"
-          severity="secondary"
-          @click="addEntry"
-        />
-        <span class="hint">or Ctrl/Cmd+S</span>
-      </div>
+      <EditorToolbar :saving="isSaving" @save="save">
+        <button v-if="!entryName" type="button" :class="GHOST_BUTTON" @click="addEntry">
+          <Plus class="size-3.5" :stroke-width="ICON_STROKE_WIDTH" />
+          Add link
+        </button>
+      </EditorToolbar>
 
-      <div class="entry-list">
-        <div v-if="visibleEntries.length === 0" class="placeholder">
+      <div class="min-h-0 flex-1 overflow-auto">
+        <p
+          v-if="!visibleEntries.length"
+          class="p-6 text-center text-sm text-muted-foreground"
+        >
           {{
             entryName
-              ? `Link "${entryName}" not found.`
-              : 'No transmission technologies in this file. Click "Add link" to create one.'
+              ? `No link called "${entryName}".`
+              : "No transmission technologies in this file."
           }}
-        </div>
+        </p>
 
         <Accordion
           v-else
-          :multiple="true"
-          :value="visibleEntries.map((e) => e.name || String(entries.indexOf(e)))"
+          type="multiple"
+          :default-value="visibleEntries.map((e) => e.name || String(entries.indexOf(e)))"
+          class="px-2"
         >
-          <AccordionPanel
+          <AccordionItem
             v-for="entry in visibleEntries"
             :key="entry.name || String(entries.indexOf(entry))"
             :value="entry.name || String(entries.indexOf(entry))"
           >
-            <AccordionHeader>
-              <span class="entry-title">
-                {{ entry.name || "(unnamed)" }}
-                <span v-if="entry.linkFrom || entry.linkTo" class="from-to">
+            <div class="flex items-center gap-1.5">
+              <AccordionTrigger
+                class="min-w-0 flex-1 items-center gap-2 py-1.5 font-mono text-sm hover:no-underline"
+              >
+                <span class="truncate">{{ entry.name || "(unnamed)" }}</span>
+                <span
+                  v-if="entry.linkFrom || entry.linkTo"
+                  class="shrink-0 text-2xs text-text-faint"
+                >
                   {{ entry.linkFrom || "?" }} → {{ entry.linkTo || "?" }}
                 </span>
-              </span>
-              <Button
-                icon="pi pi-trash"
-                size="small"
-                severity="danger"
-                text
-                class="delete-btn"
+              </AccordionTrigger>
+              <button
+                type="button"
+                title="Remove this link"
+                :class="DANGER_ICON_BUTTON"
                 @click.stop="removeEntry(entry)"
-              />
-            </AccordionHeader>
+              >
+                <Trash2 class="size-3.5" :stroke-width="ICON_STROKE_WIDTH" />
+              </button>
+            </div>
 
             <AccordionContent>
-              <div class="entry-form">
-                <div class="field">
-                  <label>name</label>
-                  <InputText
+              <div class="flex flex-col gap-2 pb-2">
+                <div class="flex flex-col gap-1">
+                  <label :class="FIELD_LABEL">name</label>
+                  <input
                     v-model="entry.name"
-                    size="small"
-                    class="w-full"
+                    type="text"
+                    :class="FIELD"
                     @input="onChange"
                   />
                 </div>
 
-                <div class="from-to-row">
-                  <div class="field ft-field">
-                    <label>link_from</label>
-                    <Select
+                <!-- The endpoints, which are what make this a link. Free text
+                     with suggestions rather than a closed list: a link may name
+                     a node defined in a file this editor has not loaded. -->
+                <div class="flex gap-2">
+                  <div class="flex min-w-0 flex-1 flex-col gap-1">
+                    <label :class="FIELD_LABEL">link_from</label>
+                    <input
                       v-model="entry.linkFrom"
-                      :options="nodeNames"
-                      editable
-                      size="small"
-                      class="w-full"
+                      type="text"
+                      list="link-node-names"
                       placeholder="node"
+                      :class="FIELD"
                       @change="onChange"
                     />
                   </div>
-                  <div class="field ft-field">
-                    <label>link_to</label>
-                    <Select
+                  <div class="flex min-w-0 flex-1 flex-col gap-1">
+                    <label :class="FIELD_LABEL">link_to</label>
+                    <input
                       v-model="entry.linkTo"
-                      :options="nodeNames"
-                      editable
-                      size="small"
-                      class="w-full"
+                      type="text"
+                      list="link-node-names"
                       placeholder="node"
+                      :class="FIELD"
                       @change="onChange"
                     />
                   </div>
                 </div>
 
-                <div v-if="entry.template" class="field">
-                  <label>template</label>
-                  <div class="template-note">
-                    Inherits from <code>{{ entry.template }}</code>
-                    <span v-if="inheritedFrom(entry, 'base_tech')">
-                      (base_tech: {{ inheritedFrom(entry, "base_tech") }})
-                    </span>
-                  </div>
-                </div>
+                <p v-if="entry.template" class="text-2xs text-text-faint">
+                  Inherits from <code class="font-mono">{{ entry.template }}</code>
+                  <span v-if="inheritedFrom(entry, 'base_tech')">
+                    (base_tech: {{ inheritedFrom(entry, "base_tech") }})
+                  </span>
+                </p>
 
-                <div v-if="entry.params.length > 0" class="params">
+                <div v-if="entry.params.length" class="flex flex-col gap-1">
                   <div
                     v-for="(param, index) in entry.params"
                     :key="index"
-                    class="param-row"
+                    class="flex items-start gap-1"
                   >
-                    <InputText
+                    <input
                       v-model="param.key"
-                      size="small"
-                      class="param-key"
+                      type="text"
                       placeholder="parameter"
+                      :class="cn(FIELD, 'w-36 shrink-0')"
                       @input="onChange"
                     />
                     <ScalarOrDataVar
-                      :modelValue="param.value"
-                      @update:modelValue="
+                      :model-value="param.value"
+                      @update:model-value="
                         param.value = $event;
                         onChange();
                       "
                     />
-                    <Button
-                      icon="pi pi-times"
-                      size="small"
-                      text
-                      severity="danger"
+                    <button
+                      type="button"
+                      title="Remove this parameter"
+                      :class="DANGER_ICON_BUTTON"
                       @click="removeParam(entry, index)"
-                    />
+                    >
+                      <X class="size-3.5" :stroke-width="2" />
+                    </button>
                   </div>
                 </div>
-                <Button
-                  label="Add parameter"
-                  icon="pi pi-plus"
-                  size="small"
-                  text
-                  severity="secondary"
+
+                <button
+                  type="button"
+                  :class="cn(GHOST_BUTTON, 'self-start')"
                   @click="addParam(entry)"
-                />
+                >
+                  <Plus class="size-3.5" :stroke-width="ICON_STROKE_WIDTH" />
+                  Add parameter
+                </button>
               </div>
             </AccordionContent>
-          </AccordionPanel>
+          </AccordionItem>
         </Accordion>
+
+        <datalist id="link-node-names">
+          <option v-for="node in nodeNames" :key="node" :value="node" />
+        </datalist>
       </div>
     </template>
   </div>
 </template>
-
-<style scoped>
-.links-editor {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  overflow: hidden;
-}
-
-.placeholder {
-  padding: 2rem;
-  text-align: center;
-  color: var(--p-text-muted-color, #888);
-  font-size: 0.875rem;
-}
-.placeholder.error {
-  color: #ef4444;
-}
-
-.toolbar {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 0.5rem 1rem;
-  flex-shrink: 0;
-  border-bottom: 1px solid var(--p-content-border-color, #e0e0e0);
-}
-
-.hint {
-  font-size: 0.75rem;
-  color: var(--p-text-muted-color, #888);
-}
-
-.entry-list {
-  flex: 1;
-  overflow-y: auto;
-  padding: 0.75rem 1rem;
-}
-
-.entry-title {
-  font-family: monospace;
-  font-size: 0.875rem;
-  flex: 1;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.from-to {
-  font-size: 0.75rem;
-  color: var(--p-text-muted-color, #888);
-}
-
-.delete-btn {
-  margin-left: auto;
-}
-
-.entry-form {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  padding: 0.5rem 0;
-}
-
-.field {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-}
-.field label {
-  font-size: 0.8rem;
-  font-family: monospace;
-  color: var(--p-text-muted-color, #666);
-}
-
-.from-to-row {
-  display: flex;
-  gap: 0.75rem;
-}
-.ft-field {
-  flex: 1;
-}
-
-.template-note {
-  font-size: 0.8rem;
-  color: var(--p-text-muted-color, #888);
-}
-
-.params {
-  display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
-}
-
-.param-row {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.4rem;
-}
-.param-key {
-  width: 9rem;
-  flex-shrink: 0;
-}
-
-.w-full {
-  width: 100%;
-}
-</style>

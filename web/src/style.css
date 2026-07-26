@@ -1,13 +1,19 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "./assets/tokens.css";
-/* MapLibre appends its controls outside the Vue tree, so they cannot be styled
-   from a scoped block. Both of these are imported here rather than from
-   ModelMap.vue, and in this order, because order is the whole point: the two
-   files set the same properties at the same specificity, so whichever lands
-   later wins. ModelMap is lazily loaded, so its stylesheet arrived in a *later*
-   chunk than the main one and stock maplibre-gl.css quietly won — the zoom
-   control stayed white in dark mode however the overrides were written. */
+/* Third-party stylesheets, imported here rather than from the components that
+   use them, and in this order — because order is the whole point. MapLibre
+   appends its controls outside the Vue tree, so they can only be restyled by an
+   unscoped sheet, and both files set the same properties at the same
+   specificity: whichever lands later wins. ModelMap is lazily loaded, so its
+   copy arrived in a *later* chunk than the main one and stock maplibre-gl.css
+   quietly won — the zoom control stayed white on a dark map however the
+   overrides were written.
+
+   Vue Flow's stylesheet was simply never imported at all, which leaves its edges
+   and handles unrendered. */
+@import "@vue-flow/core/dist/style.css";
+@import "@vue-flow/core/dist/theme-default.css";
 @import "maplibre-gl/dist/maplibre-gl.css";
 @import "./assets/maplibre-overrides.css";
 

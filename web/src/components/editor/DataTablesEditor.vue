@@ -1,14 +1,24 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from "vue";
-import Accordion from "primevue/accordion";
-import AccordionPanel from "primevue/accordionpanel";
-import AccordionHeader from "primevue/accordionheader";
-import AccordionContent from "primevue/accordioncontent";
-import InputText from "primevue/inputtext";
-import Button from "primevue/button";
-import client from "../../api/client";
-import { useTabsStore } from "../../stores/tabs";
-import { useSchemaStore } from "../../stores/schema";
+import { Plus, Trash2 } from "lucide-vue-next";
+
+import client from "@/api/client";
+import EditorToolbar from "./EditorToolbar.vue";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
+import {
+  DANGER_ICON_BUTTON,
+  FIELD,
+  FIELD_LABEL,
+  GHOST_BUTTON,
+} from "@/lib/formClasses";
+import { ICON_STROKE_WIDTH } from "@/lib/icons";
+import { useTabsStore } from "@/stores/tabs";
+import { useSchemaStore } from "@/stores/schema";
 import SchemaObjectEditor, { type FieldOverlay } from "./SchemaObjectEditor.vue";
 
 const props = defineProps<{
@@ -25,7 +35,7 @@ const isSaving = ref(false);
 const error = ref<string | null>(null);
 
 // Each entry holds the table name (dict key) and the raw data object from YAML.
-// SchemaObjectEditor takes care of CommaSeparated / KVPairs conversions.
+// SchemaObjectEditor takes care of the comma-separated and key/value shapes.
 interface DataTableEntry {
   name: string;
   data: Record<string, any>;
@@ -47,16 +57,16 @@ const entrySchema = computed<Record<string, any>>(() => {
 
 // ---------------------------------------------------------------------------
 // Overlay — curated field selection + widget hints.
-// rows/columns: schema is string | string[] | null -> CommaSeparated widget.
-// add_dims/select: schema is {key:val} dict (patternProperties) -> KVPairs widget.
+// rows/columns: the schema says string | string[] | null, so one comma-joined field.
+// add_dims/select: the schema is a {key: val} mapping, so a list of key/value rows.
 // drop / rename_dims: hidden for now (uncommon).
 // ---------------------------------------------------------------------------
 
 const dataTableOverlay: FieldOverlay = {
-  rows: { widget: "CommaSeparated", label: "rows (comma-separated dims)" },
-  columns: { widget: "CommaSeparated", label: "columns (comma-separated dims)" },
-  add_dims: { widget: "KVPairs" },
-  select: { widget: "KVPairs" },
+  rows: { widget: "commaSeparated", label: "rows (comma-separated dims)" },
+  columns: { widget: "commaSeparated", label: "columns (comma-separated dims)" },
+  add_dims: { widget: "keyValue" },
+  select: { widget: "keyValue" },
   drop: { hidden: true },
   rename_dims: { hidden: true },
 };
@@ -155,127 +165,71 @@ watch(() => props.filePath, load);
 </script>
 
 <template>
-  <div class="dt-editor">
-    <div v-if="isLoading" class="placeholder">Loading data_tables...</div>
-    <div v-else-if="error" class="placeholder error">{{ error }}</div>
+  <div class="flex min-h-0 flex-1 flex-col">
+    <p v-if="isLoading" class="p-6 text-center text-sm text-muted-foreground">
+      Loading data_tables…
+    </p>
+    <p v-else-if="error" class="p-6 text-center text-sm text-danger-text">{{ error }}</p>
+
     <template v-else>
-      <div class="toolbar">
-        <Button label="Save" icon="pi pi-save" size="small" :loading="isSaving" @click="save" />
-        <Button label="Add table" icon="pi pi-plus" size="small" severity="secondary" @click="addEntry" />
-        <span class="hint">or Ctrl/Cmd+S</span>
-      </div>
+      <EditorToolbar :saving="isSaving" @save="save">
+        <button type="button" :class="GHOST_BUTTON" @click="addEntry">
+          <Plus class="size-3.5" :stroke-width="ICON_STROKE_WIDTH" />
+          Add table
+        </button>
+      </EditorToolbar>
 
-      <div v-if="entries.length === 0" class="placeholder">
-        No data tables defined. Click "Add table" to create one.
-      </div>
+      <div class="min-h-0 flex-1 overflow-auto">
+        <p v-if="!entries.length" class="p-6 text-center text-sm text-muted-foreground">
+          No data tables defined yet.
+        </p>
 
-      <Accordion v-else :multiple="true" :value="entries.map((_, i) => String(i))">
-        <AccordionPanel
-          v-for="(entry, i) in entries"
-          :key="i"
-          :value="String(i)"
+        <Accordion
+          v-else
+          type="multiple"
+          :default-value="entries.map((_, i) => String(i))"
+          class="px-2"
         >
-          <AccordionHeader>
-            <span class="entry-title">{{ entry.name || "(unnamed)" }}</span>
-            <Button
-              icon="pi pi-trash"
-              size="small"
-              severity="danger"
-              text
-              class="delete-btn"
-              @click.stop="removeEntry(i)"
-            />
-          </AccordionHeader>
-          <AccordionContent>
-            <div class="entry-form">
-              <!-- name is the dict key, not a schema property -->
-              <div class="field">
-                <label>name</label>
-                <InputText
-                  v-model="entry.name"
-                  size="small"
-                  class="w-full"
-                  @input="onNameChange"
+          <AccordionItem v-for="(entry, i) in entries" :key="i" :value="String(i)">
+            <div class="flex items-center gap-1">
+              <AccordionTrigger
+                class="min-w-0 flex-1 items-center py-1.5 font-mono text-sm hover:no-underline"
+              >
+                {{ entry.name || "(unnamed)" }}
+              </AccordionTrigger>
+              <button
+                type="button"
+                title="Remove this table"
+                :class="DANGER_ICON_BUTTON"
+                @click.stop="removeEntry(i)"
+              >
+                <Trash2 class="size-3.5" :stroke-width="ICON_STROKE_WIDTH" />
+              </button>
+            </div>
+            <AccordionContent>
+              <div class="flex flex-col gap-2 pb-2">
+                <!-- name is the mapping key, not a schema property. -->
+                <div class="flex flex-col gap-1">
+                  <label :class="FIELD_LABEL">name</label>
+                  <input
+                    v-model="entry.name"
+                    type="text"
+                    :class="FIELD"
+                    @input="onNameChange"
+                  />
+                </div>
+                <SchemaObjectEditor
+                  :key="filePath + ':dt:' + i"
+                  :schema="entrySchema"
+                  :model-value="entry.data"
+                  :overlay="dataTableOverlay"
+                  @update:model-value="onEntryDataChange(i, $event)"
                 />
               </div>
-              <!-- All other fields driven by the CalliopeDataTable schema -->
-              <SchemaObjectEditor
-                :key="filePath + ':dt:' + i"
-                :schema="entrySchema"
-                :modelValue="entry.data"
-                :overlay="dataTableOverlay"
-                @update:modelValue="onEntryDataChange(i, $event)"
-              />
-            </div>
-          </AccordionContent>
-        </AccordionPanel>
-      </Accordion>
+            </AccordionContent>
+          </AccordionItem>
+        </Accordion>
+      </div>
     </template>
   </div>
 </template>
-
-<style scoped>
-.dt-editor {
-  display: flex;
-  flex-direction: column;
-  padding: 1rem;
-  gap: 0.75rem;
-  overflow: auto;
-  height: 100%;
-}
-
-.placeholder {
-  padding: 2rem;
-  text-align: center;
-  color: var(--p-text-muted-color, #888);
-  font-size: 0.875rem;
-}
-
-.placeholder.error {
-  color: #ef4444;
-}
-
-.toolbar {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-}
-
-.hint {
-  font-size: 0.75rem;
-  color: var(--p-text-muted-color, #888);
-}
-
-.entry-title {
-  font-family: monospace;
-  font-size: 0.875rem;
-  flex: 1;
-}
-
-.delete-btn {
-  margin-left: auto;
-}
-
-.entry-form {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  padding: 0.5rem 0;
-}
-
-.field {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-}
-
-.field label {
-  font-size: 0.8rem;
-  font-family: monospace;
-  color: var(--p-text-muted-color, #666);
-}
-
-.w-full {
-  width: 100%;
-}
-</style>

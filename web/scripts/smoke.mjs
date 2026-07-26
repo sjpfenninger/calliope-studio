@@ -9,11 +9,10 @@
  * that never removes a series, a map layer that silently draws nothing. Each of
  * those looked fine until a real browser rendered it.
  *
- * Every selector is a `data-testid`. The previous version drove the results view
- * through `.p-selectbutton` and `.p-checkbox`, and every one of them died the
- * moment those controls stopped being PrimeVue — selecting on a framework's
- * class names is a large part of what made that migration expensive, and there
- * is no reason to re-earn it.
+ * Every selector is a `data-testid` or a role. The previous version drove the
+ * results view through the component library's own class names, and every one of
+ * them died the moment those controls were rewritten — that is a large part of
+ * what made the migration expensive, and there is no reason to re-earn it.
  *
  * Uses the system Chromium rather than downloading one, so it needs
  * `playwright-core` only. Point CHROMIUM at a different binary if needed.

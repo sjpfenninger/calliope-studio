@@ -6,6 +6,7 @@ separate server to run and no container to start.
 """
 
 import os
+import socket
 import threading
 import webbrowser
 from pathlib import Path
@@ -13,6 +14,10 @@ from pathlib import Path
 import click
 
 from calligraph.server.app import WORKSPACE_ENV_VAR
+
+#: How far to scan upward from the requested port before giving up. Opening a
+#: second model should not fail just because the first one is still running.
+PORT_SCAN_ATTEMPTS = 20
 
 
 @click.command()
@@ -25,7 +30,7 @@ from calligraph.server.app import WORKSPACE_ENV_VAR
     default=8000,
     show_default=True,
     type=int,
-    help="Port to bind to. Use 0 to pick a free port.",
+    help="Port to bind to. The next free port is used if it is taken.",
 )
 @click.option("--browser/--no-browser", default=True, help="Open a browser on start.")
 @click.option(
@@ -45,23 +50,69 @@ def main(path: Path, host: str, port: int, browser: bool, reload: bool) -> None:
     # uvicorn imports the module in a fresh subprocess.
     os.environ[WORKSPACE_ENV_VAR] = str(path.resolve())
 
-    if browser:
-        _open_browser_when_ready(host, port)
+    listener = bind_available(host, port)
+    bound_port = listener.getsockname()[1]
+    if bound_port != port:
+        click.echo(f"Port {port} is in use; using {bound_port} instead.")
+    click.echo(f"Calligraph is at http://{host}:{bound_port}/")
 
-    uvicorn.run(
-        "calligraph.server.app:app", host=host, port=port, reload=reload, factory=False
+    if browser:
+        # The socket is already listening, so a request made now waits in the
+        # accept queue rather than being refused. There is nothing to wait for.
+        open_browser(f"http://{host}:{bound_port}/")
+
+    if reload:
+        # The reloader supervises its own worker processes and binds its own
+        # socket, so ours cannot be handed to it. Releasing it and passing the
+        # number leaves a moment in which something else could take the port —
+        # acceptable for a development-only flag, and not worth a worse design
+        # everywhere else to avoid.
+        listener.close()
+        uvicorn.run(
+            "calligraph.server.app:app", host=host, port=bound_port, reload=True
+        )
+        return
+
+    server = uvicorn.Server(uvicorn.Config("calligraph.server.app:app"))
+    server.run(sockets=[listener])
+
+
+def bind_available(
+    host: str, port: int, attempts: int = PORT_SCAN_ATTEMPTS
+) -> socket.socket:
+    """Returns a listening socket, scanning upward if the port is taken.
+
+    Binding here rather than letting uvicorn do it is what makes the port
+    knowable before the server starts, so the browser can be sent to the right
+    place. A port of 0 asks the operating system to choose.
+
+    Raises:
+        click.ClickException: If no port in the scanned range is free.
+    """
+    for offset in range(attempts):
+        candidate = 0 if port == 0 else port + offset
+        listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        # Permits rebinding a port left in TIME_WAIT by a previous run. It does
+        # not allow two live listeners, so this cannot mask a port genuinely in
+        # use and silently produce a second server nobody can reach.
+        listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            listener.bind((host, candidate))
+            listener.listen()
+            return listener
+        except OSError:
+            listener.close()
+            if port == 0:
+                raise
+
+    raise click.ClickException(
+        f"No free port between {port} and {port + attempts - 1} on {host}."
     )
 
 
-def _open_browser_when_ready(host: str, port: int, delay: float = 1.0) -> None:
-    """Opens a browser tab shortly after the server starts.
-
-    Uvicorn offers no "server ready" hook that survives `--reload`, so this is a
-    plain delay. Worst case the first load races the server and the user hits
-    refresh.
-    """
-    url = f"http://{host}:{port}/"
-    threading.Timer(delay, lambda: webbrowser.open_new_tab(url)).start()
+def open_browser(url: str) -> None:
+    """Opens a browser tab without blocking the server from starting."""
+    threading.Thread(target=webbrowser.open_new_tab, args=(url,), daemon=True).start()
 
 
 if __name__ == "__main__":

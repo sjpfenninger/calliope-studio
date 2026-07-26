@@ -6,9 +6,13 @@ uvicorn. These tests exercise that path instead.
 """
 
 import importlib
+from types import SimpleNamespace
 
+import click
+import pytest
 from fastapi.testclient import TestClient
 
+import calligraph.cli as cli_module
 from calligraph.server import app as app_module
 from calligraph.server.app import WORKSPACE_ENV_VAR, create_app
 
@@ -62,23 +66,111 @@ class TestWorkspaceResolution:
 
 
 class TestCli:
-    def test_cli_sets_the_environment_before_serving(self, national_scale, monkeypatch):
-        """The CLI must publish the workspace before uvicorn resolves the app."""
+    """The path the CLI actually takes, which the test client cannot reach."""
+
+    @pytest.fixture
+    def served(self, monkeypatch):
+        """Captures what the CLI would serve, without serving it."""
         import calligraph.cli as cli
 
-        recorded = {}
+        recorded: dict = {}
 
-        def fake_run(target, **kwargs):
-            # Resolve the app the same way uvicorn does, at serve time.
-            module_name, _, attribute = target.partition(":")
-            module = importlib.import_module(module_name)
-            importlib.reload(module)
-            recorded["workspace"] = getattr(module, attribute).state.workspace
+        class FakeServer:
+            def __init__(self, config):
+                recorded["target"] = config.app
 
-        monkeypatch.setattr("uvicorn.run", fake_run)
-        monkeypatch.setattr(cli, "_open_browser_when_ready", lambda *a, **k: None)
+            def run(self, sockets=None):
+                recorded["sockets"] = sockets
+                # Resolve the app the way uvicorn does, at serve time.
+                module_name, _, attribute = recorded["target"].partition(":")
+                module = importlib.import_module(module_name)
+                importlib.reload(module)
+                recorded["workspace"] = getattr(module, attribute).state.workspace
 
+        monkeypatch.setattr("uvicorn.Server", FakeServer)
+        monkeypatch.setattr(
+            "uvicorn.Config", lambda app, **kwargs: SimpleNamespace(app=app)
+        )
+        monkeypatch.setattr(
+            "uvicorn.run", lambda *a, **k: recorded.update(reload_args=k)
+        )
+        monkeypatch.setattr(cli, "open_browser", lambda url: recorded.update(url=url))
+        return cli, recorded
+
+    def test_the_workspace_is_published_before_the_app_resolves(
+        self, served, national_scale
+    ):
+        cli, recorded = served
         cli.main(
             [str(national_scale), "--no-browser", "--port", "0"], standalone_mode=False
         )
         assert recorded["workspace"] == national_scale.resolve()
+
+    def test_the_bound_socket_is_handed_to_the_server(self, served, national_scale):
+        cli, recorded = served
+        cli.main(
+            [str(national_scale), "--no-browser", "--port", "0"], standalone_mode=False
+        )
+        # Binding in the CLI is what makes the port knowable before serving.
+        assert recorded["sockets"] and len(recorded["sockets"]) == 1
+
+    def test_the_browser_is_sent_to_the_port_actually_bound(
+        self, served, national_scale
+    ):
+        """`--port 0` used to open http://127.0.0.1:0/, a dead tab."""
+        cli, recorded = served
+        cli.main([str(national_scale), "--port", "0"], standalone_mode=False)
+
+        opened = recorded["url"]
+        assert opened.startswith("http://127.0.0.1:")
+        port = int(opened.rstrip("/").rsplit(":", 1)[1])
+        assert port > 0
+        assert port == recorded["sockets"][0].getsockname()[1]
+
+    def test_reload_releases_the_socket(self, served, national_scale):
+        """The reloader binds its own; ours would keep the port occupied."""
+        cli, recorded = served
+        cli.main(
+            [str(national_scale), "--no-browser", "--reload", "--port", "0"],
+            standalone_mode=False,
+        )
+        assert "reload_args" in recorded
+        assert recorded["reload_args"]["reload"] is True
+
+
+class TestPortSelection:
+    def test_a_free_port_is_returned(self):
+        listener = cli_module.bind_available("127.0.0.1", 0)
+        try:
+            assert listener.getsockname()[1] > 0
+        finally:
+            listener.close()
+
+    def test_a_busy_port_falls_through_to_the_next(self):
+        """Opening a second model must not fail with "address already in use"."""
+        first = cli_module.bind_available("127.0.0.1", 0)
+        try:
+            taken = first.getsockname()[1]
+            second = cli_module.bind_available("127.0.0.1", taken)
+            try:
+                assert second.getsockname()[1] != taken
+                assert second.getsockname()[1] > taken
+            finally:
+                second.close()
+        finally:
+            first.close()
+
+    def test_giving_up_is_an_error_the_user_can_read(self, monkeypatch):
+        held = [cli_module.bind_available("127.0.0.1", 0)]
+        try:
+            start = held[0].getsockname()[1]
+            for offset in range(1, 4):
+                try:
+                    held.append(cli_module.bind_available("127.0.0.1", start + offset))
+                except click.ClickException:
+                    pass
+            with pytest.raises(click.ClickException, match="No free port"):
+                cli_module.bind_available("127.0.0.1", start, attempts=1)
+        finally:
+            for listener in held:
+                listener.close()

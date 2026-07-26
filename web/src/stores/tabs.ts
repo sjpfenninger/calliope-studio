@@ -277,6 +277,29 @@ export const useTabsStore = defineStore("tabs", () => {
     return id;
   }
 
+  /**
+   * Folds a run's current state into its tab, if it has one open.
+   *
+   * Called by the runs store on every poll. A run tab is opened the instant the
+   * run starts, so it exists long before there are results; picking the handle
+   * up here is what lets it stop showing the log and start showing charts. The
+   * sub-view only moves when it is still on the log — a user who has gone to
+   * look at the frozen config should not be yanked away from it mid-read.
+   */
+  function updateRun(
+    runId: string,
+    state: { handle?: string | null; label?: string | null },
+  ) {
+    const tab = openTabs.get(runTabId(runId));
+    if (tab?.kind !== "run") return;
+
+    if (state.label) tab.title = state.label;
+    if (state.handle && state.handle !== tab.handle) {
+      tab.handle = state.handle;
+      if (tab.subView === "log") tab.subView = "results";
+    }
+  }
+
   /** Reopens a tab from an id, as a `?tab=` value or persisted state supplies it. */
   function openFromId(id: string): string | null {
     const spec = parseTabId(id);
@@ -337,6 +360,12 @@ export const useTabsStore = defineStore("tabs", () => {
     else activeId.value = null;
   }
 
+  /** Closes a run's tab, if it has one. For a run that has just been deleted. */
+  function closeRun(runId: string) {
+    const id = runTabId(runId);
+    if (openTabs.has(id)) closeTab(id);
+  }
+
   /** Opens a file tab and asks Monaco to reveal a position in it. */
   function jumpTo(path: string, line: number, column: number) {
     openFile(path);
@@ -380,6 +409,8 @@ export const useTabsStore = defineStore("tabs", () => {
     openEntry,
     openRun,
     openFromId,
+    updateRun,
+    closeRun,
     markDirty,
     markClean,
     setEditorMode,

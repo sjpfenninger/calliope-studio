@@ -366,6 +366,81 @@ class TestFrozenConfig:
         assert client.get(f"/api/runs/{run_id}/").json()["has_snapshot"] is False
 
 
+class TestSolvingFromTheSnapshot:
+    """ "As written" and "as solved" have to be the same tree.
+
+    The worker used to read the live workspace, so editing a file in the seconds
+    between clicking Run and `read_yaml` produced a run whose frozen config was not
+    the config that was actually solved.
+    """
+
+    def test_a_run_reports_that_it_solved_the_snapshot(self, client, ws):
+        run_id = client.post(f"/api/versions/{ws}/runs/").json()["id"]
+        record = wait_for_terminal(client, run_id)
+        assert record["status"] == "success", record.get("error")
+        assert record["solved_from"] == "snapshot"
+
+    def test_wrecking_the_workspace_after_starting_does_not_affect_the_run(
+        self, client, ws, national_scale
+    ):
+        """The whole point of freezing before the worker exists.
+
+        `POST` returns once the child is spawned, well before it has imported
+        Calliope, so this really does overwrite the model mid-flight. Reading the
+        live workspace would fail the run; reading the snapshot cannot.
+        """
+        run_id = client.post(f"/api/versions/{ws}/runs/").json()["id"]
+
+        (national_scale / "model.yaml").write_text("this: is not a model\n")
+
+        record = wait_for_terminal(client, run_id)
+        assert record["status"] == "success", record.get("error")
+        assert record["solved_from"] == "snapshot"
+
+    def test_an_incomplete_snapshot_falls_back_to_the_workspace(
+        self, client, ws, national_scale
+    ):
+        """A model referring outside its folder is not freezable, and must still run.
+
+        Failing a run that would otherwise have worked, in the name of purity,
+        would be the wrong trade.
+        """
+        outside = national_scale.parent / "outside.yaml"
+        outside.write_text("techs: {}\n")
+        model = national_scale / "model.yaml"
+        model.write_text(
+            model.read_text().replace("import:", 'import:\n  - "../outside.yaml"', 1)
+        )
+
+        run_id = client.post(f"/api/versions/{ws}/runs/").json()["id"]
+        record = wait_for_terminal(client, run_id)
+
+        assert record["snapshot_complete"] is False
+        assert record["solved_from"] == "workspace"
+        assert record["status"] == "success", record.get("error")
+
+    def test_urban_scale_solves_from_its_snapshot(self, urban_scale, storage):
+        """The `math_paths` case, end to end.
+
+        `urban_scale` reaches `additional_math.yaml` through `config.init.
+        math_paths`, which the import graph cannot see. If the snapshot missed it,
+        solving from the snapshot would fail here and nowhere else.
+        """
+        from fastapi.testclient import TestClient
+
+        from calligraph.server.app import create_app
+
+        app = create_app(workspace=urban_scale, storage=storage)
+        with TestClient(app) as urban_client:
+            ws = storage.open(urban_scale).id
+            run_id = urban_client.post(f"/api/versions/{ws}/runs/").json()["id"]
+            record = wait_for_terminal(urban_client, run_id)
+
+        assert record["status"] == "success", record.get("error")
+        assert record["solved_from"] == "snapshot"
+        assert record["snapshot_complete"] is True
+
+
 class TestRunOptions:
     def test_no_body_still_starts_a_run(self, client, ws):
         """The frontend sends none today, and must keep working."""

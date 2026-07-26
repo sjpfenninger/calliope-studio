@@ -113,6 +113,27 @@ def _record_diagnostics(outcome: dict, model, *, build_only: bool) -> None:
         pass
 
 
+def _model_root(run_dir: Path, request: protocol.RunRequest) -> Path:
+    """Where to read the model from: the frozen snapshot, when there is one.
+
+    Reading the snapshot is what makes "as written" and "as solved" the same
+    thing. The worker previously read the live workspace, so editing a file in the
+    seconds between clicking Run and `read_yaml` produced a run whose frozen
+    config was not the config that was actually solved — the one failure mode the
+    whole freeze exists to prevent.
+
+    An incomplete snapshot — a model referring to a file outside its own folder —
+    is not buildable, so those deliberately fall back to the workspace rather than
+    failing a run that would otherwise have worked.
+    """
+    manifest = protocol.read_snapshot_manifest(run_dir)
+    if manifest and manifest.get("solve_from") == "snapshot":
+        snapshot = run_dir / protocol.SNAPSHOT_DIR
+        if (snapshot / request.model_file).is_file():
+            return snapshot
+    return Path(request.workspace)
+
+
 def run(run_dir: Path) -> int:
     """Executes the run described by `run_dir/request.json`.
 
@@ -131,7 +152,11 @@ def run(run_dir: Path) -> int:
     try:
         import calliope
 
-        model_path = Path(request.workspace) / request.model_file
+        root = _model_root(run_dir, request)
+        outcome["solved_from"] = (
+            "snapshot" if root != Path(request.workspace) else "workspace"
+        )
+        model_path = root / request.model_file
 
         _stage(run_dir, "read", "start")
         model = calliope.read_yaml(

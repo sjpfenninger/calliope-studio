@@ -8,6 +8,7 @@ uvicorn. These tests exercise that path instead.
 import importlib
 import time
 from types import SimpleNamespace
+from urllib.parse import urlparse
 
 import click
 import pytest
@@ -33,7 +34,8 @@ class TestTargetIsOneDecision:
             health = client.get("/api/health").json()
 
         assert health["mode"] == "workspace"
-        assert health["landing"] == "/"
+        # Lands on the model itself; the frontend resolves its version.
+        assert health["landing"] == f"/projects/{health['workspace_id']}"
         assert health["workspace_id"]
         assert health["capabilities"]["edit"] is True
         assert health["capabilities"]["run"] is True
@@ -193,11 +195,12 @@ class TestCli:
         cli, recorded = served
         cli.main([str(national_scale), "--port", "0"], standalone_mode=False)
 
-        opened = recorded["url"]
-        assert opened.startswith("http://127.0.0.1:")
-        port = int(opened.rstrip("/").rsplit(":", 1)[1])
-        assert port > 0
-        assert port == recorded["sockets"][0].getsockname()[1]
+        opened = urlparse(recorded["url"])
+        assert opened.hostname == "127.0.0.1"
+        # Parsed rather than split off the end of the string: the landing URL
+        # carries a path now, so the port is no longer the last thing in it.
+        assert opened.port and opened.port > 0
+        assert opened.port == recorded["sockets"][0].getsockname()[1]
 
     def test_reload_releases_the_socket(self, served, national_scale):
         """The reloader binds its own; ours would keep the port occupied."""
@@ -252,7 +255,14 @@ class TestTargetValidation:
     """What `calligraph <path>` accepts, and where it lands."""
 
     def test_a_model_folder_opens_the_editor(self, national_scale):
-        assert cli_module.describe_target(national_scale) == "/"
+        """Straight into the model that was asked for, not the recent list.
+
+        The user has already said which model they want by naming it on the
+        command line; the list is for when nothing is open.
+        """
+        landing = cli_module.describe_target(national_scale)
+        assert landing.startswith("/projects/")
+        assert landing != "/projects/"
 
     def test_a_results_file_goes_straight_to_the_charts(self, solved_results):
         # Opening a solved model can only mean one thing.

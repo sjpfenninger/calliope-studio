@@ -19,6 +19,7 @@ from typing import Literal
 
 from calligraph.modeldef.imports import find_model_yaml
 from calligraph.runs import protocol
+from calligraph.server.storage import workspace_id
 
 
 class NotSomethingToOpen(ValueError):
@@ -79,10 +80,14 @@ def resolve_target(path: Path) -> Target:
             "To create a model to work on, run 'calliope new <new-folder>'."
         )
 
+    # Straight into the shell for the model that was asked for, rather than the
+    # recent-models list: the user has already said which one they want, and the
+    # list is for when nothing is open. The version is resolved client-side,
+    # since only the API knows it.
     return Target(
         kind="workspace",
         path=resolved,
-        landing="/",
+        landing=f"/projects/{workspace_id(resolved)}",
         capabilities=_capabilities(editable=True),
     )
 

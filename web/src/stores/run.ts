@@ -2,15 +2,38 @@ import { ref } from "vue";
 import { defineStore } from "pinia";
 import client from "../api/client";
 
+/** Matches `TERMINAL_STATUSES` in src/calligraph/runs/manager.py. */
+export type RunStatus =
+  | "pending"
+  | "running"
+  | "success"
+  | "infeasible"
+  | "failed"
+  | "cancelled";
+
 export interface Run {
   id: string;
-  status: "pending" | "running" | "success" | "failed";
+  status: RunStatus;
   created_at: string;
   started_at: string | null;
   completed_at: string | null;
+  results_handle?: string | null;
+  label?: string | null;
 }
 
-const TERMINAL_STATUSES = new Set(["success", "failed"]);
+/**
+ * Every status the backend considers final.
+ *
+ * This used to be `{success, failed}`, missing the two the server can actually
+ * report as well — so an infeasible or cancelled run was polled every two
+ * seconds for ever, and its tab never stopped saying "running".
+ */
+const TERMINAL_STATUSES = new Set<RunStatus>([
+  "success",
+  "infeasible",
+  "failed",
+  "cancelled",
+]);
 
 export const useRunStore = defineStore("run", () => {
   const activeRun = ref<Run | null>(null);

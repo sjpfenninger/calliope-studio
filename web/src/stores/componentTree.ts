@@ -6,6 +6,13 @@ export interface ComponentTreeEntry {
   name: string;
   file: string;
   template?: string;
+  /** Transmission technologies, which the tree presents as links. */
+  link_from?: string;
+  link_to?: string;
+  /** Overrides: how many settings this one makes. */
+  setting_count?: number;
+  /** Scenarios: which overrides this one composes. */
+  overrides?: string[];
 }
 
 export interface ComponentTreeSection {

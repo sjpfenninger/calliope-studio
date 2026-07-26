@@ -96,6 +96,26 @@ def reachable_files(base: Path) -> list[Path]:
     return unique
 
 
+def scenario_names(base: Path) -> set[str]:
+    """Every name `scenario=` will accept, across the import graph.
+
+    Calliope takes either a scenario name or a comma-joined list of override
+    names in the same argument, so both sections count. Collected up front so a
+    typo can be reported immediately, rather than costing a subprocess start, a
+    Calliope import and a stack trace before saying "no such scenario".
+    """
+    names: set[str] = set()
+    for path in reachable_files(Path(base).resolve()):
+        document = load_quietly(path)
+        if not isinstance(document, dict):
+            continue
+        for section in ("scenarios", "overrides"):
+            block = document.get(section)
+            if isinstance(block, dict):
+                names.update(str(name) for name in block)
+    return names
+
+
 def import_graph(base: Path) -> dict:
     """The `import:` DAG, as nodes and edges for the frontend's graph view."""
     base = Path(base).resolve()

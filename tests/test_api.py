@@ -73,11 +73,19 @@ class TestFiles:
         assert any(path.endswith(".csv") for path in paths)
         assert {entry["type"] for entry in entries} <= {"yaml", "csv", "other"}
 
-    def test_run_outputs_are_hidden_from_the_tree(self, client, ws, national_scale):
-        (national_scale / ".calligraph" / "runs" / "x").mkdir(parents=True)
-        (national_scale / ".calligraph" / "runs" / "x" / "run.log").write_text("noise")
+    @pytest.mark.parametrize("data_dir", ["calligraph", ".calligraph"])
+    def test_run_outputs_are_hidden_from_the_tree(
+        self, client, ws, national_scale, data_dir
+    ):
+        """Run outputs are visible on disk but not part of the model definition.
+
+        Both names: `calligraph` is where they go now, and `.calligraph` is the
+        earlier name that a workspace may still carry if migration could not run.
+        """
+        (national_scale / data_dir / "runs" / "x").mkdir(parents=True)
+        (national_scale / data_dir / "runs" / "x" / "run.log").write_text("noise")
         paths = {e["path"] for e in client.get(f"/api/versions/{ws}/files/").json()}
-        assert not any(path.startswith(".calligraph") for path in paths)
+        assert not any(path.startswith(data_dir) for path in paths)
 
     def test_read_and_write_round_trip(self, client, ws):
         url = f"/api/versions/{ws}/files/model.yaml"

@@ -40,7 +40,10 @@ def list_runs(
 ) -> list[dict]:
     """Run history for a workspace, rediscovered from disk.
 
-    Runs outlive the server process, so history survives a restart.
+    Runs outlive the server process, so history survives a restart. Note the
+    absent `create=True`: the interface lists runs on load, and listing must not
+    be what creates the output directory in a workspace nobody has run anything
+    in.
     """
     return [
         _with_results(record, runs, store)
@@ -61,8 +64,13 @@ def create_run(
             detail="No model.yaml found in this workspace.",
         )
 
+    # Old finished runs go before the new one starts, not after it finishes: the
+    # worker is the only thing that knows a run completed, and it must not reach
+    # back into the server to tidy up.
+    storage.prune_runs(workspace)
+
     record = runs.start(
-        storage.runs_dir(workspace),
+        storage.runs_dir(workspace, create=True),
         protocol.RunRequest(workspace=str(workspace.path), model_file=model_yaml.name),
     )
     return record.as_dict()

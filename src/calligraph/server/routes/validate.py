@@ -42,8 +42,12 @@ def validate_deep(
             detail="No model.yaml found in this workspace.",
         )
 
+    # Old attempts go first. A validation leaves nothing worth keeping, and every
+    # click used to leave a permanent directory beside the user's model.
+    storage.prune_validations()
+
     record = runs.start(
-        storage.validations_dir(workspace),
+        storage.validations_dir(),
         protocol.RunRequest(
             workspace=str(workspace.path), model_file=model_yaml.name, build_only=True
         ),

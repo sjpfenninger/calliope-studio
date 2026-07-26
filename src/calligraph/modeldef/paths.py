@@ -7,11 +7,19 @@ Every path that reaches the filesystem from a request goes through
 from pathlib import Path
 
 #: Names never shown in the file tree, matched against any path component.
+#:
+#: `calligraph` is where run outputs go (`server.storage.WORKSPACE_DATA_DIR`).
+#: It is deliberately a visible directory so the user can find their results, but
+#: it is not part of the model definition, so the editor's file tree hides it —
+#: which does mean a folder a user genuinely named `calligraph` would be hidden
+#: too. `.calligraph` is the earlier name, kept so that a workspace which escaped
+#: migration does not suddenly start showing run artefacts.
 EXCLUDED_NAMES: frozenset[str] = frozenset(
     {
         ".DS_Store",
         ".git",
         ".gitignore",
+        "calligraph",
         ".calligraph",
         "__pycache__",
         ".env",

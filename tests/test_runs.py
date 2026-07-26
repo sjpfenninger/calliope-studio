@@ -54,6 +54,49 @@ def ws(client):
     return client.workspace_id
 
 
+class TestWorkspaceIsUntouchedUntilYouRun:
+    """Opening a model, and looking at it, must leave the folder alone."""
+
+    def test_listing_runs_creates_nothing(self, client, ws, national_scale):
+        """The interface lists runs on load; that must not create a directory.
+
+        `runs_dir()` used to create the directory as a side effect of being asked
+        for it, so a folder gained a `calligraph/` before the user had done
+        anything at all.
+        """
+        before = sorted(path.name for path in national_scale.iterdir())
+
+        assert client.get(f"/api/versions/{ws}/runs/").json() == []
+
+        assert sorted(path.name for path in national_scale.iterdir()) == before
+        assert not (national_scale / "calligraph").exists()
+
+    def test_running_creates_the_directory_with_a_gitignore(
+        self, client, ws, national_scale
+    ):
+        run_id = client.post(f"/api/versions/{ws}/runs/").json()["id"]
+        wait_for_terminal(client, run_id)
+
+        data_dir = national_scale / "calligraph"
+        assert (data_dir / "runs" / run_id).is_dir()
+        assert (data_dir / ".gitignore").is_file()
+
+    def test_deep_validation_leaves_nothing_behind(self, client, ws, national_scale):
+        """A validation has no artefact worth keeping.
+
+        Each click used to leave a permanent UUID-named directory beside the
+        model, unreachable and unremovable from the interface.
+        """
+        before = sorted(path.name for path in national_scale.iterdir())
+
+        task_id = client.post(f"/api/versions/{ws}/validate/deep/").json()["task_id"]
+        wait_for_task(client, task_id)
+
+        assert sorted(path.name for path in national_scale.iterdir()) == before
+        assert not (national_scale / "calligraph").exists()
+        assert not (national_scale / ".calligraph").exists()
+
+
 class TestRunLifecycle:
     def test_run_solves_and_writes_results(self, client, ws, national_scale):
         created = client.post(f"/api/versions/{ws}/runs/")
@@ -68,7 +111,7 @@ class TestRunLifecycle:
         # `created_at` is taken from a directory whose mtime keeps moving.
         assert record["created_at"] <= record["completed_at"]
 
-        results = national_scale / ".calligraph" / "runs" / run_id / "results.nc"
+        results = national_scale / "calligraph" / "runs" / run_id / "results.nc"
         assert results.is_file()
 
         # The file has to be readable by the analysis half, which is the whole
@@ -133,7 +176,7 @@ class TestRunLifecycle:
         run_id = client.post(f"/api/versions/{ws}/runs/").json()["id"]
         created_at = wait_for_terminal(client, run_id)["created_at"]
 
-        request_file = national_scale / ".calligraph" / "runs" / run_id / "request.json"
+        request_file = national_scale / "calligraph" / "runs" / run_id / "request.json"
         import os
 
         os.utime(request_file, (0, 0))
@@ -152,7 +195,7 @@ class TestRunLifecycle:
         run_id = client.post(f"/api/versions/{ws}/runs/").json()["id"]
         wait_for_terminal(client, run_id)
 
-        request_file = national_scale / ".calligraph" / "runs" / run_id / "request.json"
+        request_file = national_scale / "calligraph" / "runs" / run_id / "request.json"
         payload = json.loads(request_file.read_text())
         payload["a_field_from_the_future"] = {"nested": True}
         request_file.write_text(json.dumps(payload))

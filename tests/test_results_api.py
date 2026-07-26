@@ -167,6 +167,90 @@ class TestGeoAndSummary:
         assert body["solve_config"]["solver"]
 
 
+class TestSource:
+    """Which run a set of results came from.
+
+    The relationship was one-way and lossy: given a handle you could not recover
+    the run, the workspace or any metadata, and `catalog` reports a `name` taken
+    from the file stem — so every run's results were called "results".
+    """
+
+    def test_a_bare_results_file_reports_itself(self, results_client):
+        handle = results_client.get("/api/health").json()["results_handle"]
+        source = results_client.get(f"/api/results/{handle}/source/").json()
+
+        assert source["kind"] == "file"
+        assert source["run_id"] is None
+        assert source["workspace_id"] is None
+        assert source["path"].endswith(".nc")
+
+    def test_a_runs_results_report_the_run_and_workspace(self, client):
+        import time
+
+        ws = client.workspace_id
+        run_id = client.post(
+            f"/api/versions/{ws}/runs/", json={"label": "baseline"}
+        ).json()["id"]
+        deadline = time.time() + 300
+        record = None
+        while time.time() < deadline:
+            record = client.get(f"/api/runs/{run_id}/").json()
+            if record["status"] != "running":
+                break
+            time.sleep(0.5)
+        assert record["status"] == "success", record.get("error")
+
+        source = client.get(f"/api/results/{record['results_handle']}/source/").json()
+
+        assert source["kind"] == "run"
+        assert source["run_id"] == run_id
+        assert source["workspace_id"] == ws
+        # What the frontend titles the tab with, instead of the string "results".
+        assert source["label"] == "baseline"
+        assert source["created_at"]
+
+    def test_an_unknown_handle_is_404(self, results_client):
+        assert results_client.get("/api/results/deadbeef/source/").status_code == 404
+
+
+class TestBrowse:
+    """The folder browser behind the Open-model dialog."""
+
+    def test_it_lists_directories_and_marks_models(self, client, national_scale):
+        body = client.get(
+            "/api/browse/", params={"path": str(national_scale.parent)}
+        ).json()
+
+        assert body["path"] == str(national_scale.parent.resolve())
+        entry = next(e for e in body["entries"] if e["name"] == national_scale.name)
+        assert entry["is_model"] is True
+
+    def test_a_folder_without_a_model_is_marked_as_such(self, client, tmp_path):
+        (tmp_path / "empty").mkdir()
+        body = client.get("/api/browse/", params={"path": str(tmp_path)}).json()
+        entry = next(e for e in body["entries"] if e["name"] == "empty")
+        assert entry["is_model"] is False
+
+    def test_it_never_returns_files(self, client, national_scale):
+        """Directory entries only — reading goes through the guarded routes."""
+        body = client.get("/api/browse/", params={"path": str(national_scale)}).json()
+        assert all("model.yaml" != entry["name"] for entry in body["entries"])
+        assert "content" not in body
+
+    def test_the_root_has_no_parent(self, client):
+        body = client.get("/api/browse/", params={"path": "/"}).json()
+        assert body["parent"] is None
+
+    def test_it_defaults_to_the_home_directory(self, client):
+        from pathlib import Path
+
+        assert client.get("/api/browse/").json()["path"] == str(Path.home().resolve())
+
+    def test_a_missing_directory_is_404(self, client, tmp_path):
+        response = client.get("/api/browse/", params={"path": str(tmp_path / "nope")})
+        assert response.status_code == 404
+
+
 class TestRunsExposeResults:
     """A finished run must lead straight to its charts."""
 

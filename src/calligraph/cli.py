@@ -82,12 +82,12 @@ def main(path: Path, host: str, port: int, browser: bool, reload: bool) -> None:
 def describe_target(path: Path) -> str:
     """Checks that `path` is something to open, and says where to land.
 
-    A solved `.nc` has no model definition to edit, so it goes straight to the
-    results. Anything else is a folder that should contain a model.
+    Delegates the decision to `server.mode.resolve_target`, which the application
+    factory also uses. The two used to classify the target independently, so the
+    URL the browser was sent to and what `/api/health` reported could disagree.
 
-    Serving a directory with no model in it used to succeed and then show an
-    empty file tree, which reads as a broken application rather than a mistyped
-    path.
+    Serving a directory with no model in it used to succeed and then show an empty
+    file tree, which reads as a broken application rather than a mistyped path.
 
     Returns:
         The path within the app to open.
@@ -95,30 +95,12 @@ def describe_target(path: Path) -> str:
     Raises:
         click.ClickException: If there is nothing there to open.
     """
-    from calligraph.modeldef.imports import find_model_yaml
+    from calligraph.server.mode import NotSomethingToOpen, resolve_target
 
-    resolved = Path(path).resolve()
-
-    if resolved.is_file():
-        if resolved.suffix == ".nc":
-            return "/results"
-        raise click.ClickException(
-            f"{resolved} is not a Calliope results file.\n"
-            "Give a solved model saved as '.nc', or a folder containing a "
-            "model.yaml."
-        )
-
-    if find_model_yaml(resolved) is None:
-        raise click.ClickException(
-            f"No model.yaml in {resolved}.\n"
-            "Give a folder containing a Calliope model, or a solved model "
-            "saved as '.nc'.\n"
-            # `calliope new` requires its target not to exist, so this suggests
-            # a new folder rather than the one that was just rejected.
-            "To create a model to work on, run 'calliope new <new-folder>'."
-        )
-
-    return "/"
+    try:
+        return resolve_target(path).landing
+    except NotSomethingToOpen as problem:
+        raise click.ClickException(str(problem)) from None
 
 
 def bind_available(

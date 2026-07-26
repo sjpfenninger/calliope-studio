@@ -6,6 +6,7 @@ uvicorn. These tests exercise that path instead.
 """
 
 import importlib
+import time
 from types import SimpleNamespace
 
 import click
@@ -15,6 +16,78 @@ from fastapi.testclient import TestClient
 import calligraph.cli as cli_module
 from calligraph.server import app as app_module
 from calligraph.server.app import WORKSPACE_ENV_VAR, create_app
+
+
+class TestTargetIsOneDecision:
+    """The CLI and the app factory must agree about what was opened.
+
+    They used to classify the target independently — the CLI to choose a landing
+    URL, `create_app` to work out whether it had a workspace — so the URL the
+    browser was sent to and what `/api/health` reported could disagree.
+    """
+
+    def test_health_reports_workspace_mode_for_a_model_folder(
+        self, national_scale, storage
+    ):
+        with TestClient(create_app(national_scale, storage)) as client:
+            health = client.get("/api/health").json()
+
+        assert health["mode"] == "workspace"
+        assert health["landing"] == "/"
+        assert health["workspace_id"]
+        assert health["capabilities"]["edit"] is True
+        assert health["capabilities"]["run"] is True
+
+    def test_health_reports_results_mode_for_a_bare_nc(self, solved_results, storage):
+        """No model definition, so the editing half is honestly unavailable.
+
+        The frontend switches its whole shell on this rather than inferring from a
+        null workspace id, which conflated "opened a results file" with "opened a
+        folder that has no model in it".
+        """
+        with TestClient(create_app(solved_results, storage)) as client:
+            health = client.get("/api/health").json()
+
+        assert health["mode"] == "results"
+        assert health["landing"] == "/results"
+        assert health["workspace_id"] is None
+        assert health["results_handle"]
+        assert health["capabilities"]["edit"] is False
+
+    def test_the_cli_and_health_agree(self, national_scale, storage):
+        landing = cli_module.describe_target(national_scale)
+        with TestClient(create_app(national_scale, storage)) as client:
+            assert client.get("/api/health").json()["landing"] == landing
+
+    def test_opening_a_runs_results_file_recovers_the_whole_workspace(
+        self, client, national_scale, storage
+    ):
+        """`calligraph calligraph/runs/<id>/results.nc` used to be the most
+        crippled invocation: no workspace, so every editing route was unreachable.
+        A `.nc` beside a `request.json` is a run's output, so both the run and its
+        model can be recovered.
+        """
+        ws = client.workspace_id
+        run_id = client.post(f"/api/versions/{ws}/runs/").json()["id"]
+
+        deadline = time.time() + 300
+        while time.time() < deadline:
+            if client.get(f"/api/runs/{run_id}/").json()["status"] != "running":
+                break
+            time.sleep(0.5)
+
+        results_file = national_scale / "calligraph" / "runs" / run_id / "results.nc"
+        assert results_file.is_file(), "run did not produce results"
+
+        with TestClient(create_app(results_file, storage)) as reopened:
+            health = reopened.get("/api/health").json()
+
+        assert health["mode"] == "workspace"
+        assert health["run_id"] == run_id
+        assert health["landing"] == f"/runs/{run_id}"
+        assert health["workspace_id"]
+        assert health["results_handle"]
+        assert cli_module.describe_target(results_file) == f"/runs/{run_id}"
 
 
 class TestWorkspaceResolution:

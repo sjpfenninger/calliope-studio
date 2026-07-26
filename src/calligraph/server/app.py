@@ -12,9 +12,10 @@ from fastapi import FastAPI, HTTPException, status
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from calligraph.modeldef.imports import find_model_yaml
 from calligraph.results.store import ResultStore
+from calligraph.runs import protocol
 from calligraph.runs.manager import RunManager
+from calligraph.server.mode import NotSomethingToOpen, resolve_target
 from calligraph.server.routes import api_router
 from calligraph.server.storage import LocalStorage
 
@@ -52,39 +53,76 @@ def create_app(
     # dependency on storage: `runs` knows nothing about workspaces. Ordering
     # matters — storage has to exist before the closure is first called.
     app.state.runs = RunManager(search_roots=lambda: app.state.storage.run_roots())
-    app.state.results = ResultStore()
+    # Likewise the store is given a way to resolve a handle it never minted, so
+    # that a bookmarked results URL survives a restart.
+    app.state.results = ResultStore(candidates=lambda: _results_candidates(app.state))
+
+    # The same classification the CLI used to choose its landing URL, so the two
+    # cannot disagree about what is open. An unopenable path is not fatal here —
+    # the CLI has already rejected it, and `uvicorn ...app:app` in a random
+    # directory should still serve the API.
+    try:
+        target = resolve_target(app.state.workspace)
+    except NotSomethingToOpen:
+        target = None
+    app.state.target = target
 
     # `calligraph results.nc` opens a solved model directly, with no model
     # definition to edit. The analysis half has to work on its own.
     app.state.active_results = (
-        app.state.results.register(app.state.workspace)
-        if app.state.workspace.suffix == ".nc" and app.state.workspace.is_file()
+        app.state.results.register(target.results_file)
+        if target is not None and target.results_file is not None
         else None
     )
+    app.state.active_run_id = target.run_id if target is not None else None
 
     # Registering on startup means the projects list always contains the thing
     # the user actually asked for — but only if it is a model. Registering any
     # directory would mean that merely starting the server in the wrong place
     # permanently added it as a "project".
-    if find_model_yaml(app.state.workspace) is not None:
-        app.state.active_workspace = app.state.storage.open(app.state.workspace)
+    if target is not None and target.kind == "workspace":
+        app.state.active_workspace = app.state.storage.open(target.path)
     else:
         app.state.active_workspace = None
 
     @app.get("/api/health")
     def health() -> dict:
         active = app.state.active_workspace
+        target = app.state.target
         return {
             "status": "ok",
+            # The frontend switches its whole shell on this rather than inferring
+            # from a null workspace id, which conflated "opened a results file"
+            # with "opened a folder that has no model in it".
+            "mode": target.kind if target else "unknown",
+            "landing": target.landing if target else "/projects",
+            "capabilities": target.capabilities if target else {},
             "workspace": str(app.state.workspace),
             "workspace_id": active.id if active else None,
             "results_handle": app.state.active_results,
+            "run_id": app.state.active_run_id,
             "calligraph_version": _version(),
         }
 
     app.include_router(api_router)
     _mount_frontend(app)
     return app
+
+
+def _results_candidates(state) -> list[Path]:
+    """Every `results.nc` a handle could refer to.
+
+    A handle is a truncated hash of a path, so it cannot be inverted; the only way
+    to resolve one this process never minted is to hash the paths it could have
+    come from. Cheap: a stat per run directory, and only on a cache miss.
+    """
+    candidates = []
+    if state.workspace.suffix == ".nc" and state.workspace.is_file():
+        candidates.append(state.workspace)
+    for root in state.storage.run_roots():
+        if root.is_dir():
+            candidates.extend(root.glob(f"*/{protocol.RESULTS_FILE}"))
+    return candidates
 
 
 def _mount_frontend(app: FastAPI) -> None:

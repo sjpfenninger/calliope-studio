@@ -6,6 +6,7 @@ else — what variables exist, geometry, summaries — is JSON, because it is sm
 and read once.
 """
 
+from pathlib import Path
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -22,7 +23,10 @@ from calligraph.results.catalog import (
 from calligraph.results.colors import tech_colors
 from calligraph.results.query import Query, reduce_array
 from calligraph.results.store import ResultHandle, ResultsNotFound, ResultStore
-from calligraph.server.deps import get_results
+from calligraph.runs import protocol
+from calligraph.runs.manager import RunManager
+from calligraph.server.deps import get_results, get_runs
+from calligraph.server.storage import workspace_id
 
 router = APIRouter(tags=["results"])
 
@@ -132,3 +136,60 @@ def geometry(results: ResultHandle = Depends(resolve)) -> dict:
 @router.get("/results/{handle}/summary/")
 def summary(results: ResultHandle = Depends(resolve)) -> dict:
     return summaries.summaries(results)
+
+
+@router.get("/results/{handle}/source/")
+def source(
+    handle: str,
+    store: ResultStore = Depends(get_results),
+    runs: RunManager = Depends(get_runs),
+) -> dict:
+    """Where these results came from.
+
+    The handle-to-run relationship was one-way and lossy: given a handle you could
+    not recover the run, the workspace or any metadata, and `catalog` reports a
+    `name` that is the file stem — so every run's results were called "results".
+
+    Derived from the file's location rather than recorded when the handle was
+    minted, because a mapping held in memory is lost on every restart and the
+    location is authoritative anyway. A `.nc` sitting beside a `request.json` is a
+    run's output; anything else was opened directly.
+
+    Deliberately a separate endpoint rather than more fields on `catalog`, which is
+    the hot path a chart waits on.
+    """
+    path = store.path_for(handle)
+    if path is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Results not found."
+        )
+
+    run_dir = path.parent
+    if (run_dir / protocol.REQUEST_FILE).is_file():
+        try:
+            record = runs.get(run_dir.name)
+        except KeyError:
+            record = None
+        if record is not None:
+            workspace = Path(record.workspace) if record.workspace else None
+            return {
+                "kind": "run",
+                "path": str(path),
+                "run_id": record.id,
+                "label": record.label,
+                "scenario": record.scenario,
+                "created_at": record.created_at,
+                "workspace_path": str(workspace) if workspace else None,
+                "workspace_id": workspace_id(workspace) if workspace else None,
+            }
+
+    return {
+        "kind": "file",
+        "path": str(path),
+        "run_id": None,
+        "label": None,
+        "scenario": None,
+        "created_at": None,
+        "workspace_path": None,
+        "workspace_id": None,
+    }

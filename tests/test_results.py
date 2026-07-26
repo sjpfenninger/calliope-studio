@@ -50,6 +50,131 @@ class TestStore:
         assert "flow_cap" in results.dataset
         assert "base_tech" in results.dataset
 
+    def test_path_for_does_not_load_the_model(self, solved_results, monkeypatch):
+        """Knowing *where* results came from must not cost a deserialisation.
+
+        A solved model is roughly seventeen times its file size in memory, so the
+        reverse-lookup endpoint cannot afford to load one to report a path.
+        """
+        from calligraph.results import store as store_module
+
+        monkeypatch.setattr(
+            store_module,
+            "_read",
+            lambda path: pytest.fail("path_for must not load the model"),
+        )
+        store = ResultStore()
+        handle = store.register(solved_results)
+        assert store.path_for(handle) == solved_results.resolve()
+
+    def test_an_unregistered_handle_resolves_through_candidates(self, solved_results):
+        """A bookmarked results URL survives a restart.
+
+        A handle is a truncated hash of a path and cannot be inverted, so a handle
+        this process never minted is only resolvable by hashing the paths it could
+        have come from. Without this, `catalog/` 404s until something happens to
+        list the runs again.
+        """
+        handle = results_id(solved_results)
+        fresh = ResultStore(candidates=lambda: [solved_results])
+
+        assert fresh.path_for(handle) == solved_results.resolve()
+        assert fresh.get(handle).path == solved_results.resolve()
+
+    def test_candidates_that_do_not_match_are_not_offered(self, solved_results):
+        store = ResultStore(candidates=lambda: [solved_results])
+        assert store.path_for("0" * 16) is None
+
+
+class TestModelCacheBudget:
+    """The cache is bounded in bytes, not in models.
+
+    Keeping eight was free while at most one or two were ever live. With several
+    run tabs open — and comparing runs being the point — eight `urban_scale`
+    models is 650 MB and eight real national models is thirteen gigabytes.
+    """
+
+    @pytest.fixture
+    def counting_loader(self, monkeypatch):
+        """Replaces the real reader, so eviction is observable without the memory."""
+        from calligraph.results import store as store_module
+
+        calls: list[str] = []
+
+        def fake_read(path_str):
+            calls.append(path_str)
+            return object()
+
+        monkeypatch.setattr(store_module, "_read", fake_read)
+        monkeypatch.setattr(store_module, "_cache", store_module._ModelCache())
+        return calls, store_module
+
+    def _sized_file(self, tmp_path, name, megabytes):
+        path = tmp_path / name
+        path.write_bytes(b"\0" * (megabytes * 1024 * 1024))
+        return path
+
+    def test_a_tight_budget_evicts_the_least_recently_used(
+        self, counting_loader, tmp_path, monkeypatch
+    ):
+        calls, store_module = counting_loader
+        monkeypatch.setenv("CALLIGRAPH_RESULTS_BUDGET_MB", "1")
+
+        first = str(self._sized_file(tmp_path, "a.nc", 1))
+        second = str(self._sized_file(tmp_path, "b.nc", 1))
+
+        store_module._load(first)
+        store_module._load(second)
+        store_module._load(first)  # evicted, so read again
+
+        assert calls == [first, second, first]
+
+    def test_a_generous_budget_keeps_both(self, counting_loader, tmp_path, monkeypatch):
+        calls, store_module = counting_loader
+        monkeypatch.setenv("CALLIGRAPH_RESULTS_BUDGET_MB", "4096")
+
+        first = str(self._sized_file(tmp_path, "a.nc", 1))
+        second = str(self._sized_file(tmp_path, "b.nc", 1))
+
+        store_module._load(first)
+        store_module._load(second)
+        store_module._load(first)
+
+        assert calls == [first, second]
+
+    def test_one_entry_is_always_retained(self, counting_loader, tmp_path, monkeypatch):
+        """A model bigger than the whole budget must still be openable."""
+        calls, store_module = counting_loader
+        monkeypatch.setenv("CALLIGRAPH_RESULTS_BUDGET_MB", "1")
+
+        huge = str(self._sized_file(tmp_path, "huge.nc", 2))
+        store_module._load(huge)
+        store_module._load(huge)
+
+        assert calls == [huge]
+
+    def test_forget_releases_the_loaded_model(
+        self, counting_loader, tmp_path, monkeypatch
+    ):
+        """`forget` used to free nothing: the `lru_cache` held a strong reference.
+
+        So deleting a run left its solved model resident for the life of the
+        process.
+        """
+        calls, store_module = counting_loader
+        monkeypatch.setenv("CALLIGRAPH_RESULTS_BUDGET_MB", "4096")
+
+        path = self._sized_file(tmp_path, "a.nc", 1)
+        store = ResultStore()
+        handle = store.register(path)
+
+        store.get(handle)
+        store.forget(handle)
+        store.register(path)
+        store.get(handle)
+
+        assert calls == [str(path.resolve())] * 2
+
 
 class TestCatalog:
     def test_categories_are_disjoint_and_complete(self, results):

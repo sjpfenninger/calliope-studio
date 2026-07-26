@@ -8,6 +8,7 @@ both a project and its single version; phase 3 collapses that.
 from fastapi import APIRouter
 
 from calligraph.server.routes import (
+    browse,
     csv,
     files,
     projects,
@@ -23,6 +24,7 @@ api_router = APIRouter(prefix="/api")
 
 for module in (
     projects,
+    browse,
     files,
     csv,
     yaml_sections,

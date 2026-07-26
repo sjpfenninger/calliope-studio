@@ -21,6 +21,7 @@ import { computed } from "vue";
 
 import CsvGridEditor from "@/components/editor/CsvGridEditor.vue";
 import MonacoYamlEditor from "@/components/editor/MonacoYamlEditor.vue";
+import RunTabView from "@/components/runs/RunTabView.vue";
 import StructuredEditorHost from "./StructuredEditorHost.vue";
 import { useTabsStore } from "@/stores/tabs";
 
@@ -78,16 +79,14 @@ const structuredTab = computed(() => {
       class="absolute inset-0"
     />
 
-    <!-- One live pane per run tab that has ever been fronted. Populated in the
-         step that introduces the run view; the placeholder keeps the stack
-         honest until then. -->
-    <div
+    <!-- One live pane per run tab that has ever been fronted, so switching back
+         to a run does not refetch its Arrow frames or rebuild its map. -->
+    <RunTabView
       v-for="tab in tabs.runTabs.filter((candidate) => candidate.mounted)"
       v-show="tab.id === tabs.activeId"
       :key="tab.id"
-      class="absolute inset-0 grid place-items-center text-sm text-muted-foreground"
-    >
-      Run {{ tab.runId ?? tab.handle }}
-    </div>
+      :tab="tab"
+      class="absolute inset-0 flex"
+    />
   </div>
 </template>

@@ -123,6 +123,58 @@ class TestRunLifecycle:
         assert model.results
         assert "flow_cap" in model.results
 
+    def test_a_failed_run_leaves_no_results_behind(self, tmp_path):
+        """A half-written `results.nc` must not survive the failure that caused it.
+
+        Observed for real: `to_netcdf` raised while appending attributes, after
+        the model had already solved to optimality, leaving 380 kB of unreadable
+        netCDF. The run then reported `has_results`, which mints a results handle,
+        which opens the run's tab on charts that fail to load — a broken screen
+        instead of the error message that was sitting in the outcome all along.
+        """
+        from calligraph.runs import protocol, worker
+
+        run_dir = tmp_path / "run"
+        run_dir.mkdir()
+        protocol.RunRequest(
+            workspace=str(tmp_path / "nowhere"), model_file="model.yaml"
+        ).write(run_dir)
+        # Stands in for the partial file the failing call had already created.
+        (run_dir / protocol.RESULTS_FILE).write_bytes(b"CDF\x01 truncated")
+
+        assert worker.run(run_dir) == 1
+        assert protocol.read_outcome(run_dir)["status"] == "failed"
+        assert not (run_dir / protocol.RESULTS_FILE).exists()
+
+    def test_a_run_still_going_offers_no_results_handle(
+        self, client, ws, national_scale
+    ):
+        """`results.nc` existing is not the same as it being readable.
+
+        The worker writes the file, records the outcome and then exits, and until
+        it does the file may still be held open. Minting a handle on the file's
+        mere existence made the interface open a finished run's charts the moment
+        it appeared — and `calliope.read_netcdf` then failed on it, so a run that
+        had solved perfectly well showed a broken screen.
+        """
+        import os
+
+        from calligraph.runs import protocol
+
+        run_id = "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+        run_dir = national_scale / "calligraph" / "runs" / run_id
+        run_dir.mkdir(parents=True)
+        protocol.RunRequest(workspace=str(national_scale)).write(run_dir)
+        (run_dir / protocol.RESULTS_FILE).write_bytes(b"not finished yet")
+        # This process stands in for a worker that has not exited: no outcome
+        # file, a live pid, so the run reads as still running.
+        protocol.write_pid(run_dir, os.getpid())
+
+        record = client.get(f"/api/runs/{run_id}/").json()
+        assert record["status"] == "running"
+        assert record["has_results"] is True
+        assert record["results_handle"] is None
+
     def test_run_history_survives_a_new_manager(self, client, ws):
         run_id = client.post(f"/api/versions/{ws}/runs/").json()["id"]
         wait_for_terminal(client, run_id)

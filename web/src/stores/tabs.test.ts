@@ -109,6 +109,44 @@ describe("useTabsStore", () => {
       expect(tabs.openTabs.size).toBe(2);
     });
 
+    it("latches each sub-view the first time it is shown", () => {
+      const tabs = useTabsStore();
+      const id = tabs.openRun({ id: "r1" });
+      expect(tabs.get(id)).toMatchObject({ seenViews: ["log"] });
+
+      tabs.setSubView(id, "config");
+      tabs.setSubView(id, "log");
+
+      // The results pane builds a map and three charts; creating either inside a
+      // hidden container hands MapLibre a zero-size element to fit bounds to.
+      // Latching is what lets a pane be created only when it is visible, and
+      // kept alive afterwards.
+      expect(tabs.get(id)).toMatchObject({ seenViews: ["log", "config"] });
+    });
+
+    it("latches the results view when a handle arrives", () => {
+      const tabs = useTabsStore();
+      const id = tabs.openRun({ id: "r1" });
+      tabs.updateRun("r1", { handle: "abc" });
+
+      expect(tabs.get(id)).toMatchObject({
+        subView: "results",
+        seenViews: ["log", "results"],
+      });
+    });
+
+    it("leaves the sub-view alone when the user has moved off the log", () => {
+      const tabs = useTabsStore();
+      const id = tabs.openRun({ id: "r1" });
+      tabs.setSubView(id, "config");
+
+      tabs.updateRun("r1", { handle: "abc" });
+
+      // Yanking someone out of the frozen config they are reading, because a
+      // solve happened to finish, is the kind of helpfulness nobody wants.
+      expect(tabs.get(id)).toMatchObject({ subView: "config", handle: "abc" });
+    });
+
     it("is never dirty", () => {
       const tabs = useTabsStore();
       tabs.openRun({ id: "r1" });

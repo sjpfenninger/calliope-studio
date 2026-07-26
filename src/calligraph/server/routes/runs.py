@@ -26,7 +26,12 @@ from calligraph.modeldef.paths import walk_files
 from calligraph.modeldef.snapshot import write_snapshot
 from calligraph.results.store import ResultStore
 from calligraph.runs import protocol
-from calligraph.runs.manager import RunManager, RunRecord, RunStillActive
+from calligraph.runs.manager import (
+    TERMINAL_STATUSES,
+    RunManager,
+    RunRecord,
+    RunStillActive,
+)
 from calligraph.server.deps import (
     get_results,
     get_runs,
@@ -62,9 +67,15 @@ def _with_results(record: RunRecord, runs: RunManager, store: ResultStore) -> di
 
     Minting the handle here is what lets the frontend go straight from a
     finished run to its charts, without having to know where the file landed.
+
+    Only for a run that has *finished*. `results.nc` appearing on disk is not the
+    same as it being ready to read: the worker writes it, then records the
+    outcome, then exits, and until it does the file may still be held open. A
+    handle offered any earlier makes the interface open a run's charts the
+    instant the file exists, and `calliope.read_netcdf` fails on it.
     """
     payload = record.as_dict()
-    if record.has_results:
+    if record.has_results and record.status in TERMINAL_STATUSES:
         results_file = runs.run_dir(record.id) / protocol.RESULTS_FILE
         payload["results_handle"] = store.register(results_file)
     else:

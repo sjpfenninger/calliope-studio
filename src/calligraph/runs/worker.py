@@ -202,10 +202,21 @@ def run(run_dir: Path) -> int:
             run_dir,
             {"t": "log", "level": "ERROR", "logger": "calligraph", "msg": str(exc)},
         )
+        # A results file half-written by the failing call is not a results file.
+        # Left in place it makes the run report `has_results`, which mints a
+        # handle, which opens the run tab on charts that then fail to load —
+        # observed for real when `to_netcdf` raised while appending attributes,
+        # after the model had already solved to optimality.
+        (run_dir / protocol.RESULTS_FILE).unlink(missing_ok=True)
 
     outcome["completed_at"] = datetime.now(timezone.utc).isoformat()
     outcome["duration_seconds"] = round(time.time() - started, 3)
 
+    # The outcome is written *before* the event that announces it. A client
+    # watching the log reacts to `done` within milliseconds and immediately asks
+    # for the run's record; with the old order that record still said "running",
+    # because nothing on disk yet said otherwise.
+    protocol.write_outcome(run_dir, outcome)
     protocol.append_event(
         run_dir,
         {
@@ -215,7 +226,6 @@ def run(run_dir: Path) -> int:
             "error": outcome.get("error"),
         },
     )
-    protocol.write_outcome(run_dir, outcome)
     return 0 if outcome["status"] == "success" else 1
 
 

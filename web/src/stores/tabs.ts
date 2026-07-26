@@ -63,6 +63,16 @@ export interface RunTab extends TabCommon {
   handle: string | null;
   subView: RunSubView;
   /**
+   * Which sub-views have ever been in front.
+   *
+   * The same latch as `mounted`, one level down. The results pane builds a map
+   * and three ECharts instances, and building either inside a `display: none`
+   * pane gives it a zero-size container — MapLibre in particular then fits its
+   * bounds to nothing. So a sub-view's pane is created the first time it is
+   * shown, and `v-show`n from then on.
+   */
+  seenViews: RunSubView[];
+  /**
    * A run is frozen, so it can never be dirty. The literal type — rather than
    * `boolean` — is what makes `markDirty` on a run tab a compile error, while
    * still letting the tab bar read `tab.isDirty` across the whole union.
@@ -257,6 +267,7 @@ export const useTabsStore = defineStore("tabs", () => {
       if (run.handle) existing.handle = run.handle;
       if (run.label) existing.title = run.label;
     } else {
+      const subView: RunSubView = run.handle ? "results" : "log";
       openTabs.set(id, {
         id,
         kind: "run",
@@ -268,7 +279,8 @@ export const useTabsStore = defineStore("tabs", () => {
         handle: run.handle ?? null,
         // With no results yet there is nothing to plot, so the log is the only
         // thing worth showing.
-        subView: run.handle ? "results" : "log",
+        subView,
+        seenViews: [subView],
         isDirty: false,
         mounted: false,
       });
@@ -296,7 +308,7 @@ export const useTabsStore = defineStore("tabs", () => {
     if (state.label) tab.title = state.label;
     if (state.handle && state.handle !== tab.handle) {
       tab.handle = state.handle;
-      if (tab.subView === "log") tab.subView = "results";
+      if (tab.subView === "log") setSubView(tab.id, "results");
     }
   }
 
@@ -337,7 +349,9 @@ export const useTabsStore = defineStore("tabs", () => {
 
   function setSubView(id: string, view: RunSubView) {
     const tab = openTabs.get(id);
-    if (tab?.kind === "run") tab.subView = view;
+    if (tab?.kind !== "run") return;
+    tab.subView = view;
+    if (!tab.seenViews.includes(view)) tab.seenViews.push(view);
   }
 
   /**

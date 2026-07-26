@@ -143,7 +143,7 @@ function refresh() {
       class="flex h-6 shrink-0 items-center gap-1.5 border-t border-border px-2 text-2xs text-text-faint"
     >
       <HardDrive class="size-3" :stroke-width="ICON_STROKE_WIDTH" />
-      <span>{{ runs.ordered.length }} runs</span>
+      <span>{{ runs.ordered.length }} {{ runs.ordered.length === 1 ? "run" : "runs" }}</span>
       <span class="ml-auto tabular-nums">{{ formatBytes(runs.totalBytes) }}</span>
     </div>
 

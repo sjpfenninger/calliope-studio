@@ -1,5 +1,7 @@
 <script setup lang="ts">
-import "maplibre-gl/dist/maplibre-gl.css";
+// maplibre-gl.css is imported from style.css, not here: this component is lazily
+// loaded, so its stylesheet landed after the overrides that restyle the map's
+// chrome and reverted them. See the note there.
 import { onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue";
 import maplibregl, { type StyleSpecification } from "maplibre-gl";
 

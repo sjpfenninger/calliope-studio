@@ -1,13 +1,14 @@
 <script setup lang="ts">
 /**
- * LinksEditor — accordion-per-link editor for the `links:` YAML section.
+ * LinksEditor — the transmission technologies in a file's `techs:` section.
  *
- * Supports three modes via props:
- *   - Section tab (entryName=null): shows all links in the file
- *   - Entry tab (entryName="region1,region2"): shows only the named link
- *   - File structured view (tabKey=filePath, entryName=null): shows all links
+ * Calliope 0.7 has no `links:` section: a link is an ordinary technology
+ * carrying `link_from` and `link_to`. This editor shows only those, with the
+ * endpoints promoted to their own fields, because that is what distinguishes a
+ * link from any other technology.
  *
- * Saves always write the full section back to the file.
+ * It shares the `techs:` section with TechsEditor, so it reloads the whole
+ * section on save and writes back the entries it does not own untouched.
  */
 import { ref, computed, onMounted, onUnmounted, watch } from "vue";
 import Accordion from "primevue/accordion";
@@ -15,11 +16,14 @@ import AccordionPanel from "primevue/accordionpanel";
 import AccordionHeader from "primevue/accordionheader";
 import AccordionContent from "primevue/accordioncontent";
 import InputText from "primevue/inputtext";
+import Select from "primevue/select";
 import Button from "primevue/button";
 import client from "../../api/client";
 import { useEditorStore } from "../../stores/editor";
 import { useSectionDataStore } from "../../stores/sectionData";
+import { useComponentTreeStore } from "../../stores/componentTree";
 import ScalarOrDataVar from "./ScalarOrDataVar.vue";
+import { isTransmission, mergeIntoSection, type RawTech } from "../../lib/techs";
 
 const props = defineProps<{
   versionId: string;
@@ -30,110 +34,127 @@ const props = defineProps<{
 
 const editorStore = useEditorStore();
 const sectionDataStore = useSectionDataStore();
+const componentTreeStore = useComponentTreeStore();
+
 const isLoading = ref(true);
 const isSaving = ref(false);
 const error = ref<string | null>(null);
 
-interface LinkTech {
-  techName: string;
-  params: Array<{ key: string; value: any }>;
-}
+/** Keys shown as their own fields rather than in the parameter list. */
+const PROMOTED = new Set(["link_from", "link_to", "template", "base_tech", "active"]);
 
 interface LinkEntry {
   name: string;
-  from: string;
-  to: string;
-  techs: LinkTech[];
-  extraParams: Array<{ key: string; value: any }>;
+  linkFrom: string;
+  linkTo: string;
+  template: string | null;
+  active: boolean;
+  params: Array<{ key: string; value: any }>;
 }
 
 const entries = ref<LinkEntry[]>([]);
+/** The section as loaded, so entries owned by TechsEditor survive a save. */
+const originalSection = ref<Record<string, RawTech>>({});
+const templatesData = ref<Record<string, Record<string, any>>>({});
 
-// When entryName is set (entry tab), show only the matching entry
-const visibleEntries = computed(() =>
-  props.entryName
-    ? entries.value.filter((e) => e.name === props.entryName)
-    : entries.value
+const nodeNames = computed(() =>
+  (componentTreeStore.tree?.nodes?.entries ?? []).map((entry) =>
+    typeof entry === "string" ? entry : entry.name,
+  ),
 );
 
-function rawToEntry(name: string, raw: Record<string, any> | null): LinkEntry {
-  const d = raw ?? {};
-  const KNOWN = new Set(["from", "to", "techs"]);
-  const extra: Array<{ key: string; value: any }> = [];
-  for (const [k, v] of Object.entries(d)) {
-    if (!KNOWN.has(k)) extra.push({ key: k, value: v });
-  }
-  const techsRaw = d.techs ?? {};
-  const techs: LinkTech[] = Object.entries(techsRaw).map(([techName, params]) => ({
-    techName,
-    params: Object.entries(params ?? {}).map(([k, v]) => ({ key: k, value: v })),
-  }));
+const visibleEntries = computed(() =>
+  props.entryName
+    ? entries.value.filter((entry) => entry.name === props.entryName)
+    : entries.value,
+);
+
+function rawToEntry(name: string, raw: RawTech): LinkEntry {
+  const data = raw ?? {};
   return {
     name,
-    from: d.from ?? "",
-    to: d.to ?? "",
-    techs,
-    extraParams: extra,
+    linkFrom: data.link_from ?? "",
+    linkTo: data.link_to ?? "",
+    template: data.template ?? null,
+    active: data.active !== false,
+    params: Object.entries(data)
+      .filter(([key]) => !PROMOTED.has(key))
+      .map(([key, value]) => ({ key, value })),
   };
 }
 
-function entryToRaw(e: LinkEntry): Record<string, any> {
+function entryToRaw(entry: LinkEntry): Record<string, any> {
   const result: Record<string, any> = {};
-  if (e.from) result.from = e.from;
-  if (e.to) result.to = e.to;
-  for (const { key, value } of e.extraParams) {
+  if (entry.active === false) result.active = false;
+  if (entry.template) result.template = entry.template;
+  if (entry.linkFrom) result.link_from = entry.linkFrom;
+  if (entry.linkTo) result.link_to = entry.linkTo;
+  // Only written when not inherited, so a link using a template does not gain a
+  // redundant base_tech it never had.
+  if (!entry.template) result.base_tech = "transmission";
+  for (const { key, value } of entry.params) {
     if (!key) continue;
     if (value !== null && value !== undefined && value !== "") result[key] = value;
   }
-  if (e.techs.length > 0) {
-    const techsObj: Record<string, any> = {};
-    for (const t of e.techs) {
-      if (!t.techName) continue;
-      const paramObj: Record<string, any> = {};
-      for (const { key, value } of t.params) {
-        if (!key) continue;
-        if (value !== null && value !== undefined && value !== "") paramObj[key] = value;
-      }
-      techsObj[t.techName] = Object.keys(paramObj).length ? paramObj : null;
-    }
-    if (Object.keys(techsObj).length) result.techs = techsObj;
-  }
   return result;
+}
+
+function owned(name: string): boolean {
+  return isTransmission(originalSection.value[name] ?? null, templatesData.value);
+}
+
+async function fetchSection(file: string, section: string) {
+  const cached = sectionDataStore.get(props.versionId, file, section);
+  if (cached !== null) return cached;
+  try {
+    const response = await client.get<{ section: string; data: any }>(
+      `/api/versions/${props.versionId}/yaml-section/${file}?section=${section}`,
+    );
+    const data = response.data.data ?? {};
+    sectionDataStore.set(props.versionId, file, section, data);
+    return data;
+  } catch {
+    return {};
+  }
+}
+
+async function loadTemplates() {
+  const files = new Set<string>([props.filePath]);
+  for (const entry of componentTreeStore.tree?.templates?.entries ?? []) {
+    if (typeof entry !== "string" && entry.file) files.add(entry.file);
+  }
+  const merged: Record<string, Record<string, any>> = {};
+  for (const file of files) Object.assign(merged, await fetchSection(file, "templates"));
+  templatesData.value = merged;
 }
 
 async function load() {
   isLoading.value = true;
   error.value = null;
   try {
-    const cached = sectionDataStore.get(props.versionId, props.filePath, "links");
-    if (cached !== null) {
-      entries.value = Object.entries(cached).map(([name, raw]) =>
-        rawToEntry(name, raw as Record<string, any> | null)
-      );
-      return;
-    }
-    const res = await client.get<{ section: string; data: any }>(
-      `/api/versions/${props.versionId}/yaml-section/${props.filePath}?section=links`
-    );
-    const d = res.data.data ?? {};
-    sectionDataStore.set(props.versionId, props.filePath, "links", d);
-    entries.value = Object.entries(d).map(([name, raw]) =>
-      rawToEntry(name, raw as Record<string, any> | null)
-    );
-  } catch (e: any) {
-    error.value = e?.response?.data?.detail ?? "Failed to load links section.";
+    await loadTemplates();
+    const section = (await fetchSection(props.filePath, "techs")) as Record<
+      string,
+      RawTech
+    >;
+    originalSection.value = section;
+    entries.value = Object.entries(section)
+      .filter(([, raw]) => isTransmission(raw, templatesData.value))
+      .map(([name, raw]) => rawToEntry(name, raw));
+  } catch (caught: any) {
+    error.value =
+      caught?.response?.data?.detail ?? "Failed to load transmission technologies.";
   } finally {
     isLoading.value = false;
   }
 }
 
-function buildPayload(): Record<string, any> {
-  const result: Record<string, any> = {};
-  for (const e of entries.value) {
-    if (!e.name) continue;
-    result[e.name] = entryToRaw(e);
+function buildPayload(): Record<string, RawTech> {
+  const edited: Record<string, RawTech> = {};
+  for (const entry of entries.value) {
+    if (entry.name) edited[entry.name] = entryToRaw(entry);
   }
-  return result;
+  return mergeIntoSection(originalSection.value, edited, owned);
 }
 
 async function save() {
@@ -141,11 +162,14 @@ async function save() {
   try {
     const payload = buildPayload();
     await client.put(
-      `/api/versions/${props.versionId}/yaml-section/${props.filePath}?section=links`,
-      { data: payload }
+      `/api/versions/${props.versionId}/yaml-section/${props.filePath}?section=techs`,
+      { data: payload },
     );
-    sectionDataStore.set(props.versionId, props.filePath, "links", payload);
+    sectionDataStore.set(props.versionId, props.filePath, "techs", payload);
+    originalSection.value = payload;
     editorStore.markClean(props.tabKey);
+    // Adding or removing a link changes the explorer and the map.
+    await componentTreeStore.refresh(props.versionId);
   } finally {
     isSaving.value = false;
   }
@@ -156,49 +180,41 @@ function onChange() {
 }
 
 function addEntry() {
-  entries.value.push({ name: "", from: "", to: "", techs: [], extraParams: [] });
+  entries.value.push({
+    name: "",
+    linkFrom: "",
+    linkTo: "",
+    template: null,
+    active: true,
+    params: [],
+  });
   onChange();
 }
 
 function removeEntry(entry: LinkEntry) {
-  const i = entries.value.indexOf(entry);
-  if (i !== -1) entries.value.splice(i, 1);
+  const index = entries.value.indexOf(entry);
+  if (index !== -1) entries.value.splice(index, 1);
   onChange();
 }
 
-function addTech(entry: LinkEntry) {
-  entry.techs.push({ techName: "", params: [] });
+function addParam(entry: LinkEntry) {
+  entry.params.push({ key: "", value: null });
   onChange();
 }
 
-function removeTech(entry: LinkEntry, ti: number) {
-  entry.techs.splice(ti, 1);
+function removeParam(entry: LinkEntry, index: number) {
+  entry.params.splice(index, 1);
   onChange();
 }
 
-function addTechParam(entry: LinkEntry, ti: number) {
-  entry.techs[ti].params.push({ key: "", value: null });
-  onChange();
+function inheritedFrom(entry: LinkEntry, key: string): any {
+  if (!entry.template) return undefined;
+  return templatesData.value[entry.template]?.[key];
 }
 
-function removeTechParam(entry: LinkEntry, ti: number, pi: number) {
-  entry.techs[ti].params.splice(pi, 1);
-  onChange();
-}
-
-function addExtraParam(entry: LinkEntry) {
-  entry.extraParams.push({ key: "", value: null });
-  onChange();
-}
-
-function removeExtraParam(entry: LinkEntry, j: number) {
-  entry.extraParams.splice(j, 1);
-  onChange();
-}
-
-function onKeydown(e: KeyboardEvent) {
-  if ((e.metaKey || e.ctrlKey) && e.key === "s") {
-    e.preventDefault();
+function onKeydown(event: KeyboardEvent) {
+  if ((event.metaKey || event.ctrlKey) && event.key === "s") {
+    event.preventDefault();
     save();
   }
 }
@@ -208,24 +224,25 @@ onMounted(() => {
   load();
 });
 
-onUnmounted(() => {
-  window.removeEventListener("keydown", onKeydown);
-});
+onUnmounted(() => window.removeEventListener("keydown", onKeydown));
 
 watch(() => props.filePath, load);
 </script>
 
 <template>
   <div class="links-editor">
-    <template v-if="isLoading">
-      <div class="placeholder">Loading links...</div>
-    </template>
-    <template v-else-if="error">
-      <div class="placeholder error">{{ error }}</div>
-    </template>
+    <div v-if="isLoading" class="placeholder">Loading transmission technologies…</div>
+    <div v-else-if="error" class="placeholder error">{{ error }}</div>
+
     <template v-else>
       <div class="toolbar">
-        <Button label="Save" icon="pi pi-save" size="small" :loading="isSaving" @click="save" />
+        <Button
+          label="Save"
+          icon="pi pi-save"
+          size="small"
+          :loading="isSaving"
+          @click="save"
+        />
         <Button
           v-if="!entryName"
           label="Add link"
@@ -242,7 +259,7 @@ watch(() => props.filePath, load);
           {{
             entryName
               ? `Link "${entryName}" not found.`
-              : 'No links defined. Click "Add link" to create one.'
+              : 'No transmission technologies in this file. Click "Add link" to create one.'
           }}
         </div>
 
@@ -259,8 +276,8 @@ watch(() => props.filePath, load);
             <AccordionHeader>
               <span class="entry-title">
                 {{ entry.name || "(unnamed)" }}
-                <span v-if="entry.from || entry.to" class="from-to">
-                  {{ entry.from || "?" }} → {{ entry.to || "?" }}
+                <span v-if="entry.linkFrom || entry.linkTo" class="from-to">
+                  {{ entry.linkFrom || "?" }} → {{ entry.linkTo || "?" }}
                 </span>
               </span>
               <Button
@@ -275,27 +292,59 @@ watch(() => props.filePath, load);
 
             <AccordionContent>
               <div class="entry-form">
-                <!-- Name -->
                 <div class="field">
                   <label>name</label>
-                  <InputText v-model="entry.name" size="small" class="w-full" @input="onChange" />
+                  <InputText
+                    v-model="entry.name"
+                    size="small"
+                    class="w-full"
+                    @input="onChange"
+                  />
                 </div>
 
-                <!-- from / to -->
                 <div class="from-to-row">
                   <div class="field ft-field">
-                    <label>from</label>
-                    <InputText v-model="entry.from" size="small" class="w-full" @input="onChange" />
+                    <label>link_from</label>
+                    <Select
+                      v-model="entry.linkFrom"
+                      :options="nodeNames"
+                      editable
+                      size="small"
+                      class="w-full"
+                      placeholder="node"
+                      @change="onChange"
+                    />
                   </div>
                   <div class="field ft-field">
-                    <label>to</label>
-                    <InputText v-model="entry.to" size="small" class="w-full" @input="onChange" />
+                    <label>link_to</label>
+                    <Select
+                      v-model="entry.linkTo"
+                      :options="nodeNames"
+                      editable
+                      size="small"
+                      class="w-full"
+                      placeholder="node"
+                      @change="onChange"
+                    />
                   </div>
                 </div>
 
-                <!-- Extra params -->
-                <div v-if="entry.extraParams.length > 0" class="extra-params">
-                  <div v-for="(param, j) in entry.extraParams" :key="j" class="param-row">
+                <div v-if="entry.template" class="field">
+                  <label>template</label>
+                  <div class="template-note">
+                    Inherits from <code>{{ entry.template }}</code>
+                    <span v-if="inheritedFrom(entry, 'base_tech')">
+                      (base_tech: {{ inheritedFrom(entry, "base_tech") }})
+                    </span>
+                  </div>
+                </div>
+
+                <div v-if="entry.params.length > 0" class="params">
+                  <div
+                    v-for="(param, index) in entry.params"
+                    :key="index"
+                    class="param-row"
+                  >
                     <InputText
                       v-model="param.key"
                       size="small"
@@ -305,14 +354,17 @@ watch(() => props.filePath, load);
                     />
                     <ScalarOrDataVar
                       :modelValue="param.value"
-                      @update:modelValue="param.value = $event; onChange()"
+                      @update:modelValue="
+                        param.value = $event;
+                        onChange();
+                      "
                     />
                     <Button
                       icon="pi pi-times"
                       size="small"
                       text
                       severity="danger"
-                      @click="removeExtraParam(entry, j)"
+                      @click="removeParam(entry, index)"
                     />
                   </div>
                 </div>
@@ -322,62 +374,8 @@ watch(() => props.filePath, load);
                   size="small"
                   text
                   severity="secondary"
-                  @click="addExtraParam(entry)"
+                  @click="addParam(entry)"
                 />
-
-                <!-- Techs sub-section -->
-                <div class="sub-section">
-                  <div class="sub-section-header">
-                    <span class="sub-section-label">techs</span>
-                    <Button icon="pi pi-plus" size="small" text severity="secondary" @click="addTech(entry)" />
-                  </div>
-
-                  <div v-for="(lt, ti) in entry.techs" :key="ti" class="tech-entry">
-                    <div class="tech-name-row">
-                      <InputText
-                        v-model="lt.techName"
-                        size="small"
-                        placeholder="tech name"
-                        class="tech-name-input"
-                        @input="onChange"
-                      />
-                      <Button icon="pi pi-times" size="small" text severity="danger" @click="removeTech(entry, ti)" />
-                    </div>
-                    <div v-if="lt.params.length > 0" class="tech-params">
-                      <div v-for="(p, pi) in lt.params" :key="pi" class="param-row">
-                        <InputText
-                          v-model="p.key"
-                          size="small"
-                          class="param-key"
-                          placeholder="parameter"
-                          @input="onChange"
-                        />
-                        <ScalarOrDataVar
-                          :modelValue="p.value"
-                          @update:modelValue="p.value = $event; onChange()"
-                        />
-                        <Button
-                          icon="pi pi-times"
-                          size="small"
-                          text
-                          severity="danger"
-                          @click="removeTechParam(entry, ti, pi)"
-                        />
-                      </div>
-                    </div>
-                    <Button
-                      label="Add param"
-                      icon="pi pi-plus"
-                      size="small"
-                      text
-                      severity="secondary"
-                      class="add-param-btn"
-                      @click="addTechParam(entry, ti)"
-                    />
-                  </div>
-
-                  <div v-if="entry.techs.length === 0" class="sub-placeholder">No inline techs.</div>
-                </div>
               </div>
             </AccordionContent>
           </AccordionPanel>
@@ -395,8 +393,15 @@ watch(() => props.filePath, load);
   overflow: hidden;
 }
 
-.placeholder { padding: 2rem; text-align: center; color: var(--p-text-muted-color, #888); font-size: 0.875rem; }
-.placeholder.error { color: #ef4444; }
+.placeholder {
+  padding: 2rem;
+  text-align: center;
+  color: var(--p-text-muted-color, #888);
+  font-size: 0.875rem;
+}
+.placeholder.error {
+  color: #ef4444;
+}
 
 .toolbar {
   display: flex;
@@ -407,7 +412,10 @@ watch(() => props.filePath, load);
   border-bottom: 1px solid var(--p-content-border-color, #e0e0e0);
 }
 
-.hint { font-size: 0.75rem; color: var(--p-text-muted-color, #888); }
+.hint {
+  font-size: 0.75rem;
+  color: var(--p-text-muted-color, #888);
+}
 
 .entry-list {
   flex: 1;
@@ -429,47 +437,58 @@ watch(() => props.filePath, load);
   color: var(--p-text-muted-color, #888);
 }
 
-.delete-btn { margin-left: auto; }
-
-.entry-form { display: flex; flex-direction: column; gap: 0.5rem; padding: 0.5rem 0; }
-
-.field { display: flex; flex-direction: column; gap: 0.25rem; }
-.field label { font-size: 0.8rem; font-family: monospace; color: var(--p-text-muted-color, #666); }
-
-.from-to-row { display: flex; gap: 0.75rem; }
-.ft-field { flex: 1; }
-
-.extra-params { display: flex; flex-direction: column; gap: 0.3rem; }
-
-.param-row { display: flex; align-items: flex-start; gap: 0.4rem; }
-.param-key { width: 9rem; flex-shrink: 0; }
-
-.sub-section {
-  border: 1px solid var(--p-content-border-color, #e0e0e0);
-  border-radius: 4px;
-  padding: 0.5rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
+.delete-btn {
+  margin-left: auto;
 }
 
-.sub-section-header { display: flex; align-items: center; justify-content: space-between; }
-.sub-section-label { font-size: 0.8rem; font-family: monospace; font-weight: 600; color: var(--p-text-muted-color, #666); }
+.entry-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.5rem 0;
+}
 
-.tech-entry {
-  background: var(--p-surface-50, #f9fafb);
-  border-radius: 4px;
-  padding: 0.4rem;
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.field label {
+  font-size: 0.8rem;
+  font-family: monospace;
+  color: var(--p-text-muted-color, #666);
+}
+
+.from-to-row {
+  display: flex;
+  gap: 0.75rem;
+}
+.ft-field {
+  flex: 1;
+}
+
+.template-note {
+  font-size: 0.8rem;
+  color: var(--p-text-muted-color, #888);
+}
+
+.params {
   display: flex;
   flex-direction: column;
   gap: 0.3rem;
 }
 
-.tech-name-row { display: flex; align-items: center; gap: 0.4rem; }
-.tech-name-input { flex: 1; }
-.tech-params { display: flex; flex-direction: column; gap: 0.25rem; padding-left: 0.5rem; }
-.add-param-btn { align-self: flex-start; }
-.sub-placeholder { font-size: 0.8rem; color: var(--p-text-muted-color, #888); text-align: center; padding: 0.25rem; }
+.param-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.4rem;
+}
+.param-key {
+  width: 9rem;
+  flex-shrink: 0;
+}
 
-.w-full { width: 100%; }
+.w-full {
+  width: 100%;
+}
 </style>

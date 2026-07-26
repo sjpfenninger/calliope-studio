@@ -13,8 +13,7 @@ one, drew no links at all for any current model.
 from pathlib import Path
 from typing import Any
 
-from calligraph.modeldef.imports import reachable_files
-from calligraph.modeldef.yaml_io import load_quietly, to_plain
+from calligraph.modeldef.entities import merged_section, resolve_templates
 
 #: Fraction of the bounding box added as margin.
 BOUNDS_PADDING = 0.1
@@ -32,47 +31,9 @@ def _coordinate(value: Any) -> float | None:
     return number
 
 
-def _merged_sections(base: Path, section: str) -> dict:
-    """Collects one top-level section across the whole import graph.
-
-    A model spreads its technologies and nodes over several files; the first
-    definition of a name wins, which is how Calliope resolves them too.
-    """
-    base = Path(base).resolve()
-    merged: dict = {}
-    for path in reachable_files(base):
-        document = load_quietly(path)
-        if not isinstance(document, dict):
-            continue
-        block = document.get(section)
-        if not isinstance(block, dict):
-            continue
-        for name, definition in block.items():
-            merged.setdefault(str(name), to_plain(definition) or {})
-    return merged
-
-
-def _resolve_templates(entries: dict, templates: dict) -> dict:
-    """Applies `template:` inheritance, one level deep.
-
-    Transmission technologies in the example models put `link_from`/`link_to` on
-    the entry but their `base_tech` on a template, so a link is invisible
-    without this.
-    """
-    resolved = {}
-    for name, entry in entries.items():
-        if not isinstance(entry, dict):
-            resolved[name] = {}
-            continue
-        template_name = entry.get("template")
-        template = templates.get(template_name, {}) if template_name else {}
-        resolved[name] = {**template, **entry}
-    return resolved
-
-
 def nodes_geojson(base: Path, nodes: dict | None = None) -> dict:
     """Nodes carrying coordinates, as a GeoJSON point collection."""
-    nodes = _merged_sections(base, "nodes") if nodes is None else nodes
+    nodes = merged_section(base, "nodes") if nodes is None else nodes
 
     features = []
     for name, definition in nodes.items():
@@ -95,9 +56,9 @@ def nodes_geojson(base: Path, nodes: dict | None = None) -> dict:
 
 def links_geojson(base: Path, nodes: dict | None = None) -> dict:
     """Transmission technologies, drawn between the nodes they connect."""
-    nodes = _merged_sections(base, "nodes") if nodes is None else nodes
-    techs = _resolve_templates(
-        _merged_sections(base, "techs"), _merged_sections(base, "templates")
+    nodes = merged_section(base, "nodes") if nodes is None else nodes
+    techs = resolve_templates(
+        merged_section(base, "techs"), merged_section(base, "templates")
     )
 
     positions = {
@@ -151,8 +112,8 @@ def bounds(nodes: dict, padding: float = BOUNDS_PADDING) -> list[list[float]] | 
 
 def tech_colors(base: Path) -> dict[str, str]:
     """Colours declared in the model definition, including via templates."""
-    techs = _resolve_templates(
-        _merged_sections(base, "techs"), _merged_sections(base, "templates")
+    techs = resolve_templates(
+        merged_section(base, "techs"), merged_section(base, "templates")
     )
     return {
         name: tech["color"]
@@ -163,7 +124,7 @@ def tech_colors(base: Path) -> dict[str, str]:
 
 def geojson(base: Path) -> dict:
     """Everything the map needs for a model definition."""
-    nodes = _merged_sections(base, "nodes")
+    nodes = merged_section(base, "nodes")
     points = nodes_geojson(base, nodes)
     return {
         "nodes": points,

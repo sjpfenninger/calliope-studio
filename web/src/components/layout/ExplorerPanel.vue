@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from "vue";
+import { ref, computed, onMounted, watch } from "vue";
 import Tree from "primevue/tree";
 import Button from "primevue/button";
 import type { TreeNode } from "../../stores/version";
@@ -100,6 +100,16 @@ function switchToModel() {
 }
 
 onMounted(() => switchToModel());
+
+// The version is set from the route after this panel mounts, so loading only on
+// mount left the model tree permanently empty.
+watch(
+  () => editorStore.versionId,
+  (versionId) => {
+    if (versionId) componentTreeStore.load(versionId);
+  },
+  { immediate: true },
+);
 
 function refreshModel() {
   if (editorStore.versionId) {

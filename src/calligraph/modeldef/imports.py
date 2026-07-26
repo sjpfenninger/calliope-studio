@@ -127,8 +127,16 @@ def component_tree(base: Path) -> dict:
     entries}` with entries as objects — rather than the Django version's mix of
     bare strings and objects depending on section.
     """
+    from calligraph.modeldef.entities import transmission_techs
+
     base = Path(base).resolve()
     tree: dict[str, Any] = {}
+
+    # Transmission technologies are shown as "links" rather than mixed in with
+    # everything else: they are the only entries that connect two nodes, and
+    # they are what the map draws. Deciding which they are needs the whole
+    # import graph, because `base_tech` usually comes from a template.
+    links = transmission_techs(base)
 
     for path in reachable_files(base):
         document = load_quietly(path)
@@ -148,21 +156,34 @@ def component_tree(base: Path) -> dict:
             if not isinstance(block, dict):
                 continue
 
-            node = tree.setdefault(section, {"file": relative, "entries": []})
-            existing = {entry["name"] for entry in node["entries"]}
-
             for name in block:
-                if name in existing:
+                # A transmission tech lives under `techs:` in the file but
+                # belongs under "links" in the tree; both open the same file and
+                # the same YAML section.
+                target = (
+                    "links" if section == "techs" and str(name) in links else section
+                )
+                node = tree.setdefault(target, {"file": relative, "entries": []})
+                if any(entry["name"] == str(name) for entry in node["entries"]):
                     continue
-                existing.add(name)
+
                 entry: dict[str, Any] = {"name": str(name), "file": relative}
-                if section not in FLAT_SECTIONS:
+                if target not in FLAT_SECTIONS:
                     value = block.get(name)
                     template = (
                         value.get("template") if isinstance(value, dict) else None
                     )
                     if template:
                         entry["template"] = template
+                    if target == "links" and isinstance(value, dict):
+                        for key in ("link_from", "link_to"):
+                            if value.get(key):
+                                entry[key] = str(value[key])
                 node["entries"].append(entry)
+
+    # A `techs:` section containing nothing but links would otherwise leave an
+    # empty group in the explorer.
+    if tree.get("techs") and not tree["techs"]["entries"]:
+        del tree["techs"]
 
     return tree

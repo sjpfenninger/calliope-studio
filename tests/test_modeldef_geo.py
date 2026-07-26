@@ -7,6 +7,7 @@ Both halves of the app render the same GeoJSON, so these also pin the shape
 import pytest
 
 from calligraph.modeldef import geo
+from calligraph.modeldef.entities import merged_section
 
 
 class TestNodes:
@@ -145,5 +146,4 @@ class TestApi:
 @pytest.mark.parametrize("section", ["nodes", "techs"])
 def test_definitions_merge_across_imported_files(national_scale, section):
     """A model spreads nodes and techs over several files."""
-    merged = geo._merged_sections(national_scale, section)
-    assert len(merged) > 1
+    assert len(merged_section(national_scale, section)) > 1

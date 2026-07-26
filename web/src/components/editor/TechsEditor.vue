@@ -7,7 +7,9 @@
  *   - Entry tab (entryName="csp"): shows only the named tech
  *   - File structured view (tabKey=filePath, entryName=null): shows all techs
  *
- * Saves always write the full section back to the file.
+ * Transmission technologies are excluded: they are edited by LinksEditor, which
+ * promotes the two nodes they join. They still share this YAML section, so a
+ * save writes them back untouched rather than dropping them.
  */
 import { ref, computed, onMounted, onUnmounted, watch } from "vue";
 import Accordion from "primevue/accordion";
@@ -23,6 +25,7 @@ import { useEditorStore } from "../../stores/editor";
 import { useSectionDataStore } from "../../stores/sectionData";
 import { useComponentTreeStore } from "../../stores/componentTree";
 import ScalarOrDataVar from "./ScalarOrDataVar.vue";
+import { isTransmission, mergeIntoSection, type RawTech } from "../../lib/techs";
 
 const props = defineProps<{
   versionId: string;
@@ -49,6 +52,9 @@ interface TechEntry {
 }
 
 const entries = ref<TechEntry[]>([]);
+// The section as loaded, so the transmission entries LinksEditor owns survive a
+// save from here.
+const originalSection = ref<Record<string, RawTech>>({});
 // Map from template name → its raw fields (merged from all files that define templates)
 const templatesData = ref<Record<string, Record<string, any>>>({});
 
@@ -97,22 +103,27 @@ async function load() {
   isLoading.value = true;
   error.value = null;
   try {
+    // Templates first: whether a technology is a transmission link usually
+    // comes from its template, so nothing can be classified without them.
+    await loadTemplatesSection();
+
     const cached = sectionDataStore.get(props.versionId, props.filePath, "techs");
+    let section: Record<string, RawTech>;
     if (cached !== null) {
-      entries.value = Object.entries(cached).map(([name, raw]) =>
-        rawToEntry(name, raw as Record<string, any> | null)
-      );
+      section = cached as Record<string, RawTech>;
     } else {
       const res = await client.get<{ section: string; data: any }>(
         `/api/versions/${props.versionId}/yaml-section/${props.filePath}?section=techs`
       );
-      const d = res.data.data ?? {};
-      sectionDataStore.set(props.versionId, props.filePath, "techs", d);
-      entries.value = Object.entries(d).map(([name, raw]) =>
-        rawToEntry(name, raw as Record<string, any> | null)
-      );
+      section = (res.data.data ?? {}) as Record<string, RawTech>;
+      sectionDataStore.set(props.versionId, props.filePath, "techs", section);
     }
-    await loadTemplatesSection();
+
+    originalSection.value = section;
+    entries.value = Object.entries(originalSection.value)
+      .filter(([, raw]) => !isTransmission(raw, templatesData.value))
+      .map(([name, raw]) => rawToEntry(name, raw));
+
     await loadDataTableParams();
   } catch (e: any) {
     error.value = e?.response?.data?.detail ?? "Failed to load techs section.";
@@ -173,13 +184,18 @@ function formatTemplateValue(v: any): string {
   return String(v);
 }
 
-function buildPayload(): Record<string, any> {
-  const result: Record<string, any> = {};
+function ownedHere(name: string): boolean {
+  return !isTransmission(originalSection.value[name] ?? null, templatesData.value);
+}
+
+function buildPayload(): Record<string, RawTech> {
+  const edited: Record<string, RawTech> = {};
   for (const e of entries.value) {
-    if (!e.name) continue;
-    result[e.name] = entryToRaw(e);
+    if (e.name) edited[e.name] = entryToRaw(e);
   }
-  return result;
+  // Transmission entries belong to LinksEditor; writing only what is shown here
+  // would delete every link in the file.
+  return mergeIntoSection(originalSection.value, edited, ownedHere);
 }
 
 async function save() {
@@ -191,6 +207,7 @@ async function save() {
       { data: payload }
     );
     sectionDataStore.set(props.versionId, props.filePath, "techs", payload);
+    originalSection.value = payload;
     editorStore.markClean(props.tabKey);
   } finally {
     isSaving.value = false;

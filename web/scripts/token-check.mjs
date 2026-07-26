@@ -17,20 +17,12 @@
  * MapLibre and Monaco all fail to parse. Printed below so the claim can be
  * re-checked when browsers change.
  */
-import { chromium } from "playwright-core";
+import { open, results } from "./harness.mjs";
 
 const BASE = process.argv[2] ?? "http://127.0.0.1:8000";
-const EXECUTABLE =
-  process.env.CHROMIUM ?? "/Applications/Chromium.app/Contents/MacOS/Chromium";
 
-const failures = [];
-function check(description, condition) {
-  console.log(condition ? `  ok    ${description}` : `  FAIL  ${description}`);
-  if (!condition) failures.push(description);
-}
-
-const browser = await chromium.launch({ executablePath: EXECUTABLE, headless: true });
-const page = await browser.newPage({ viewport: { width: 1400, height: 1000 } });
+const { check, failed, finish } = results();
+const { browser, page } = await open();
 
 /** Reads the theme plumbing without the app running at all. */
 async function withoutTheBundle({ colorScheme, stored }) {
@@ -281,10 +273,5 @@ check(
     (await withoutTheBundle({ colorScheme: "dark", stored: "light" })).theme === "light",
 );
 
-await browser.close();
-
-if (failures.length) {
-  console.log(`\n${failures.length} check(s) failed`);
-  process.exit(1);
-}
-console.log("\nall token checks passed");
+console.log(failed() ? `\n${failed()} check(s) failed` : "\nall token checks passed");
+await finish(browser);

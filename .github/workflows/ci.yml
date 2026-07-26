@@ -52,6 +52,73 @@ jobs:
       - name: Build
         run: npm run build
 
+  browser:
+    name: Browser
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: prefix-dev/setup-pixi@v0
+        with:
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install the frontend and build it into the package
+        run: pixi run web-build
+
+      - name: Install Chromium
+        # The scripts use playwright-core, which ships no browsers. Matching the
+        # installer's version to playwright-core's is what makes
+        # `chromium.executablePath()` resolve to the one it just downloaded.
+        working-directory: web
+        run: |
+          version=$(node -p "require('playwright-core/package.json').version")
+          npx --yes playwright@$version install --with-deps chromium
+          echo "CHROMIUM=$(node -e "console.log(require('playwright-core').chromium.executablePath())")" >> "$GITHUB_ENV"
+
+      - name: Scaffold a model to drive
+        run: pixi run example
+
+      - name: Start the server on it
+        run: |
+          pixi run calligraph --no-browser --port 8791 example-model &
+          npx --yes wait-on -t 120000 http://127.0.0.1:8791/api/health
+
+      # The design tokens, and every renderer that reads them outside the DOM.
+      - name: Token check
+        working-directory: web
+        run: npm run token-check -- http://127.0.0.1:8791
+
+      # A no-op save must not change the file, across every structured section.
+      - name: Faithful-save check
+        working-directory: web
+        run: npm run save-check -- http://127.0.0.1:8791
+
+      # Really solves, with CBC, and drives the run tab from log to charts.
+      - name: Run lifecycle
+        working-directory: web
+        run: npm run run-lifecycle -- http://127.0.0.1:8791
+
+      - name: Results view, on what that run produced
+        run: |
+          results=$(ls example-model/calligraph/runs/*/results.nc | head -1)
+          pixi run calligraph --no-browser --port 8792 "$results" &
+          npx --yes wait-on -t 120000 http://127.0.0.1:8792/api/health
+          cd web && npm run smoke -- http://127.0.0.1:8792
+
+      - name: Keep the screenshots when something fails
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-screenshots
+          path: /tmp/calligraph-*.png
+          if-no-files-found: ignore
+
   package:
     name: Package
     runs-on: ubuntu-latest

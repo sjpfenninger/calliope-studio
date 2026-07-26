@@ -18,49 +18,16 @@
  *
  * Solves for real, so it takes as long as the model does.
  */
-import { chromium } from "playwright-core";
+import { health, open, requireMode, results } from "./harness.mjs";
 
 const BASE = process.argv[2] ?? "http://127.0.0.1:8000";
-const EXECUTABLE =
-  process.env.CHROMIUM ?? "/Applications/Chromium.app/Contents/MacOS/Chromium";
 
-const failures = [];
-function check(description, condition) {
-  if (condition) console.log(`  ok    ${description}`);
-  else {
-    console.log(`  FAIL  ${description}`);
-    failures.push(description);
-  }
-}
-
-const health = await (await fetch(`${BASE}/api/health`)).json();
-if (health.mode !== "workspace") {
-  console.error(
-    `This check needs a server opened on a model folder; got mode "${health.mode}".`,
-  );
-  process.exit(2);
-}
-
-const browser = await chromium.launch({ executablePath: EXECUTABLE, headless: true });
-const page = await browser.newPage({ viewport: { width: 1400, height: 1000 } });
-
-const consoleErrors = [];
-page.on("console", (message) => {
-  if (message.type() === "error") consoleErrors.push(message.text());
-});
-page.on("pageerror", (error) => consoleErrors.push(`pageerror: ${error.message}`));
-
-const frames = [];
-page.on("request", (request) => {
-  if (request.url().includes("/frame/") && request.method() === "POST") {
-    frames.push(request.url());
-  }
-});
-
-const testId = (name) => page.locator(`[data-testid="${name}"]`);
+const { check, finish } = results();
+const payload = requireMode(await health(BASE), "workspace", BASE);
+const { browser, page, testId, consoleErrors, frames } = await open();
 
 console.log(`Run lifecycle at ${BASE}`);
-await page.goto(`${BASE}${health.landing}`, { waitUntil: "networkidle" });
+await page.goto(`${BASE}${payload.landing}`, { waitUntil: "networkidle" });
 await page.getByRole("link", { name: "Runs" }).click();
 await testId("start-run").waitFor();
 
@@ -94,13 +61,29 @@ await testId("run-subtab-results").click();
 await page.waitForTimeout(2000);
 check("returning to the charts issues no new frame request", frames.length === settled);
 
+// The frozen configuration, which only exists because the run was snapshotted
+// before the worker started.
+await testId("run-subtab-config").click();
+await testId("snapshot-tree").waitFor({ timeout: 10000 });
+await page.waitForTimeout(1000);
+check(
+  "the frozen tree lists the model",
+  (await testId("snapshot-tree").getByText("model.yaml").count()) > 0,
+);
+check(
+  "the frozen file's content is shown",
+  ((await testId("snapshot-content").textContent()) ?? "").includes("import"),
+);
+
+await testId("config-view-solved").click();
+await testId("run-summary").waitFor({ timeout: 30000 });
+await page.waitForTimeout(2000);
+check(
+  "the as-solved summary renders",
+  (await testId("run-summary").locator("dt").count()) > 5,
+);
+
 await page.screenshot({ path: "/tmp/calligraph-run-lifecycle.png", fullPage: true });
 console.log("screenshot: /tmp/calligraph-run-lifecycle.png");
 
-if (consoleErrors.length) {
-  console.log("console errors:");
-  consoleErrors.slice(0, 10).forEach((line) => console.log(`  ${line}`));
-}
-
-await browser.close();
-process.exit(failures.length ? 1 : 0);
+await finish(browser, consoleErrors);

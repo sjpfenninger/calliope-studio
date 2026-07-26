@@ -38,6 +38,7 @@ import { useTabsStore } from "@/stores/tabs";
 import { useSectionDataStore } from "@/stores/sectionData";
 import { useComponentTreeStore } from "@/stores/componentTree";
 import { useUiStore } from "@/stores/ui";
+import { nodeToRaw, rawToNode, type NodeEntry } from "@/lib/entries";
 
 const props = defineProps<{
   versionId: string;
@@ -54,21 +55,6 @@ const isLoading = ref(true);
 const isSaving = ref(false);
 const error = ref<string | null>(null);
 
-interface TechOverride {
-  techName: string;
-  params: Array<{ key: string; value: any }>;
-}
-
-interface NodeEntry {
-  name: string;
-  template: string | null;
-  active: boolean;
-  latitude: number | null;
-  longitude: number | null;
-  extraParams: Array<{ key: string; value: any }>;
-  techs: TechOverride[];
-}
-
 const entries = ref<NodeEntry[]>([]);
 const templatesData = ref<Record<string, Record<string, any>>>({});
 
@@ -83,57 +69,7 @@ const visibleEntries = computed(() =>
     : entries.value
 );
 
-function rawTechsToOverrides(raw: Record<string, any> | null): TechOverride[] {
-  if (!raw || typeof raw !== "object") return [];
-  return Object.entries(raw).map(([techName, params]) => ({
-    techName,
-    params: Object.entries(params ?? {}).map(([k, v]) => ({ key: k, value: v })),
-  }));
-}
 
-function rawToEntry(name: string, raw: Record<string, any> | null): NodeEntry {
-  const d = raw ?? {};
-  const extra: Array<{ key: string; value: any }> = [];
-  const KNOWN = new Set(["active", "latitude", "longitude", "techs", "template"]);
-  for (const [k, v] of Object.entries(d)) {
-    if (!KNOWN.has(k)) extra.push({ key: k, value: v });
-  }
-  return {
-    name,
-    template: d.template ?? null,
-    active: d.active !== false,
-    latitude: d.latitude ?? null,
-    longitude: d.longitude ?? null,
-    extraParams: extra,
-    techs: rawTechsToOverrides(d.techs ?? null),
-  };
-}
-
-function entryToRaw(e: NodeEntry): Record<string, any> {
-  const result: Record<string, any> = {};
-  if (e.active === false) result.active = false;
-  if (e.template) result.template = e.template;
-  if (e.latitude !== null) result.latitude = e.latitude;
-  if (e.longitude !== null) result.longitude = e.longitude;
-  for (const { key, value } of e.extraParams) {
-    if (!key) continue;
-    if (value !== null && value !== undefined && value !== "") result[key] = value;
-  }
-  if (e.techs.length > 0) {
-    const techsObj: Record<string, any> = {};
-    for (const t of e.techs) {
-      if (!t.techName) continue;
-      const paramObj: Record<string, any> = {};
-      for (const { key, value } of t.params) {
-        if (!key) continue;
-        if (value !== null && value !== undefined && value !== "") paramObj[key] = value;
-      }
-      techsObj[t.techName] = Object.keys(paramObj).length ? paramObj : null;
-    }
-    if (Object.keys(techsObj).length) result.techs = techsObj;
-  }
-  return result;
-}
 
 async function load() {
   isLoading.value = true;
@@ -142,7 +78,7 @@ async function load() {
     const cached = sectionDataStore.get(props.versionId, props.filePath, "nodes");
     if (cached !== null) {
       entries.value = Object.entries(cached).map(([name, raw]) =>
-        rawToEntry(name, raw as Record<string, any> | null)
+        rawToNode(name, raw as Record<string, any> | null)
       );
     } else {
       const res = await client.get<{ section: string; data: any }>(
@@ -151,7 +87,7 @@ async function load() {
       const d = res.data.data ?? {};
       sectionDataStore.set(props.versionId, props.filePath, "nodes", d);
       entries.value = Object.entries(d).map(([name, raw]) =>
-        rawToEntry(name, raw as Record<string, any> | null)
+        rawToNode(name, raw as Record<string, any> | null)
       );
     }
     await loadTemplatesSection();
@@ -220,7 +156,7 @@ function buildPayload(): Record<string, any> {
   const result: Record<string, any> = {};
   for (const e of entries.value) {
     if (!e.name) continue;
-    result[e.name] = entryToRaw(e);
+    result[e.name] = nodeToRaw(e);
   }
   return result;
 }

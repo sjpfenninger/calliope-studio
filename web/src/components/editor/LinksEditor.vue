@@ -34,6 +34,7 @@ import { useTabsStore } from "@/stores/tabs";
 import { useSectionDataStore } from "@/stores/sectionData";
 import { useComponentTreeStore } from "@/stores/componentTree";
 import { isTransmission, mergeIntoSection, type RawTech } from "@/lib/techs";
+import { linkToRaw, rawToLink, type LinkEntry } from "@/lib/entries";
 
 const props = defineProps<{
   versionId: string;
@@ -49,18 +50,6 @@ const componentTreeStore = useComponentTreeStore();
 const isLoading = ref(true);
 const isSaving = ref(false);
 const error = ref<string | null>(null);
-
-/** Keys shown as their own fields rather than in the parameter list. */
-const PROMOTED = new Set(["link_from", "link_to", "template", "base_tech", "active"]);
-
-interface LinkEntry {
-  name: string;
-  linkFrom: string;
-  linkTo: string;
-  template: string | null;
-  active: boolean;
-  params: Array<{ key: string; value: any }>;
-}
 
 const entries = ref<LinkEntry[]>([]);
 /** The section as loaded, so entries owned by TechsEditor survive a save. */
@@ -78,36 +67,6 @@ const visibleEntries = computed(() =>
     ? entries.value.filter((entry) => entry.name === props.entryName)
     : entries.value,
 );
-
-function rawToEntry(name: string, raw: RawTech): LinkEntry {
-  const data = raw ?? {};
-  return {
-    name,
-    linkFrom: data.link_from ?? "",
-    linkTo: data.link_to ?? "",
-    template: data.template ?? null,
-    active: data.active !== false,
-    params: Object.entries(data)
-      .filter(([key]) => !PROMOTED.has(key))
-      .map(([key, value]) => ({ key, value })),
-  };
-}
-
-function entryToRaw(entry: LinkEntry): Record<string, any> {
-  const result: Record<string, any> = {};
-  if (entry.active === false) result.active = false;
-  if (entry.template) result.template = entry.template;
-  if (entry.linkFrom) result.link_from = entry.linkFrom;
-  if (entry.linkTo) result.link_to = entry.linkTo;
-  // Only written when not inherited, so a link using a template does not gain a
-  // redundant base_tech it never had.
-  if (!entry.template) result.base_tech = "transmission";
-  for (const { key, value } of entry.params) {
-    if (!key) continue;
-    if (value !== null && value !== undefined && value !== "") result[key] = value;
-  }
-  return result;
-}
 
 function owned(name: string): boolean {
   return isTransmission(originalSection.value[name] ?? null, templatesData.value);
@@ -150,7 +109,7 @@ async function load() {
     originalSection.value = section;
     entries.value = Object.entries(section)
       .filter(([, raw]) => isTransmission(raw, templatesData.value))
-      .map(([name, raw]) => rawToEntry(name, raw));
+      .map(([name, raw]) => rawToLink(name, raw));
   } catch (caught: any) {
     error.value =
       caught?.response?.data?.detail ?? "Failed to load transmission technologies.";
@@ -162,7 +121,7 @@ async function load() {
 function buildPayload(): Record<string, RawTech> {
   const edited: Record<string, RawTech> = {};
   for (const entry of entries.value) {
-    if (entry.name) edited[entry.name] = entryToRaw(entry);
+    if (entry.name) edited[entry.name] = linkToRaw(entry);
   }
   return mergeIntoSection(originalSection.value, edited, owned);
 }

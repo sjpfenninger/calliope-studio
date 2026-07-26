@@ -37,6 +37,7 @@ import { useTabsStore } from "@/stores/tabs";
 import { useSectionDataStore } from "@/stores/sectionData";
 import { useComponentTreeStore } from "@/stores/componentTree";
 import { isTransmission, mergeIntoSection, type RawTech } from "@/lib/techs";
+import { rawToTech, techToRaw, type TechEntry } from "@/lib/entries";
 
 const props = defineProps<{
   versionId: string;
@@ -53,14 +54,6 @@ const isSaving = ref(false);
 const error = ref<string | null>(null);
 
 const BASE_TECH_OPTIONS = ["supply", "demand", "storage", "transmission", "conversion"];
-
-interface TechEntry {
-  name: string;
-  template: string | null;
-  base_tech: string | null;
-  active: boolean;
-  extraParams: Array<{ key: string; value: any }>;
-}
 
 const entries = ref<TechEntry[]>([]);
 // The section as loaded, so the transmission entries LinksEditor owns survive a
@@ -79,36 +72,6 @@ const visibleEntries = computed(() =>
     ? entries.value.filter((e) => e.name === props.entryName)
     : entries.value
 );
-
-function rawToEntry(name: string, raw: Record<string, any> | null): TechEntry {
-  const data = raw ?? {};
-  const extra: Array<{ key: string; value: any }> = [];
-  for (const [k, v] of Object.entries(data)) {
-    if (k === "base_tech" || k === "active" || k === "template") continue;
-    extra.push({ key: k, value: v });
-  }
-  return {
-    name,
-    template: data.template ?? null,
-    base_tech: data.base_tech ?? null,
-    active: data.active !== false,
-    extraParams: extra,
-  };
-}
-
-function entryToRaw(e: TechEntry): Record<string, any> {
-  const result: Record<string, any> = {};
-  if (e.active === false) result.active = false;
-  if (e.template) result.template = e.template;
-  if (e.base_tech) result.base_tech = e.base_tech;
-  for (const { key, value } of e.extraParams) {
-    if (!key) continue;
-    if (value !== null && value !== undefined && value !== "") {
-      result[key] = value;
-    }
-  }
-  return result;
-}
 
 async function load() {
   isLoading.value = true;
@@ -133,7 +96,7 @@ async function load() {
     originalSection.value = section;
     entries.value = Object.entries(originalSection.value)
       .filter(([, raw]) => !isTransmission(raw, templatesData.value))
-      .map(([name, raw]) => rawToEntry(name, raw));
+      .map(([name, raw]) => rawToTech(name, raw));
 
     await loadDataTableParams();
   } catch (e: any) {
@@ -202,7 +165,7 @@ function ownedHere(name: string): boolean {
 function buildPayload(): Record<string, RawTech> {
   const edited: Record<string, RawTech> = {};
   for (const e of entries.value) {
-    if (e.name) edited[e.name] = entryToRaw(e);
+    if (e.name) edited[e.name] = techToRaw(e);
   }
   // Transmission entries belong to LinksEditor; writing only what is shown here
   // would delete every link in the file.

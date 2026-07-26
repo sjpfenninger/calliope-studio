@@ -25,12 +25,11 @@
  * `tests/test_yaml_io.py::assert_faithful_rewrite` defines: comments, line
  * count, and parsed content.
  */
-import { chromium } from "playwright-core";
 import { parse } from "yaml";
 
+import { health, open, requireMode, results } from "./harness.mjs";
+
 const BASE = process.argv[2] ?? "http://127.0.0.1:8000";
-const EXECUTABLE =
-  process.env.CHROMIUM ?? "/Applications/Chromium.app/Contents/MacOS/Chromium";
 
 /** Section in the model tree → the file it is defined in, for `example-model`. */
 const SECTIONS = [
@@ -43,14 +42,7 @@ const SECTIONS = [
   ["scenarios", "scenarios.yaml"],
 ];
 
-const failures = [];
-function check(description, condition, detail) {
-  if (condition) console.log(`  ok    ${description}`);
-  else {
-    console.log(`  FAIL  ${description}${detail ? `\n        ${detail}` : ""}`);
-    failures.push(description);
-  }
-}
+const { check, finish } = results();
 
 const comments = (text) =>
   text
@@ -58,29 +50,16 @@ const comments = (text) =>
     .map((line) => line.split("#")[1]?.trim())
     .filter(Boolean);
 
-const health = await (await fetch(`${BASE}/api/health`)).json();
-if (health.mode !== "workspace") {
-  console.error("This check needs a server opened on a model folder.");
-  process.exit(2);
-}
-const ws = health.workspace_id;
+const payload = requireMode(await health(BASE), "workspace", BASE);
+const ws = payload.workspace_id;
 
 const read = async (path) =>
   (await (await fetch(`${BASE}/api/versions/${ws}/files/${path}`)).json()).content;
 
-const browser = await chromium.launch({ executablePath: EXECUTABLE, headless: true });
-const page = await browser.newPage({ viewport: { width: 1400, height: 1000 } });
-
-const consoleErrors = [];
-page.on("console", (message) => {
-  if (message.type() === "error") consoleErrors.push(message.text());
-});
-page.on("pageerror", (error) => consoleErrors.push(`pageerror: ${error.message}`));
-
-const testId = (name) => page.locator(`[data-testid="${name}"]`);
+const { browser, page, testId, consoleErrors } = await open();
 
 console.log(`No-op save at ${BASE}`);
-await page.goto(`${BASE}${health.landing}`, { waitUntil: "networkidle" });
+await page.goto(`${BASE}${payload.landing}`, { waitUntil: "networkidle" });
 await testId("model-tree").waitFor({ timeout: 20000 });
 await page.waitForTimeout(1500);
 
@@ -125,9 +104,5 @@ for (const [section, file] of SECTIONS) {
 }
 
 check("no console errors throughout", consoleErrors.length === 0);
-if (consoleErrors.length) {
-  consoleErrors.slice(0, 8).forEach((line) => console.log(`        ${line}`));
-}
 
-await browser.close();
-process.exit(failures.length ? 1 : 0);
+await finish(browser, consoleErrors);

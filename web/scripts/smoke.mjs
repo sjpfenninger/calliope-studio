@@ -1,60 +1,31 @@
 /**
- * A browser smoke test against a running server.
+ * The results view, against a server opened on a solved model.
  *
- *   pixi run calligraph --no-browser --port 8790 path/to/results.nc
- *   npm run smoke -- http://127.0.0.1:8790
+ *   pixi run calligraph --no-browser --port 8792 path/to/results.nc
+ *   npm run smoke -- http://127.0.0.1:8792
  *
  * Type-checking and unit tests cannot see the things that actually broke here:
  * an Arrow reader whose schema is only on the batch, an ECharts option merge
  * that never removes a series, a map layer that silently draws nothing. Each of
  * those looked fine until a real browser rendered it.
  *
- * Every selector is a `data-testid` or a role. The previous version drove the
- * results view through the component library's own class names, and every one of
- * them died the moment those controls were rewritten — that is a large part of
- * what made the migration expensive, and there is no reason to re-earn it.
- *
- * Uses the system Chromium rather than downloading one, so it needs
- * `playwright-core` only. Point CHROMIUM at a different binary if needed.
+ * Every selector is a `data-testid` or a role. The previous version drove this
+ * screen through the component library's own class names, and every one of them
+ * died the moment those controls were rewritten — a large part of what made that
+ * migration expensive, and there is no reason to re-earn it.
  */
-import { chromium } from "playwright-core";
+import { health, open, results } from "./harness.mjs";
 
 const BASE = process.argv[2] ?? "http://127.0.0.1:8000";
-const EXECUTABLE =
-  process.env.CHROMIUM ?? "/Applications/Chromium.app/Contents/MacOS/Chromium";
 
-const failures = [];
-function check(description, condition) {
-  if (condition) console.log(`  ok    ${description}`);
-  else {
-    console.log(`  FAIL  ${description}`);
-    failures.push(description);
-  }
-}
-
-const browser = await chromium.launch({ executablePath: EXECUTABLE, headless: true });
-const page = await browser.newPage({ viewport: { width: 1400, height: 1100 } });
-
-const consoleErrors = [];
-page.on("console", (message) => {
-  if (message.type() === "error") consoleErrors.push(message.text());
-});
-page.on("pageerror", (error) => consoleErrors.push(`pageerror: ${error.message}`));
-
-const queries = [];
-page.on("request", (request) => {
-  if (request.url().includes("/frame/") && request.method() === "POST") {
-    try {
-      queries.push(JSON.parse(request.postData() ?? "{}"));
-    } catch {
-      /* not our payload */
-    }
-  }
+const { check, skip, finish } = results();
+const { browser, page, testId, consoleErrors, frames } = await open({
+  viewport: { width: 1400, height: 1100 },
 });
 
-const testId = (name) => page.locator(`[data-testid="${name}"]`);
+console.log(`Results view at ${BASE}`);
+await health(BASE);
 
-console.log(`Run view at ${BASE}`);
 // `/results` resolves whatever the server was opened on and replaces itself with
 // a shell URL carrying a run tab.
 await page.goto(`${BASE}/results`, { waitUntil: "networkidle" });
@@ -73,13 +44,13 @@ await testId("plot-type").getByText("Duration", { exact: true }).click();
 await page.waitForTimeout(2500);
 check(
   "duration order requested",
-  queries.some((query) => query.order === "duration"),
+  frames.some(({ query }) => query?.order === "duration"),
 );
 
 // Deselecting a technology must remove its series, which merging never does.
 await testId("plot-type").getByText("Bar", { exact: true }).click();
 await page.waitForTimeout(1500);
-const beforeDeselect = queries.length;
+const beforeDeselect = frames.length;
 const techRows = page.locator('[data-testid^="filter-techs-"]');
 if (await techRows.count()) {
   await techRows.first().click();
@@ -91,29 +62,23 @@ if (await techRows.count()) {
   await page.keyboard.press("Escape");
 }
 await page.waitForTimeout(2500);
-check("deselecting a technology re-queries", queries.length > beforeDeselect);
+check("deselecting a technology re-queries", frames.length > beforeDeselect);
 
 // The sub-views of a run tab. Results has to survive a trip to the log, or
 // coming back would rebuild the map and refetch every frame.
-//
-// A bare `.nc` has no run behind it, so it has no log and nothing was frozen —
-// both sub-views are disabled and there is nothing here to drive. Point this
-// script at a workspace that has been run to exercise them.
 if (await testId("run-subtab-log").isEnabled()) {
   await testId("run-subtab-log").click();
   await page.waitForTimeout(500);
   check("log sub-view opens", (await testId("run-log").count()) === 1);
 
-  const beforeReturn = queries.length;
+  const beforeReturn = frames.length;
   await testId("run-subtab-results").click();
   await page.waitForTimeout(1500);
-  check(
-    "returning to results issues no new frame request",
-    queries.length === beforeReturn,
-  );
+  check("returning to results issues no new frame request", frames.length === beforeReturn);
   check("results pane was kept alive", (await page.locator("canvas").count()) >= 2);
 } else {
-  console.log("  skip  run sub-views (these results have no run behind them)");
+  // A bare `.nc` has no run behind it, so it has no log and nothing was frozen.
+  skip("run sub-views (these results have no run behind them)");
 }
 
 // Both themes. The assertion is on the token itself: for most of this project's
@@ -124,13 +89,10 @@ const themeValue = () =>
     getComputedStyle(document.documentElement).getPropertyValue("--cg-bg").trim(),
   );
 const lightBg = await themeValue();
-await page.evaluate(() => {
-  localStorage.setItem("calligraph.theme", "dark");
-});
+await page.evaluate(() => localStorage.setItem("calligraph.theme", "dark"));
 await page.reload({ waitUntil: "networkidle" });
 await testId("run-results").waitFor({ timeout: 20000 });
-const darkBg = await themeValue();
-check("the theme token actually changes", Boolean(lightBg) && lightBg !== darkBg);
+check("the theme token actually changes", Boolean(lightBg) && lightBg !== (await themeValue()));
 check(
   "the root carries the dark attribute",
   (await page.getAttribute("html", "data-cg-theme")) === "dark",
@@ -152,10 +114,4 @@ check(
 await page.screenshot({ path: "/tmp/calligraph-smoke.png", fullPage: true });
 console.log("screenshot: /tmp/calligraph-smoke.png");
 
-if (consoleErrors.length) {
-  console.log("console errors:");
-  consoleErrors.slice(0, 10).forEach((line) => console.log(`  ${line}`));
-}
-
-await browser.close();
-process.exit(failures.length ? 1 : 0);
+await finish(browser, consoleErrors);

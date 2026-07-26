@@ -32,6 +32,29 @@ function check(description, condition) {
 const browser = await chromium.launch({ executablePath: EXECUTABLE, headless: true });
 const page = await browser.newPage({ viewport: { width: 1400, height: 1000 } });
 
+/** Reads the theme plumbing without the app running at all. */
+async function withoutTheBundle({ colorScheme, stored }) {
+  const context = await browser.newContext({ colorScheme, viewport: { width: 900, height: 600 } });
+  const isolated = await context.newPage();
+  if (stored) {
+    await isolated.addInitScript(
+      (value) => localStorage.setItem("calligraph.theme", value),
+      stored,
+    );
+  }
+  // Blocking every bundle chunk means whatever the theme is afterwards is the
+  // inline head guard's work alone — the only way to show there is no flash.
+  await isolated.route("**/assets/*.js", (route) => route.abort());
+  await isolated.goto(BASE, { waitUntil: "domcontentloaded" });
+  const seen = await isolated.evaluate(() => ({
+    theme: document.documentElement.dataset.cgTheme ?? "unset",
+    colorScheme: document.documentElement.style.colorScheme,
+    appMounted: (document.getElementById("app")?.childElementCount ?? 0) > 0,
+  }));
+  await context.close();
+  return seen;
+}
+
 const consoleErrors = [];
 page.on("console", (message) => {
   if (message.type() === "error") consoleErrors.push(message.text());
@@ -98,6 +121,52 @@ check("dark has its own accent", dark.accent !== light.accent);
 check("no console errors", consoleErrors.length === 0);
 
 if (consoleErrors.length) console.log("console errors:", consoleErrors.slice(0, 5));
+
+// ── The toggle, which is the only way a user reaches any of this ─────────────
+
+const toggle = page.locator('[data-testid="theme-toggle"]');
+check("a theme toggle exists", (await toggle.count()) === 1);
+
+const preference = () => page.evaluate(() => localStorage.getItem("calligraph.theme"));
+const cycled = [];
+for (let step = 0; step < 3; step += 1) {
+  await toggle.click();
+  cycled.push(await preference());
+}
+check(
+  `the toggle cycles all three states (${cycled.join(" → ")})`,
+  new Set(cycled).size === 3,
+);
+
+for (let step = 0; step < 4 && (await preference()) !== "dark"; step += 1) {
+  await toggle.click();
+}
+const painted = await page.evaluate(
+  () => getComputedStyle(document.body).backgroundColor,
+);
+check(
+  `choosing dark repaints the body (${painted})`,
+  (await preference()) === "dark" && painted !== light.bodyBackground,
+);
+
+// ── The pre-paint guard ─────────────────────────────────────────────────────
+
+const guardSystemDark = await withoutTheBundle({ colorScheme: "dark" });
+check(
+  `the guard alone sets dark, with no app running (${JSON.stringify(guardSystemDark)})`,
+  guardSystemDark.theme === "dark" &&
+    guardSystemDark.colorScheme === "dark" &&
+    !guardSystemDark.appMounted,
+);
+check(
+  "the guard respects a light system",
+  (await withoutTheBundle({ colorScheme: "light" })).theme === "light",
+);
+check(
+  "a stored preference beats the system, both ways",
+  (await withoutTheBundle({ colorScheme: "light", stored: "dark" })).theme === "dark" &&
+    (await withoutTheBundle({ colorScheme: "dark", stored: "light" })).theme === "light",
+);
 
 await browser.close();
 

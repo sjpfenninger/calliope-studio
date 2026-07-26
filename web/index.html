@@ -4,6 +4,26 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Calliope</title>
+    <script>
+      // Pre-paint theme guard. stores/ui.ts owns this state; this only stops a
+      // white flash before the bundle parses, which on a dark-mode machine is
+      // the first thing you see on every reload. Keep the key in step with
+      // THEME_KEY there.
+      (function () {
+        try {
+          var preference = localStorage.getItem("calligraph.theme");
+          var dark =
+            preference === "dark" ||
+            ((preference === "system" || !preference) &&
+              matchMedia("(prefers-color-scheme: dark)").matches);
+          var mode = dark ? "dark" : "light";
+          document.documentElement.dataset.cgTheme = mode;
+          document.documentElement.style.colorScheme = mode;
+        } catch (error) {
+          // A blocked localStorage is not worth failing to render over.
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="app"></div>

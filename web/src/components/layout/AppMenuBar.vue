@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import Menubar from "primevue/menubar";
 import { useProjectStore } from "../../stores/project";
+import ThemeToggle from "./ThemeToggle.vue";
 
 const projectStore = useProjectStore();
 </script>
@@ -21,10 +22,13 @@ const projectStore = useProjectStore();
       </template>
     </template>
     <template #end>
-      <RouterLink to="/results" class="nav-link">
-        <i class="pi pi-chart-bar" />
-        Results
-      </RouterLink>
+      <div class="flex items-center gap-3">
+        <RouterLink to="/results" class="nav-link">
+          <i class="pi pi-chart-bar" />
+          Results
+        </RouterLink>
+        <ThemeToggle />
+      </div>
     </template>
   </Menubar>
 </template>

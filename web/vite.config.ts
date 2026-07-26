@@ -18,6 +18,18 @@ export default defineConfig({
     outDir: fileURLToPath(new URL("../src/calligraph/server/static", import.meta.url)),
     emptyOutDir: true,
   },
+  test: {
+    // A DOM for every test rather than a per-file annotation: the stores under
+    // test read `document` and `localStorage`, and a DOM test that runs in the
+    // node environment by mistake fails with an unhelpful "cannot read
+    // properties of undefined" rather than saying what is missing.
+    //
+    // happy-dom rather than jsdom: jsdom 29 does not expose `localStorage` as a
+    // global under vitest, even with an http origin set.
+    environment: "happy-dom",
+    // Shims what the DOM implementation leaves missing; see the file.
+    setupFiles: ["./src/test-setup.ts"],
+  },
   server: {
     port: 5173,
     proxy: {

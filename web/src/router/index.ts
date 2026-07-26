@@ -20,6 +20,16 @@ const router = createRouter({
       path: "/runs/:id",
       component: () => import("../views/RunView.vue"),
     },
+    // Without a run id, shows whatever the server was opened on — which is how
+    // `calligraph results.nc` lands straight on the charts.
+    {
+      path: "/results",
+      component: () => import("../views/ResultsView.vue"),
+    },
+    {
+      path: "/results/:runId",
+      component: () => import("../views/ResultsView.vue"),
+    },
   ],
 });
 

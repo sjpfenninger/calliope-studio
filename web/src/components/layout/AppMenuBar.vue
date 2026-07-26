@@ -20,6 +20,12 @@ const projectStore = useProjectStore();
         </RouterLink>
       </template>
     </template>
+    <template #end>
+      <RouterLink to="/results" class="nav-link">
+        <i class="pi pi-chart-bar" />
+        Results
+      </RouterLink>
+    </template>
   </Menubar>
 </template>
 
@@ -37,6 +43,20 @@ const projectStore = useProjectStore();
   font-size: 0.95rem;
   color: var(--p-text-color);
   text-decoration: none;
+}
+
+.nav-link {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.875rem;
+  color: var(--p-text-color);
+  text-decoration: none;
+}
+
+.nav-link:hover,
+.nav-link.router-link-active {
+  color: var(--p-primary-color);
 }
 
 .breadcrumb-sep {

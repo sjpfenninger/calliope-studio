@@ -132,6 +132,27 @@ class TestSelectors:
         )
         assert applied == {"techs": ["csp"]}
 
+    def test_unknown_members_are_dropped(self, results):
+        """A selection can outlive the model it was made against.
+
+        Passing an unknown member through to xarray raises a KeyError naming
+        the coordinate, which is indistinguishable from a missing variable by
+        the time it reaches a route handler.
+        """
+        array = get_array(results.dataset, "flow_cap")
+        applied = filter_selectors(array, {"techs": ["ccgt", "removed_last_week"]})
+        assert applied == {"techs": ["ccgt"]}
+
+    def test_selecting_only_unknown_members_yields_nothing(self, results):
+        array = get_array(results.dataset, "flow_cap")
+        assert filter_selectors(array, {"techs": ["gone"]}) == {"techs": []}
+
+    def test_a_query_with_unknown_members_still_reduces(self, results):
+        reduced = reduce_array(
+            results.dataset, Query(variable="flow*", selectors={"techs": ["gone"]})
+        )
+        assert reduced.sizes["techs"] == 0
+
 
 class TestReduction:
     def test_resampling_reduces_the_timesteps(self, results):

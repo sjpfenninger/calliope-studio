@@ -116,6 +116,27 @@ class TestFrame:
         )
         assert table.schema.names[0] == "period"
 
+    def test_unknown_selector_members_do_not_blame_the_variable(self, results_client):
+        """A stale selection must not report the variable as missing."""
+        response = results_client.post(
+            f"/api/results/{results_client.handle}/frame/",
+            json={"variable": "flow*", "selectors": {"techs": ["no_such_tech"]}},
+        )
+        assert response.status_code == 200
+        assert response.headers["content-type"] == ARROW_STREAM
+
+    def test_partially_stale_selection_keeps_what_exists(self, results_client):
+        response = results_client.post(
+            f"/api/results/{results_client.handle}/frame/",
+            json={
+                "variable": "flow*",
+                "sum_by": "nodes",
+                "selectors": {"techs": ["ccgt", "no_such_tech"]},
+            },
+        )
+        assert response.status_code == 200
+        assert read_arrow(response).num_columns > 1
+
     def test_unknown_variable_is_404(self, results_client):
         response = results_client.post(
             f"/api/results/{results_client.handle}/frame/",

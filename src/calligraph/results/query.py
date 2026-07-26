@@ -52,17 +52,29 @@ class Query:
 def filter_selectors(
     array: xr.DataArray, selectors: dict, additional_subset: dict | None = None
 ) -> dict:
-    """Reduces `selectors` to those that apply to `array`.
+    """Reduces `selectors` to what actually applies to `array`.
 
-    Keys that are not dimensions of the array, or whose value is None, are
-    dropped; a selector naming a dimension the variable does not have is not an
-    error, it simply does not constrain it.
+    Two kinds of thing are dropped rather than raised on, because both arise
+    routinely from a selection made against a different model:
+
+    - dimensions the variable does not have — a filter on nodes does not
+      constrain a variable that has no nodes;
+    - members that no longer exist — a technology removed from the model since
+      the selection was made.
+
+    Passing an unknown member through to xarray raises a `KeyError` naming the
+    coordinate, which is indistinguishable from a genuinely missing variable by
+    the time it reaches a route handler.
     """
-    applicable = {
-        name: list(members)
-        for name, members in selectors.items()
-        if members is not None and name in array.dims
-    }
+    applicable = {}
+    for name, members in selectors.items():
+        if members is None or name not in array.dims:
+            continue
+        known = set(array.coords[name].to_index()) if name in array.coords else None
+        applicable[name] = [
+            member for member in members if known is None or member in known
+        ]
+
     for name, members in (additional_subset or {}).items():
         if name in applicable:
             applicable[name] = [m for m in members if m in applicable[name]]

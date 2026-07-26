@@ -102,13 +102,18 @@ def frame(
     are produced so a chart can paint before the whole frame has arrived.
     """
     query = body.to_query()
-    try:
-        array = reduce_array(results.dataset, query)
-    except KeyError:
+    # Checked explicitly rather than by catching KeyError, which xarray also
+    # raises for coordinate problems — blaming the variable for those produced
+    # a flatly wrong error message.
+    if (
+        query.variable not in results.dataset
+        and query.variable not in SYNTHETIC_VARIABLES
+    ):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"No such variable: {query.variable}",
-        ) from None
+        )
+    array = reduce_array(results.dataset, query)
 
     table = frames.build_table(array, query, colors=tech_colors(results.model))
     return StreamingResponse(

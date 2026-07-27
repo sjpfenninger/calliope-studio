@@ -159,10 +159,12 @@ def served(monkeypatch):
             importlib.reload(module)
             recorded["workspace"] = getattr(module, attribute).state.workspace
 
+    def fake_config(app, **kwargs):
+        recorded["config"] = kwargs
+        return SimpleNamespace(app=app)
+
     monkeypatch.setattr("uvicorn.Server", FakeServer)
-    monkeypatch.setattr(
-        "uvicorn.Config", lambda app, **kwargs: SimpleNamespace(app=app)
-    )
+    monkeypatch.setattr("uvicorn.Config", fake_config)
     monkeypatch.setattr("uvicorn.run", lambda *a, **k: recorded.update(reload_args=k))
     monkeypatch.setattr(cli, "open_browser", lambda url: recorded.update(url=url))
     return cli, recorded
@@ -211,6 +213,46 @@ class TestCli:
         )
         assert "reload_args" in recorded
         assert recorded["reload_args"]["reload"] is True
+
+
+class TestTerminalIsQuiet:
+    """The terminal says where the app is, and then stays out of the way.
+
+    An open run tab polls its status every two seconds, so the default access
+    log wrote a line to the terminal every couple of seconds for as long as the
+    tab was open — burying anything that actually needed reading.
+    """
+
+    def test_nothing_is_logged_per_request_by_default(self, served, national_scale):
+        cli, recorded = served
+        cli.main(
+            [str(national_scale), "--no-browser", "--port", "0"], standalone_mode=False
+        )
+        assert recorded["config"]["access_log"] is False
+        # Warnings and tracebacks still come through; uvicorn's own startup
+        # banner does not, since the CLI has already said where the app is.
+        assert recorded["config"]["log_level"] == "warning"
+
+    def test_verbose_asks_for_it_back(self, served, national_scale):
+        cli, recorded = served
+        cli.main(
+            [str(national_scale), "--no-browser", "--port", "0", "-v"],
+            standalone_mode=False,
+        )
+        assert recorded["config"]["access_log"] is True
+        assert recorded["config"]["log_level"] == "info"
+
+    def test_reload_is_verbose_since_the_notices_are_the_point(
+        self, served, national_scale
+    ):
+        """The reload path is a second call site, and easy to forget."""
+        cli, recorded = served
+        cli.main(
+            [str(national_scale), "--no-browser", "--reload", "--port", "0"],
+            standalone_mode=False,
+        )
+        assert recorded["reload_args"]["access_log"] is True
+        assert recorded["reload_args"]["log_level"] == "info"
 
 
 class TestPortSelection:

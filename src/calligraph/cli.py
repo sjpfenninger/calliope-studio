@@ -38,7 +38,15 @@ PORT_SCAN_ATTEMPTS = 20
     is_flag=True,
     help="Reload on code changes. For development of calligraph itself.",
 )
-def main(path: Path, host: str, port: int, browser: bool, reload: bool) -> None:
+@click.option(
+    "-v",
+    "--verbose",
+    is_flag=True,
+    help="Show request logs and uvicorn's own startup output.",
+)
+def main(
+    path: Path, host: str, port: int, browser: bool, reload: bool, verbose: bool
+) -> None:
     """Explore a Calliope model.
 
     PATH is either a model definition folder to edit and run, or a solved
@@ -63,6 +71,14 @@ def main(path: Path, host: str, port: int, browser: bool, reload: bool) -> None:
         # accept queue rather than being refused. There is nothing to wait for.
         open_browser(f"http://{host}:{bound_port}{landing}")
 
+    # Quiet by default: the line above already says where the app is, and a
+    # request log for every asset, status poll and Arrow frame buries anything
+    # that actually needs reading. Warnings and tracebacks still come through.
+    # `--reload` is for developing Calligraph itself, where the reloader's own
+    # notices are the point, so it implies verbosity.
+    verbose = verbose or reload
+    log_level = "info" if verbose else "warning"
+
     if reload:
         # The reloader supervises its own worker processes and binds its own
         # socket, so ours cannot be handed to it. Releasing it and passing the
@@ -71,11 +87,20 @@ def main(path: Path, host: str, port: int, browser: bool, reload: bool) -> None:
         # everywhere else to avoid.
         listener.close()
         uvicorn.run(
-            "calligraph.server.app:app", host=host, port=bound_port, reload=True
+            "calligraph.server.app:app",
+            host=host,
+            port=bound_port,
+            reload=True,
+            log_level=log_level,
+            access_log=verbose,
         )
         return
 
-    server = uvicorn.Server(uvicorn.Config("calligraph.server.app:app"))
+    server = uvicorn.Server(
+        uvicorn.Config(
+            "calligraph.server.app:app", log_level=log_level, access_log=verbose
+        )
+    )
     server.run(sockets=[listener])
 
 

@@ -5,14 +5,16 @@ not evidence. v0.2.0 is a working implementation whose output was checked
 against real models for months; where the new code is meant to behave
 identically, it is compared against it directly.
 
-The old modules are materialised out of git rather than installed, with their
-imports rewritten to a private package name. Nothing about their logic changes,
-and there is no second environment to keep in step.
+The old modules are vendored verbatim in `tests/oracle/` and materialised under
+a private package name rather than installed, so nothing about their logic
+changes and there is no second environment to keep in step. See that directory's
+README for provenance; they used to be read out of git, which stopped working
+the moment that older history was no longer in the repository.
 
 Skips when the sample `.nc` files are absent, which is the case in CI.
 """
 
-import subprocess
+import importlib
 import sys
 from pathlib import Path
 
@@ -30,6 +32,9 @@ REPO = Path(__file__).parent.parent
 #: exercises the geographic path; the national model is the standard fixture.
 SAMPLE_MODELS = ["urban_scale_07.dev7.nc", "national_scale_07.dev7.nc"]
 
+#: Where the frozen v0.2.0 sources live, byte-identical to the tag.
+ORACLE_DIR = Path(__file__).parent / "oracle"
+
 #: v0.2.0 modules needed for the comparison. `geo` is excluded: the new
 #: implementation deliberately dropped the Mercator projection that only Bokeh
 #: needed, so there is nothing to compare, and it is the only module that
@@ -46,33 +51,34 @@ pytestmark = pytest.mark.skipif(
 )
 
 
+#: The name the vendored modules are imported under. They are copied rather than
+#: imported in place because `tests/oracle/` is not on the path as a package and
+#: their own imports name a package that no longer exists.
+ORACLE_PACKAGE = "calligraph_v02"
+
+#: The package the vendored sources import from. This is v0.2.0's own layout and
+#: is a property of the frozen files, so it does not follow any later rename.
+ORACLE_SOURCE_PACKAGE = "calligraph.data"
+
+
 @pytest.fixture(scope="session")
 def oracle(tmp_path_factory):
     """The v0.2.0 data layer, imported under a private name."""
-    package_dir = tmp_path_factory.mktemp("oracle") / "calligraph_v02"
+    package_dir = tmp_path_factory.mktemp("oracle") / ORACLE_PACKAGE
     package_dir.mkdir()
 
     for name in ORACLE_MODULES:
-        try:
-            source = subprocess.run(
-                ["git", "show", f"v0.2.0:src/calligraph/data/{name}.py"],
-                cwd=REPO,
-                capture_output=True,
-                text=True,
-                check=True,
-            ).stdout
-        except subprocess.CalledProcessError:
-            pytest.skip("the v0.2.0 tag is not present in this checkout")
+        # A missing file is a real failure, not an environmental one: these are
+        # committed, and the comparison is the only numerical evidence there is.
+        source = (ORACLE_DIR / f"{name}.py").read_text()
         # Only the package name changes; every line of logic is as tagged.
         (package_dir / f"{name}.py").write_text(
-            source.replace("calligraph.data", "calligraph_v02")
+            source.replace(ORACLE_SOURCE_PACKAGE, ORACLE_PACKAGE)
         )
 
     sys.path.insert(0, str(package_dir.parent))
     try:
-        import calligraph_v02
-
-        yield calligraph_v02
+        yield importlib.import_module(ORACLE_PACKAGE)
     finally:
         sys.path.remove(str(package_dir.parent))
 

@@ -164,9 +164,17 @@ exclude = '''
   | .*\.egg-info
 )/
 '''
+# The frozen v0.2.0 sources. Their value is being byte-identical to the tag, so
+# reformatting them would quietly break the provenance claim in their README
+# without changing any behaviour. `force-exclude` because `format` passes
+# `tests/` explicitly.
+force-exclude = 'tests/oracle/'
 
 [tool.ruff]
 line-length = 88
+# Frozen v0.2.0 sources; see the note on black's `force-exclude` above.
+extend-exclude = ["tests/oracle"]
+force-exclude = true
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "Q", "W"]

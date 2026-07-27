@@ -14,9 +14,11 @@ wire to a chart:
 It has no web-framework dependency and returns plain Python, pandas and Arrow
 objects, so it is equally usable from a notebook.
 
-Much of the logic here is a reimplementation of `calliope_studio.data` as it stood at
-v0.2.0. That code is the reference and the numerical oracle; retrieve it with
-e.g. `git show v0.2.0:src/calligraph/data/model.py`.
+Much of the logic here is a reimplementation of `calligraph.data` as it stood at
+v0.2.0, before this project was renamed. That code is the reference and the
+numerical oracle, and it is vendored verbatim at `tests/oracle/` — read it there
+rather than out of git: this repository's history begins at the pivot and does
+not contain it.
 """
 
 __all__: list[str] = []

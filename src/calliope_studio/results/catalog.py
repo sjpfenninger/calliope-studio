@@ -1,9 +1,9 @@
 """What variables a solved model offers, and how they should be shown.
 
-Reimplemented from the v0.2.0 data layer (`git show
-v0.2.0:src/calligraph/data/variables.py`), with the categories and the `flow*`
-definition preserved exactly — those are checked against the old implementation
-in `tests/test_oracle.py`.
+Reimplemented from the v0.2.0 data layer (`tests/oracle/variables.py`, vendored
+verbatim from the tag), with the categories and the `flow*` definition preserved
+exactly — those are checked against the old implementation in
+`tests/test_oracle.py`.
 """
 
 from dataclasses import dataclass

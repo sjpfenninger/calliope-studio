@@ -22,7 +22,7 @@
  */
 import { parse } from "yaml";
 
-import { health, open, requireMode, results } from "./harness.mjs";
+import { api, health, open, requireMode, results } from "./harness.mjs";
 
 const BASE = process.argv[2] ?? "http://127.0.0.1:8000";
 
@@ -42,10 +42,10 @@ const payload = requireMode(await health(BASE), "workspace", BASE);
 const ws = payload.workspace_id;
 
 const readFile = async (path) =>
-  (await (await fetch(`${BASE}/api/versions/${ws}/files/${path}`)).json()).content;
+  (await (await api(`${BASE}/api/versions/${ws}/files/${path}`)).json()).content;
 
 const writeFile = (path, content) =>
-  fetch(`${BASE}/api/versions/${ws}/files/${path}`, {
+  api(`${BASE}/api/versions/${ws}/files/${path}`, {
     method: "PUT",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ content }),
@@ -65,7 +65,7 @@ const comments = (text) =>
  * model *used* to be — and a click 50px off a 14px-wide link line hits nothing.
  */
 async function nodeCoordinates() {
-  const geo = await (await fetch(`${BASE}/api/versions/${ws}/geo/`)).json();
+  const geo = await (await api(`${BASE}/api/versions/${ws}/geo/`)).json();
   return Object.fromEntries(
     geo.nodes.features.map((feature) => [
       String(feature.id),
@@ -207,30 +207,37 @@ try {
   // A node without coordinates greys the map out, and offers the way through.
   // ---------------------------------------------------------------------------
 
-  const section = (
-    await (
-      await fetch(
-        `${BASE}/api/versions/${ws}/yaml-section/${NODES_FILE}?section=nodes`,
-      )
-    ).json()
-  ).data;
-  delete section[UNPLACED].latitude;
-  await fetch(`${BASE}/api/versions/${ws}/yaml-section/${NODES_FILE}?section=nodes`, {
-    method: "PUT",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ data: section }),
-  });
+  async function reopenNodes(mutate) {
+    const url = `${BASE}/api/versions/${ws}/yaml-section/${NODES_FILE}?section=nodes`;
+    const section = (await (await api(url)).json()).data;
+    mutate(section);
+    await api(url, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ data: section }),
+    });
+    // Reloaded rather than re-clicked: the sections are cached client-side, and
+    // the point is what a user opening this model would see.
+    await page.reload({ waitUntil: "networkidle" });
+    await testId("model-tree").waitFor({ timeout: 20000 });
+    await page.waitForTimeout(1500);
+    await openSection("nodes");
+    // The resolve runs in a subprocess; give it time to land so the overlay shows
+    // the settled answer rather than whichever one got there first.
+    await page.waitForTimeout(4000);
+  }
 
-  // Reloaded rather than re-clicked: the sections are cached client-side, and the
-  // point is what a user opening this model would see.
-  await page.reload({ waitUntil: "networkidle" });
-  await testId("model-tree").waitFor({ timeout: 20000 });
-  await page.waitForTimeout(1500);
-  await openSection("nodes");
+  // A node with no coordinates at all: a valid model, and the state the greyed-out
+  // map exists for.
+  await reopenNodes((section) => {
+    delete section[UNPLACED].latitude;
+    delete section[UNPLACED].longitude;
+  });
 
   check(
     "one node without coordinates greys the whole map out",
     (await testId("map-missing-coords").count()) === 1,
+    await testId("map-overlay").textContent(),
   );
   check(
     "and names the node that is missing them",
@@ -241,6 +248,25 @@ try {
   await testId("map-show-list").click();
   await page.waitForTimeout(750);
   check("the overlay's button reaches the list", (await testId("editor-map").count()) === 0);
+
+  // Half a coordinate pair is something Calliope rejects outright, and the map says
+  // so in its own words rather than guessing. Worth pinning: the alternative is a
+  // map that silently shows the last thing that worked.
+  await writeFile(NODES_FILE, before);
+  await reopenNodes((section) => {
+    delete section[UNPLACED].latitude;
+  });
+
+  check(
+    "an invalid coordinate pair surfaces Calliope's own complaint",
+    (await testId("map-error").count()) === 1 &&
+      (await testId("map-overlay").textContent())?.includes("latitude"),
+    await testId("map-overlay").textContent(),
+  );
+  check(
+    "and still offers the way to the list",
+    (await testId("map-show-list").count()) === 1,
+  );
 
   await writeFile(NODES_FILE, before);
   await page.reload({ waitUntil: "networkidle" });

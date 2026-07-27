@@ -26,13 +26,13 @@ import {
 import { ICON_STROKE_WIDTH } from "@/lib/icons";
 import { cn } from "@/lib/utils";
 import type { NodeEntry } from "@/lib/entries";
+import {
+  describeParams,
+  paramSources,
+  type DataTableParam,
+} from "@/lib/dataTableParams";
 
-/** A parameter a data table supplies for this node. */
-export interface DataTableParam {
-  value: any;
-  time_varying: boolean;
-  source: string;
-}
+export type { DataTableParam };
 
 const props = defineProps<{
   entry: NodeEntry;
@@ -72,18 +72,11 @@ function templateFields(): Record<string, string> {
 }
 
 function dataTableFields(): Record<string, string> {
-  return Object.fromEntries(
-    Object.entries(props.dataTableParams).map(([key, param]) => [
-      key,
-      param.time_varying ? "time-varying" : String(param.value),
-    ]),
-  );
+  return describeParams(props.dataTableParams);
 }
 
 function dataTableSources(): Record<string, string> {
-  return Object.fromEntries(
-    Object.entries(props.dataTableParams).map(([key, param]) => [key, param.source]),
-  );
+  return paramSources(props.dataTableParams);
 }
 
 /** A coordinate field writes a number, or null — never the DOM's string. */

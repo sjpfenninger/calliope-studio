@@ -22,8 +22,13 @@ DEFAULT_PALETTE = (
 
 
 def tech_colors(model) -> dict[str, str]:
-    """Maps every technology in a model to a hex colour."""
-    techs = model.results.techs.to_index().to_list()
+    """Maps every technology in a model to a hex colour.
+
+    Read from `inputs`, not `results`: a technology's colour is part of the
+    definition, and this is also asked of a model that has been *resolved* but not
+    solved — whose `results` is empty, so `results.techs` does not exist at all.
+    """
+    techs = model.inputs.techs.to_index().to_list()
 
     defined = {}
     if "color" in model.inputs:

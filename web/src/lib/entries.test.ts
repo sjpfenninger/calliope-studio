@@ -89,9 +89,31 @@ describe("links", () => {
 
   it("does not add a base_tech to a link that inherits one", () => {
     // `base_tech` almost always comes from the template; writing it here would
-    // add a redundant line to every templated link in the file.
+    // add a redundant line to every templated link in the file. Whether it does
+    // is now *checked* against the resolved templates rather than assumed.
     const raw = { template: "free_transmission", link_from: "a", link_to: "b" };
-    expect(linkToRaw(rawToLink("x", raw))).toEqual(raw);
+    const templates = { free_transmission: { base_tech: "transmission" } };
+    expect(linkToRaw(rawToLink("x", raw), templates)).toEqual(raw);
+  });
+
+  it("declares base_tech when the template does not supply one", () => {
+    // A template that only sets costs makes a link that Calliope does not treat
+    // as transmission at all. Assuming any template supplies `base_tech` is what
+    // let the map's add-link flow write one.
+    const raw = { template: "interest_rate_setter", link_from: "a", link_to: "b" };
+    const templates = { interest_rate_setter: { cost_interest_rate: 0.07 } };
+    expect(linkToRaw(rawToLink("x", raw), templates)).toMatchObject({
+      base_tech: "transmission",
+    });
+  });
+
+  it("declares base_tech for a template it has never heard of", () => {
+    // A typo, or a template in a file that could not be read. A redundant key is
+    // noise; a missing one is a broken model.
+    const raw = { template: "who_knows", link_from: "a", link_to: "b" };
+    expect(linkToRaw(rawToLink("x", raw))).toMatchObject({
+      base_tech: "transmission",
+    });
   });
 
   it("declares base_tech for a link that has no template", () => {

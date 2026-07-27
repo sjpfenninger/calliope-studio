@@ -1,8 +1,20 @@
-"""Node and link geometry read from a model definition.
+"""Node and link geometry read from a model definition's files.
 
-The same GeoJSON shape `calligraph.results.geo` produces from a solved model, so
-one map component can render either: the geography of a model being edited, and
-the results of one that has been run.
+**This is the fallback, not the main path.** Geometry now comes from a *resolved*
+model — `calligraph.results.geo` over what `calliope.read_yaml` produced — because
+that is Calliope's own answer rather than a second implementation of Calliope's
+rules. This module is what serves a model Calliope cannot read at all, which is the
+normal state of one being written: a node referring to a tech that does not exist
+yet, or a half-typed `latitude:`, and `read_yaml` raises.
+
+So it is deliberately structural and deliberately lenient. It reads the files, it
+resolves what it cheaply can, and it is allowed to be less complete than the
+resolved answer — `tests/test_resolution_parity.py` is what pins how much less.
+`link_orientation` is the one thing here the resolved path *needs*, because
+Calliope normalises away which end of a link is which.
+
+It produces the same GeoJSON shape `calligraph.results.geo` does, so one map
+component can render either.
 
 Reading it here rather than in the browser also fixes something the prototype
 got wrong. Calliope 0.7 has no `links:` section — transmission is defined under
@@ -21,7 +33,7 @@ from pathlib import Path
 from typing import Any
 
 from calligraph.modeldef.data_tables import data_table_params
-from calligraph.modeldef.entities import merged_section, resolve_templates
+from calligraph.modeldef.entities import merged_section, resolved_techs
 
 #: Fraction of the bounding box added as margin.
 BOUNDS_PADDING = 0.1
@@ -122,9 +134,7 @@ def links_geojson(
     base: Path, nodes: dict | None = None, positions: dict | None = None
 ) -> dict:
     """Transmission technologies, drawn between the nodes they connect."""
-    techs = resolve_templates(
-        merged_section(base, "techs"), merged_section(base, "templates")
-    )
+    techs = resolved_techs(base)
 
     positions = node_positions(base, nodes) if positions is None else positions
 
@@ -172,11 +182,48 @@ def bounds(nodes: dict, padding: float = BOUNDS_PADDING) -> list[list[float]] | 
     return [[west - margin, south - margin], [east + margin, north + margin]]
 
 
+def link_orientation(base: Path) -> dict[str, tuple[str, str]]:
+    """`{tech: (link_from, link_to)}` as the definition declares it.
+
+    The one piece of geometry the resolved model cannot supply. A transmission tech
+    exists at two nodes and that is all Calliope keeps: `link_from` survives into
+    `model.inputs` only when it arrived from a data table. Reading the declaration
+    is therefore the only way to know which end is which, and anything that draws
+    direction — a one-way link, an arrow — depends on it.
+
+    Data tables are consulted too, since `link_from`/`link_to` are ordinary
+    parameters and models do define them in a CSV.
+    """
+    techs = resolved_techs(base)
+    tabular = data_table_params(Path(base), "tech")["params"]
+
+    oriented: dict[str, tuple[str, str]] = {}
+    for name in list(techs) + [key for key in tabular if key not in techs]:
+        tech = techs.get(name) or {}
+        table = tabular.get(str(name), {})
+
+        def value(key: str) -> str | None:
+            declared = tech.get(key)
+            if declared:
+                return str(declared)
+            info = table.get(key)
+            if (
+                isinstance(info, dict)
+                and not info.get("time_varying")
+                and info["value"]
+            ):
+                return str(info["value"])
+            return None
+
+        source, target = value("link_from"), value("link_to")
+        if source and target:
+            oriented[str(name)] = (source, target)
+    return oriented
+
+
 def tech_colors(base: Path) -> dict[str, str]:
     """Colours declared in the model definition, including via templates."""
-    techs = resolve_templates(
-        merged_section(base, "techs"), merged_section(base, "templates")
-    )
+    techs = resolved_techs(base)
     return {
         name: tech["color"]
         for name, tech in techs.items()

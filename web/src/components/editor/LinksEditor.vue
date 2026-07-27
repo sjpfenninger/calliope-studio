@@ -39,6 +39,7 @@ import { useModelGeo } from "@/composables/useModelGeo";
 import { useTabsStore } from "@/stores/tabs";
 import { useSectionDataStore } from "@/stores/sectionData";
 import { useComponentTreeStore } from "@/stores/componentTree";
+import { useTemplatesStore } from "@/stores/templates";
 import { useUiStore } from "@/stores/ui";
 import { isTransmission, mergeIntoSection, type RawTech } from "@/lib/techs";
 import {
@@ -59,6 +60,7 @@ const props = defineProps<{
 const tabsStore = useTabsStore();
 const sectionDataStore = useSectionDataStore();
 const componentTreeStore = useComponentTreeStore();
+const templatesStore = useTemplatesStore();
 const ui = useUiStore();
 
 const isLoading = ref(true);
@@ -68,7 +70,7 @@ const error = ref<string | null>(null);
 const entries = ref<LinkEntry[]>([]);
 /** The section as loaded, so entries owned by TechsEditor survive a save. */
 const originalSection = ref<Record<string, RawTech>>({});
-const templatesData = ref<Record<string, Record<string, any>>>({});
+const templatesData = computed(() => templatesStore.templates);
 
 const { geo: savedGeo, error: geoError, reload: reloadGeo } = useModelGeo(
   computed(() => props.versionId),
@@ -204,14 +206,16 @@ async function fetchSection(file: string, section: string) {
   }
 }
 
+/**
+ * The model's templates, resolved.
+ *
+ * From the store rather than merged out of each file's raw `templates:` section:
+ * that only ever resolved one hop, so a template inheriting a template showed half
+ * of what an entry inherits — and made this editor's own idea of what a
+ * transmission tech is disagree with Calliope's.
+ */
 async function loadTemplates() {
-  const files = new Set<string>([props.filePath]);
-  for (const entry of componentTreeStore.tree?.templates?.entries ?? []) {
-    if (typeof entry !== "string" && entry.file) files.add(entry.file);
-  }
-  const merged: Record<string, Record<string, any>> = {};
-  for (const file of files) Object.assign(merged, await fetchSection(file, "templates"));
-  templatesData.value = merged;
+  await templatesStore.load(props.versionId);
 }
 
 async function load() {
@@ -238,7 +242,7 @@ async function load() {
 function buildPayload(): Record<string, RawTech> {
   const edited: Record<string, RawTech> = {};
   for (const entry of entries.value) {
-    if (entry.name) edited[entry.name] = linkToRaw(entry);
+    if (entry.name) edited[entry.name] = linkToRaw(entry, templatesData.value);
   }
   return mergeIntoSection(originalSection.value, edited, owned);
 }
@@ -256,6 +260,9 @@ async function save() {
     tabsStore.markClean(props.tabId);
     // Adding or removing a link changes the explorer and the map.
     await componentTreeStore.refresh(props.versionId);
+    // A save can change what entries inherit, so the resolved templates the
+    // forms display have to be re-read too.
+    await templatesStore.refresh(props.versionId);
     await reloadGeo();
   } finally {
     isSaving.value = false;

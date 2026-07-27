@@ -168,6 +168,8 @@ class LocalStorage:
         self.registry_path = registry_path or default_registry_path()
         #: Created on first use; see `validations_dir`.
         self._validations_root: Path | None = None
+        #: Created on first use; see `resolutions_dir`.
+        self._resolutions_root: Path | None = None
 
     # -- registry file ----------------------------------------------------
 
@@ -365,6 +367,21 @@ class LocalStorage:
             self._validations_root = root
         self._validations_root.mkdir(parents=True, exist_ok=True)
         return self._validations_root
+
+    def resolutions_dir(self) -> Path:
+        """Scratch root for resolved model definitions, in the system temp dir.
+
+        Not in the workspace, for the same reason validations are not: a resolution
+        is derived from the model definition and rebuilt whenever the definition
+        changes, so keeping one beside the user's model would be litter. It is also
+        why it need not survive a restart — the first request after one rebuilds it.
+        """
+        if self._resolutions_root is None:
+            root = Path(tempfile.mkdtemp(prefix="calligraph-resolutions-"))
+            atexit.register(shutil.rmtree, root, True)
+            self._resolutions_root = root
+        self._resolutions_root.mkdir(parents=True, exist_ok=True)
+        return self._resolutions_root
 
     def prune_validations(self, keep: int = VALIDATION_RETENTION) -> None:
         """Removes finished validation attempts beyond the newest `keep`.

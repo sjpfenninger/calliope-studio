@@ -16,6 +16,7 @@ from calligraph.results.store import ResultStore
 from calligraph.runs import protocol
 from calligraph.runs.manager import RunManager
 from calligraph.server.mode import NotSomethingToOpen, resolve_target
+from calligraph.server.resolution import Resolver
 from calligraph.server.routes import api_router
 from calligraph.server.storage import LocalStorage
 
@@ -56,6 +57,10 @@ def create_app(
     # Likewise the store is given a way to resolve a handle it never minted, so
     # that a bookmarked results URL survives a restart.
     app.state.results = ResultStore(candidates=lambda: _results_candidates(app.state))
+    # Asks Calliope what a model definition means, rather than working it out a
+    # second time. Composed here because it needs all three domain layers, and
+    # `server` is the only place allowed to put them together.
+    app.state.resolver = Resolver(app.state.runs, app.state.storage)
 
     # The same classification the CLI used to choose its landing URL, so the two
     # cannot disagree about what is open. An unopenable path is not fatal here —

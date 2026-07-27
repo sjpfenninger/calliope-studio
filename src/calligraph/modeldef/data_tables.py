@@ -1,27 +1,51 @@
-"""Which parameters come from CSV data tables, and whether they vary over time.
+"""Which parameters come from CSV data tables, and how they are indexed.
 
 The structured editors use this to show "this value comes from `cost_parameters`"
 rather than offering an editable field whose value a data table will override at
 build time.
 
-A `data_tables:` entry declares which dimensions index the CSV's rows and
-columns. Two cases matter:
+**Calliope reads the tables.** `calliope.preprocess.data_tables.DataTable` is the
+same class the model itself is built from, so `rows`, `columns`, `select`, `drop`,
+`add_dims` and `rename_dims` all mean exactly what they mean in a real run. The
+hand-written reader this replaced handled the first three and silently ignored the
+rest, which was not a theoretical gap:
 
-- the entity dimension (`techs`/`nodes`) indexes **rows**, so each cell is a
-  scalar parameter value we can read directly;
-- the entity dimension is a **column header level**, which means the rows are
-  timesteps, so the parameter is time-varying and only its existence matters.
+- `add_dims: {parameters: sink_use_equals}` — how `urban_scale` and
+  `examples/model_nld-NUTS3-v1` declare their timeseries — produced *no*
+  provenance at all, so the editor offered an editable field for a value the table
+  overwrites. That is the exact failure this module exists to prevent.
+- multi-level `rows` were collapsed onto the entity dimension, so a
+  `(nodes, techs)` parameter was reported as a parameter *of the node*, valued from
+  whichever tech's row happened to come last. `NLD111` was told it had
+  `flow_cap_max = 0.0058`.
+- `drop` names a dimension *level*; it was compared against parameter names and
+  cell values, which worked by luck on `drop: comment`.
 
-Only the header rows are read in the second case, which keeps this cheap on
-8760-row profiles.
+What Calliope does not record is **which table** a value came from — the
+`(data_tables, name)` string exists only in its error messages — so that part is
+still ours, and it is the only reason this module reads the tables itself rather
+than asking a resolved model.
+
+Each parameter is reported with its `dims`, which is what makes an honest answer
+possible: a parameter indexed on more than the entity is not a parameter *of* that
+entity, and gets no value.
 """
 
 import math
 from pathlib import Path
 from typing import Any
 
+from calligraph.modeldef.imports import find_model_yaml
 from calligraph.modeldef.paths import yaml_files
 from calligraph.modeldef.yaml_io import load_quietly
+
+#: Dimensions that make a parameter time-varying rather than scalar.
+TIME_DIMS = ("timesteps",)
+
+#: How many resolved table readings to keep. Reading a model's tables means
+#: reading its CSVs, which for hourly profiles is most of a second — and the
+#: editors ask for both `tech` and `node` provenance on every load.
+CACHE_SIZE = 4
 
 
 def _as_list(value: Any) -> list:
@@ -34,22 +58,22 @@ def _as_list(value: Any) -> list:
 
 def _scalar(value: Any) -> Any:
     """Converts a pandas/numpy scalar to something JSON can carry."""
+    if hasattr(value, "item"):  # numpy scalar
+        try:
+            value = value.item()
+        except (AttributeError, ValueError):
+            return None
     if isinstance(value, float):
         return None if (math.isnan(value) or math.isinf(value)) else value
-    if hasattr(value, "item"):  # numpy scalar
-        return value.item()
     return value
-
-
-def _is_nan(value: Any) -> bool:
-    try:
-        return math.isnan(float(value))
-    except (TypeError, ValueError):
-        return False
 
 
 def collect_data_tables(yaml_path: Path) -> list[tuple[str, dict, Path]]:
     """Finds every `data_tables:` entry in a file, including inside overrides.
+
+    Deliberately a superset of what is active: `snapshot` needs every CSV the model
+    could refer to under any scenario, because a snapshot missing one is not a
+    buildable model. Provenance wants the opposite — see `active_tables`.
 
     Returns:
         (table name, config, directory the paths in it are relative to) triples.
@@ -76,116 +100,162 @@ def collect_data_tables(yaml_path: Path) -> list[tuple[str, dict, Path]]:
     return found
 
 
-def extract_entity_params(
-    config: dict, csv_path: Path, entity_dim: str
-) -> dict[str, dict[str, dict]]:
-    """Reads per-entity parameters out of one data table.
+def active_tables(base: Path) -> tuple[Path | None, dict[str, dict]]:
+    """The `data_tables:` the base model actually uses, in Calliope's own order.
 
-    Args:
-        config: The `data_tables:` entry.
-        csv_path: The CSV it refers to.
-        entity_dim: `"techs"` or `"nodes"`.
+    From the assembled definition, so overrides — which are not applied unless a
+    scenario selects them — do not contribute. The previous reader took every
+    table in every YAML file *including* inside `overrides:`, which meant a table
+    belonging to an unselected scenario supplied provenance, and (through
+    `geo.coordinates_from_tables`) node positions on the map.
 
     Returns:
-        `{entity: {parameter: {value, time_varying}}}`.
+        The model definition path the table paths are relative to, and the tables.
     """
-    import pandas as pd
+    root = Path(base).resolve()
+    model_yaml = find_model_yaml(root)
+    if model_yaml is None:
+        return None, {}
 
-    rows = _as_list(config.get("rows"))
-    columns = _as_list(config.get("columns"))
-    dropped = _as_list(config.get("drop"))
+    from calligraph.modeldef.entities import assembled
 
-    if entity_dim not in rows + columns:
-        return {}
-
-    if entity_dim in rows:
-        # Timesteps in the rows means every cell is part of a profile, not a
-        # scalar parameter, so there is nothing to surface.
-        if "timesteps" in rows:
-            return {}
-
-        header: Any = list(range(len(columns))) if len(columns) > 1 else 0
-        index_col: Any = list(range(len(rows))) if len(rows) > 1 else 0
-        frame = pd.read_csv(csv_path, header=header, index_col=index_col)
-
-        if len(columns) > 1:
-            keep = next((i for i, name in enumerate(columns) if name not in dropped), 0)
-            frame.columns = frame.columns.get_level_values(keep)
-        if len(rows) > 1 and hasattr(frame.index, "get_level_values"):
-            frame.index = frame.index.get_level_values(rows.index(entity_dim))
-
-        result: dict[str, dict[str, dict]] = {}
-        for entity, row in frame.iterrows():
-            params = {
-                str(name): {"value": _scalar(value), "time_varying": False}
-                for name, value in row.items()
-                if str(name) not in dropped and not _is_nan(value)
+    definition = assembled(root)
+    if definition is not None:
+        tables = definition.sections.get("data_tables")
+        if isinstance(tables, dict):
+            return model_yaml, {
+                str(name): dict(config)
+                for name, config in tables.items()
+                if isinstance(config, dict)
             }
-            if params:
-                result[str(entity)] = params
-        return result
 
-    # Entity is a column header level: rows are timesteps, so read headers only.
-    if "parameters" not in columns:
-        return {}
-    try:
-        headers = pd.read_csv(csv_path, header=None, nrows=len(columns), index_col=0)
-    except (OSError, ValueError):
+    # Assembly failed — a model mid-edit. Fall back to reading the files, which
+    # cannot tell an active table from one inside an override.
+    tables = {}
+    for path in yaml_files(root):
+        for name, config, _ in collect_data_tables(path):
+            tables.setdefault(name, config)
+    return model_yaml, tables
+
+
+def _fingerprint(model_yaml: Path, tables: dict[str, dict]) -> tuple:
+    """Enough to know a cached reading is still current: the CSVs it read."""
+    entries = [str(model_yaml)]
+    for name, config in tables.items():
+        for value in _as_list(config.get("data")):
+            path = (model_yaml.parent / str(value)).resolve()
+            try:
+                stat = path.stat()
+            except OSError:
+                entries.append(f"{name}:{value}:missing")
+                continue
+            entries.append(f"{name}:{value}:{stat.st_mtime_ns}:{stat.st_size}")
+    return tuple(entries)
+
+
+#: `{fingerprint: {parameter: {"source", "dims", "values"}}}`, newest last.
+_cache: dict[tuple, dict] = {}
+
+
+def _read_tables(base: Path) -> dict[str, dict]:
+    """Every parameter the active tables supply, with its dims and its values.
+
+    Returns:
+        `{parameter: {source, dims, values}}` where `values` maps a dimension
+        member tuple to a scalar — read once per parameter, sliced per entity by
+        `data_table_params`.
+    """
+    model_yaml, tables = active_tables(base)
+    if model_yaml is None or not tables:
         return {}
 
-    entity_level = columns.index(entity_dim)
-    param_level = columns.index("parameters")
-    if entity_level >= len(headers) or param_level >= len(headers):
-        return {}
+    key = _fingerprint(model_yaml, tables)
+    cached = _cache.get(key)
+    if cached is not None:
+        return cached
 
-    result = {}
-    for position in range(len(headers.columns)):
-        entity = str(headers.iloc[entity_level, position])
-        parameter = str(headers.iloc[param_level, position])
-        if parameter in dropped or entity in dropped:
+    from calliope.preprocess.data_tables import DataTable
+
+    found: dict[str, dict] = {}
+    for name, config in tables.items():
+        try:
+            table = DataTable(name, config, model_definition_path=str(model_yaml))
+        except Exception:
+            # A malformed or half-written table must not break the whole response;
+            # the editor simply shows no provenance for it. Calliope raises here
+            # for real reasons — a missing `parameters` dimension, a protected
+            # parameter — and `validate` is what reports those.
             continue
-        result.setdefault(entity, {}).setdefault(
-            parameter, {"value": None, "time_varying": True}
-        )
-    return result
+        for parameter, array in table.dataset.data_vars.items():
+            # Later tables win, matching how Calliope merges them into the model.
+            found[str(parameter)] = {
+                "source": name,
+                "dims": [str(dim) for dim in array.dims],
+                "array": array,
+            }
+
+    _cache[key] = found
+    while len(_cache) > CACHE_SIZE:
+        _cache.pop(next(iter(_cache)))
+    return found
 
 
 def data_table_params(base: Path, kind: str) -> dict:
-    """Merges data-table provenance across every YAML file in a workspace.
+    """What the data tables say about each technology, or each node.
 
-    A scalar value always wins over a time-varying marker, and a later scalar
-    wins over an earlier one, mirroring how Calliope resolves them.
+    A parameter is reported for an entity when it is indexed on that entity's
+    dimension. It gets a `value` when that leaves exactly one number — the entity
+    dimension alone, or alongside dimensions with a single member each, which is
+    how a one-cost-class model's `cost_flow_cap` looks. Otherwise the honest answer
+    is which dimensions it spans, and the editor says that rather than picking one
+    of the numbers and presenting it as the value.
 
     Args:
         base: Workspace root.
         kind: `"tech"` or `"node"`.
     """
     entity_dim = "techs" if kind == "tech" else "nodes"
-    root = base.resolve()
 
     merged: dict[str, dict[str, dict]] = {}
-    for yaml_path in yaml_files(root):
-        for table_name, config, directory in collect_data_tables(yaml_path):
-            data_field = config.get("data")
-            if not data_field:
-                continue
-            csv_path = (directory / str(data_field)).resolve()
-            if not csv_path.is_relative_to(root) or not csv_path.is_file():
-                continue
-            try:
-                extracted = extract_entity_params(config, csv_path, entity_dim)
-            except Exception:
-                # A malformed or half-written table should not break the whole
-                # response; the editor simply shows no provenance for it.
-                continue
+    for parameter, found in _read_tables(base).items():
+        dims = found["dims"]
+        if entity_dim not in dims:
+            continue
+        array = found["array"]
+        others = [dim for dim in dims if dim != entity_dim]
+        time_varying = any(dim in TIME_DIMS for dim in others)
 
-            for entity, params in extracted.items():
-                target = merged.setdefault(entity, {})
-                for parameter, info in params.items():
-                    existing = target.get(parameter)
-                    # First writer wins among time-varying markers; any scalar
-                    # supersedes them, and a later scalar supersedes an earlier.
-                    if existing is None or not info["time_varying"]:
-                        target[parameter] = {**info, "source": table_name}
+        try:
+            members = [str(value) for value in array.coords[entity_dim].values]
+        except (KeyError, AttributeError):
+            continue
+
+        # A dimension with one member does not make the value ambiguous, so it can
+        # still be shown — qualified by which member it is.
+        index = {}
+        if not time_varying:
+            for dim in others:
+                values = array.coords.get(dim)
+                if values is not None and values.size == 1:
+                    index[dim] = str(values.values.reshape(-1)[0])
+        singular = len(index) == len(others)
+
+        for member in members:
+            info: dict[str, Any] = {
+                "value": None,
+                "time_varying": time_varying,
+                "source": found["source"],
+                "dims": others,
+            }
+            if index:
+                info["index"] = index
+            if singular:
+                selection = array.sel({entity_dim: member, **index})
+                value = _scalar(selection.values.reshape(-1)[0])
+                if value is None:
+                    # Not defined for this member: an absent cell, not a value.
+                    continue
+                info["value"] = value
+            merged.setdefault(member, {})[parameter] = info
 
     return {"kind": kind, "params": merged}

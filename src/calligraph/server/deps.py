@@ -12,6 +12,7 @@ from fastapi import Depends, HTTPException, Request, status
 from calligraph.modeldef.paths import UnsafePath, safe_path
 from calligraph.results.store import ResultStore
 from calligraph.runs.manager import RunManager
+from calligraph.server.resolution import Resolver
 from calligraph.server.storage import LocalStorage, Workspace, WorkspaceNotFound
 
 
@@ -25,6 +26,10 @@ def get_runs(request: Request) -> RunManager:
 
 def get_results(request: Request) -> ResultStore:
     return request.app.state.results
+
+
+def get_resolver(request: Request) -> Resolver:
+    return request.app.state.resolver
 
 
 def get_workspace(id: str, storage: LocalStorage = Depends(get_storage)) -> Workspace:

@@ -22,6 +22,7 @@ Layout under `{workspace}/calligraph/runs/{run_id}/`:
     run.log         raw child stdout/stderr, a debugging backstop
     outcome.json    terminal status; written by the worker as its last act
     results.nc      the solved model
+    resolved.nc     the model as Calliope understands it, unsolved (init_only)
 
 Everything except `request.json` is optional. A directory is a run if and only if
 it contains `request.json`, and every reader below returns `None`/`{}`/`False`
@@ -42,6 +43,14 @@ EVENTS_FILE = "events.jsonl"
 LOG_FILE = "run.log"
 OUTCOME_FILE = "outcome.json"
 RESULTS_FILE = "results.nc"
+
+#: The model definition as Calliope resolves it, with no results in it. Written
+#: instead of `results.nc` when the request is `init_only`.
+#:
+#: A separate name rather than reusing `results.nc` on purpose: `has_results` is
+#: what mints a results handle and opens a run tab on charts, and an unsolved
+#: model would fail every one of those queries.
+RESOLVED_FILE = "resolved.nc"
 
 #: The frozen model definition, and the manifest describing it. Written by the
 #: parent before the run starts; see `calligraph.modeldef.snapshot`.
@@ -76,6 +85,13 @@ class RunRequest:
     scenario: str | None = None
     override_dict: dict = field(default_factory=dict)
     build_only: bool = False
+    #: Read the model and stop, writing `resolved.nc`.
+    #:
+    #: This is how anything that needs to know what a model *means* — which nodes
+    #: exist and where, which techs are links, what a parameter resolves to — gets
+    #: its answer from Calliope instead of from a second implementation of
+    #: Calliope's rules. Cheaper than `build_only`, which assembles the math.
+    init_only: bool = False
     #: What the user called this run when they started it. `meta.json` overrides
     #: it if the run has since been renamed.
     label: str | None = None

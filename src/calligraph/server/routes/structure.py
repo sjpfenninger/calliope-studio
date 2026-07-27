@@ -4,8 +4,12 @@ from fastapi import APIRouter, Depends, Query
 
 from calligraph.modeldef import geo
 from calligraph.modeldef.data_tables import data_table_params
+from calligraph.modeldef.entities import merged_section
 from calligraph.modeldef.imports import component_tree, import_graph
-from calligraph.server.deps import get_workspace
+from calligraph.results import colors as results_colors
+from calligraph.results import geo as resolved_geo
+from calligraph.server.deps import get_resolver, get_workspace
+from calligraph.server.resolution import Resolver
 from calligraph.server.storage import Workspace
 
 router = APIRouter(tags=["structure"])
@@ -22,13 +26,47 @@ def get_import_graph(workspace: Workspace = Depends(get_workspace)) -> dict:
 
 
 @router.get("/versions/{id}/geo/")
-def get_geometry(workspace: Workspace = Depends(get_workspace)) -> dict:
-    """Node and link geometry read from the model definition.
+def get_geometry(
+    workspace: Workspace = Depends(get_workspace),
+    resolver: Resolver = Depends(get_resolver),
+) -> dict:
+    """Node and link geometry for the model definition.
 
     The same shape the results endpoint returns, so the map component does not
     care whether a model has been solved.
+
+    Geometry comes from the *resolved* model — Calliope's own reading — because
+    coordinates and links can come from templates and data tables as well as from
+    the `nodes:` and `techs:` sections, and a second implementation of those rules
+    is what previously drew an empty map for a model whose positions were all in a
+    CSV. `source` says which reading the caller got, and a rebuild in flight is
+    reported rather than waited for.
     """
-    return geo.geojson(workspace.path)
+    resolution = resolver.get(workspace)
+    if resolution.model is not None:
+        payload = resolved_geo.geojson(
+            resolution.model,
+            colors=results_colors.tech_colors(resolution.model),
+            # Which end of a link is which is the one thing the resolved model does
+            # not keep; see `modeldef.geo.link_orientation`.
+            orientation=geo.link_orientation(workspace.path),
+        )
+    else:
+        payload = geo.geojson(workspace.path)
+    return {**payload, **resolution.as_dict()}
+
+
+@router.get("/versions/{id}/templates/")
+def get_templates(workspace: Workspace = Depends(get_workspace)) -> dict:
+    """Every template, each resolved against the templates it inherits from.
+
+    The editors show what an entry inherits, and a template inheriting a template
+    is ordinary — `examples/model_nld-NUTS3-v1` has `power_lines →
+    interest_rate_setter`. Reading the raw `templates:` section per file, as the
+    editors used to, showed only the first hop, so half of what a link actually
+    inherits was invisible. This is Calliope's own recursive resolution.
+    """
+    return {"templates": merged_section(workspace.path, "templates")}
 
 
 @router.get("/versions/{id}/data-table-params/")

@@ -10,8 +10,15 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 
+from calligraph.modeldef.entities import harmonise_coordinates
 from calligraph.modeldef.yaml_io import SectionNotFound, read_section, write_section
-from calligraph.server.deps import get_workspace, require_file, resolve_path
+from calligraph.server.deps import (
+    get_resolver,
+    get_workspace,
+    require_file,
+    resolve_path,
+)
+from calligraph.server.resolution import Resolver
 from calligraph.server.storage import Workspace
 
 router = APIRouter(tags=["yaml"])
@@ -43,17 +50,25 @@ def put_section(
     body: SectionBody,
     section: str = Query(..., description="Top-level key to replace."),
     workspace: Workspace = Depends(get_workspace),
+    resolver: Resolver = Depends(get_resolver),
 ) -> dict:
     if body.data is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="data required."
         )
     path = require_file(resolve_path(workspace, file_path))
+    data = harmonise_coordinates(body.data) if section == "nodes" else body.data
     try:
-        write_section(path, section, body.data)
+        write_section(path, section, data)
     except SectionNotFound:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Section '{section}' not found.",
         ) from None
+    # The definition has changed, so what it *means* has too. Started here rather
+    # than left to the next request for it, so the read is already under way while
+    # the user is still looking at the form they saved. The task id is not returned:
+    # whatever needs the result asks for it — `GET /geo/` reports the state — and
+    # this response is a write acknowledgement, not a handle.
+    resolver.refresh(workspace)
     return {"ok": True}

@@ -108,15 +108,26 @@ export function rawToLink(name: string, raw: RawTech): LinkEntry {
   };
 }
 
-export function linkToRaw(entry: LinkEntry): Record<string, any> {
+/**
+ * @param templates Resolved templates, to see whether the chosen one already makes
+ *   this a transmission technology. Without them the rule was "assume a template
+ *   supplies `base_tech`", which is wrong for a template that only sets costs and
+ *   writes a link Calliope does not treat as one. Unknown template names still get
+ *   an explicit `base_tech`: a redundant key is noise, a missing one is a broken
+ *   model.
+ */
+export function linkToRaw(
+  entry: LinkEntry,
+  templates: Record<string, Record<string, any>> = {},
+): Record<string, any> {
   const result: Record<string, any> = {};
   if (entry.active === false) result.active = false;
   if (entry.template) result.template = entry.template;
   if (entry.linkFrom) result.link_from = entry.linkFrom;
   if (entry.linkTo) result.link_to = entry.linkTo;
-  // Only when not inherited, so a link using a template does not gain a
-  // redundant `base_tech` it never had.
-  if (!entry.template) result.base_tech = "transmission";
+  const inherited =
+    entry.template && templates[entry.template]?.base_tech === "transmission";
+  if (!inherited) result.base_tech = "transmission";
   return { ...result, ...paramsToObject(entry.params) };
 }
 

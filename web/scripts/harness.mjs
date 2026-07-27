@@ -82,6 +82,27 @@ export function results() {
   };
 }
 
+/**
+ * A request to the API, on a connection that is not reused.
+ *
+ * `connection: close` because a check that waits several seconds between calls —
+ * for a subprocess to finish, say — outlives uvicorn's keep-alive timeout, and
+ * Node's `fetch` then picks the closed socket back up and hangs until its
+ * five-minute headers timeout. The failure looks like a hung server and is not one.
+ */
+export function api(url, init = {}) {
+  // `CG_TRACE=1` prints each request. Worth keeping: the failure this guards
+  // against looks like the *next* call hanging, so knowing which one is which is
+  // the whole diagnosis.
+  if (process.env.CG_TRACE) {
+    console.log(`    -> ${init.method ?? "GET"} ${url.replace(/^https?:\/\/[^/]+/, "")}`);
+  }
+  return fetch(url, {
+    ...init,
+    headers: { connection: "close", ...(init.headers ?? {}) },
+  });
+}
+
 /** The server's own account of what it was opened on. */
 export async function health(base) {
   const response = await fetch(`${base}/api/health`);

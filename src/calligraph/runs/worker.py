@@ -166,6 +166,19 @@ def run(run_dir: Path) -> int:
         )
         _stage(run_dir, "read", "done")
 
+        if request.init_only:
+            # Resolution: hand the model back as Calliope understands it and stop.
+            # No `build()` — the math is irrelevant to what the definition *means*,
+            # and skipping it is the difference between 4 seconds and rather more
+            # on a real model.
+            _stage(run_dir, "save", "start")
+            model.to_netcdf(str(run_dir / protocol.RESOLVED_FILE))
+            _stage(run_dir, "save", "done")
+            outcome["status"] = "success"
+            outcome["termination_condition"] = "not_solved"
+            _record_diagnostics(outcome, model, build_only=True)
+            return _finish(run_dir, outcome, started)
+
         _stage(run_dir, "build", "start")
         model.build()
         _stage(run_dir, "build", "done")
@@ -208,14 +221,24 @@ def run(run_dir: Path) -> int:
         # observed for real when `to_netcdf` raised while appending attributes,
         # after the model had already solved to optimality.
         (run_dir / protocol.RESULTS_FILE).unlink(missing_ok=True)
+        # Same reasoning for a resolution: a half-written `resolved.nc` is not a
+        # model, and the parent would load it and fail rather than fall back.
+        (run_dir / protocol.RESOLVED_FILE).unlink(missing_ok=True)
 
+    return _finish(run_dir, outcome, started)
+
+
+def _finish(run_dir: Path, outcome: dict, started: float) -> int:
+    """Records the terminal outcome and announces it.
+
+    The outcome is written *before* the event that announces it. A client watching
+    the log reacts to `done` within milliseconds and immediately asks for the run's
+    record; with the old order that record still said "running", because nothing on
+    disk yet said otherwise.
+    """
     outcome["completed_at"] = datetime.now(timezone.utc).isoformat()
     outcome["duration_seconds"] = round(time.time() - started, 3)
 
-    # The outcome is written *before* the event that announces it. A client
-    # watching the log reacts to `done` within milliseconds and immediately asks
-    # for the run's record; with the old order that record still said "running",
-    # because nothing on disk yet said otherwise.
     protocol.write_outcome(run_dir, outcome)
     protocol.append_event(
         run_dir,

@@ -32,10 +32,15 @@ import {
   GHOST_BUTTON,
 } from "@/lib/formClasses";
 import { ICON_STROKE_WIDTH } from "@/lib/icons";
+import {
+  describeParams,
+  paramSources,
+  type DataTableParam,
+} from "@/lib/dataTableParams";
 import { cn } from "@/lib/utils";
 import { useTabsStore } from "@/stores/tabs";
 import { useSectionDataStore } from "@/stores/sectionData";
-import { useComponentTreeStore } from "@/stores/componentTree";
+import { useTemplatesStore } from "@/stores/templates";
 import { isTransmission, mergeIntoSection, type RawTech } from "@/lib/techs";
 import { rawToTech, techToRaw, type TechEntry } from "@/lib/entries";
 
@@ -48,7 +53,7 @@ const props = defineProps<{
 
 const tabsStore = useTabsStore();
 const sectionDataStore = useSectionDataStore();
-const componentTreeStore = useComponentTreeStore();
+const templatesStore = useTemplatesStore();
 const isLoading = ref(true);
 const isSaving = ref(false);
 const error = ref<string | null>(null);
@@ -60,11 +65,10 @@ const entries = ref<TechEntry[]>([]);
 // save from here.
 const originalSection = ref<Record<string, RawTech>>({});
 // Map from template name → its raw fields (merged from all files that define templates)
-const templatesData = ref<Record<string, Record<string, any>>>({});
+const templatesData = computed(() => templatesStore.templates);
 
-interface DtParam { value: any; time_varying: boolean; source: string }
 // Map from tech name → param name → data-table info
-const dataTableParams = ref<Record<string, Record<string, DtParam>>>({});
+const dataTableParams = ref<Record<string, Record<string, DataTableParam>>>({});
 
 // When entryName is set (entry tab), show only the matching entry
 const visibleEntries = computed(() =>
@@ -106,32 +110,16 @@ async function load() {
   }
 }
 
+/**
+ * The model's templates, resolved.
+ *
+ * From the store rather than merged out of each file's raw `templates:` section:
+ * that only ever resolved one hop, so a template inheriting a template showed half
+ * of what an entry inherits — and made this editor's own idea of what a
+ * transmission tech is disagree with Calliope's.
+ */
 async function loadTemplatesSection() {
-  // Gather all files that are known to contain templates (from component tree)
-  const templateTree = componentTreeStore.tree?.templates?.entries ?? [];
-  const files = new Set<string>([props.filePath]);
-  for (const t of templateTree) {
-    if (typeof t !== "string" && t.file) files.add(t.file);
-  }
-  const result: Record<string, Record<string, any>> = {};
-  for (const file of files) {
-    const cached = sectionDataStore.get(props.versionId, file, "templates");
-    if (cached !== null) {
-      Object.assign(result, cached);
-      continue;
-    }
-    try {
-      const res = await client.get<{ section: string; data: any }>(
-        `/api/versions/${props.versionId}/yaml-section/${file}?section=templates`
-      );
-      const d = res.data.data ?? {};
-      sectionDataStore.set(props.versionId, file, "templates", d);
-      Object.assign(result, d);
-    } catch {
-      // templates section absent in this file — skip
-    }
-  }
-  templatesData.value = result;
+  await templatesStore.load(props.versionId);
 }
 
 async function loadDataTableParams() {
@@ -183,6 +171,8 @@ async function save() {
     sectionDataStore.set(props.versionId, props.filePath, "techs", payload);
     originalSection.value = payload;
     tabsStore.markClean(props.tabId);
+    // Editing a tech can change what a template means for its siblings.
+    await templatesStore.refresh(props.versionId);
   } finally {
     isSaving.value = false;
   }
@@ -223,21 +213,11 @@ function templateFields(name: string | null): Record<string, string> {
 
 /** Data-table values for one technology, and which table each came from. */
 function dataTableFields(name: string): Record<string, string> {
-  return Object.fromEntries(
-    Object.entries(dataTableParams.value[name] ?? {}).map(([key, param]) => [
-      key,
-      param.time_varying ? "time-varying" : String(param.value),
-    ]),
-  );
+  return describeParams(dataTableParams.value[name]);
 }
 
 function dataTableSources(name: string): Record<string, string> {
-  return Object.fromEntries(
-    Object.entries(dataTableParams.value[name] ?? {}).map(([key, param]) => [
-      key,
-      param.source,
-    ]),
-  );
+  return paramSources(dataTableParams.value[name]);
 }
 
 function onKeydown(e: KeyboardEvent) {

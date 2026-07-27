@@ -77,8 +77,8 @@ pandas = "<2.3"
 # Frontend toolchain, so `pixi run web-*` works without a separate Node install.
 nodejs = ">=22"
 # Solver for local runs: CBC is Calliope's default (`config.solve.solver`) and
-# is not pip-installable, so it has to come from conda-forge. Gurobi/CPLEX are
-# used instead if the user has them on PATH with a licence.
+# is not pip-installable, so it has to come from conda-forge. Gurobi is the
+# `gurobi` feature below; CPLEX is used if the user has it on PATH.
 coin-or-cbc = "*"
 
 [tool.pixi.pypi-dependencies]
@@ -87,6 +87,7 @@ calligraph = { path = ".", editable = true }
 [tool.pixi.environments]
 default = { features = ["dev"], solve-group = "default" }
 build = { features = ["build"], solve-group = "default" }
+gurobi = { features = ["dev", "gurobi"] }
 
 [tool.pixi.feature.dev.dependencies]
 ruff = "*"
@@ -95,6 +96,22 @@ pytest = "*"
 
 [tool.pixi.feature.build.dependencies]
 python-build = "*"
+
+# Gurobi is not on conda-forge; it ships from its own anaconda.org channel,
+# which hosts nothing else, so this cannot shadow a conda-forge package. Kept
+# out of the default environment because it is ~45 MB and only useful with a
+# licence: work with it as `pixi run -e gurobi serve`. The environment is
+# deliberately not in the `default` solve-group — sharing one would add this
+# channel to every other environment's lock entry for no gain.
+#
+# The package ships gurobipy but no `gurobi.sh`, which is fine: Pyomo 6.10
+# resolves `solver: gurobi` to GUROBIFILE, which drives gurobipy directly, so
+# both that and `config.build.backend: gurobi` work with nothing else on PATH.
+[tool.pixi.feature.gurobi]
+channels = ["gurobi"]
+
+[tool.pixi.feature.gurobi.dependencies]
+gurobi = "*"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -33,6 +33,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { formatBytes } from "@/lib/format";
 import { ICON_STROKE_WIDTH } from "@/lib/icons";
+import { openIntent } from "@/lib/openIntent";
 import { RETENTION_CHOICES, useRunsStore, type RunRecord } from "@/stores/runs";
 import { useTabsStore } from "@/stores/tabs";
 
@@ -80,8 +81,11 @@ async function start() {
   }
 }
 
-function open(run: RunRecord) {
-  tabs.openRun({ id: run.id, handle: run.results_handle, label: run.label });
+function open(run: RunRecord, event: MouseEvent) {
+  tabs.openRun(
+    { id: run.id, handle: run.results_handle, label: run.label },
+    openIntent(event),
+  );
   if (!runs.isStreaming(run.id)) runs.connectLogs(run.id);
 }
 
@@ -135,7 +139,7 @@ function setRetention(keep: number | null) {
         :key="run.id"
         :run="run"
         :active="run.id === activeRunId"
-        @open="open(run)"
+        @open="open(run, $event)"
         @rename="runs.rename(run.id, $event)"
         @cancel="runs.cancel(run.id)"
         @remove="pendingDelete = run"

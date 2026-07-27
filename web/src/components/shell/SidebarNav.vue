@@ -7,8 +7,17 @@
  * switching between them does not remount the shell — the tab bar, Monaco's
  * models and any live run pane all survive.
  *
- * The 2px inset bar on the active item is the detail that makes this read as a
- * console rather than a website nav.
+ * Drawn as one segmented control rather than three links: as a plain stack it
+ * read as website nav, and nothing said that these three choose what the panel
+ * underneath shows. One bordered box with divided segments, a filled active one
+ * and a 2px bar along its bottom edge does say it — the bar points at what it
+ * controls.
+ *
+ * Horizontal, because the sidebar is 22% of the window by default and three
+ * labels need about 210px of that. The segments grow from their content rather
+ * than being equal thirds — equal thirds truncate "Model" to "Mo…" in a 225px
+ * sidebar while leaving slack in the two shorter ones. Dragged to the 14%
+ * minimum the labels do truncate, and the icons carry the meaning.
  */
 import { computed } from "vue";
 import { useRoute } from "vue-router";
@@ -59,37 +68,44 @@ function target(name: string) {
 </script>
 
 <template>
-  <nav class="flex flex-col gap-px px-1.5 py-1">
-    <component
-      :is="item.enabled ? 'RouterLink' : 'span'"
-      v-for="item in items"
-      :key="item.name"
-      :to="item.enabled ? target(item.name) : undefined"
-      :data-testid="`nav-${item.name}`"
-      :title="item.enabled ? undefined : 'Not available for a results file'"
-      class="group relative flex h-6 items-center gap-2 rounded-sm px-2 text-sm text-text-dim transition-colors"
-      :class="
-        item.enabled
-          ? 'hover:bg-hover hover:text-foreground'
-          : 'cursor-default text-text-faint'
-      "
-      active-class="!bg-accent-soft !text-accent-text font-medium"
+  <!-- The padding is on the outer element, so the section divider the shell
+       draws underneath still spans the full width of the sidebar. -->
+  <div class="p-1.5">
+    <nav
+      class="flex divide-x divide-border-subtle overflow-hidden rounded-sm border border-border bg-surface"
+      role="group"
     >
-      <span
-        class="absolute left-0 top-1/2 h-3.5 w-0.5 -translate-y-1/2 rounded-r-full bg-primary opacity-0 transition-opacity group-[.router-link-active]:opacity-100"
-      />
       <component
-        :is="item.icon"
-        class="size-3.5 shrink-0 text-text-faint group-[.router-link-active]:text-primary"
-        :stroke-width="ICON_STROKE_WIDTH"
-      />
-      <span class="truncate">{{ item.label }}</span>
-      <span
-        v-if="item.count"
-        class="ml-auto rounded-xs bg-danger-soft px-1 text-2xs font-medium tabular-nums text-danger-text"
+        :is="item.enabled ? 'RouterLink' : 'span'"
+        v-for="item in items"
+        :key="item.name"
+        :to="item.enabled ? target(item.name) : undefined"
+        :data-testid="`nav-${item.name}`"
+        :title="item.enabled ? undefined : 'Not available for a results file'"
+        class="group relative flex h-7 min-w-0 flex-auto items-center justify-center gap-1.5 px-1.5 text-sm text-text-dim transition-colors"
+        :class="
+          item.enabled
+            ? 'hover:bg-hover hover:text-foreground'
+            : 'cursor-default text-text-faint'
+        "
+        active-class="!bg-accent-soft !text-accent-text font-medium"
       >
-        {{ item.count }}
-      </span>
-    </component>
-  </nav>
+        <component
+          :is="item.icon"
+          class="size-3.5 shrink-0 text-text-faint group-[.router-link-active]:text-primary"
+          :stroke-width="ICON_STROKE_WIDTH"
+        />
+        <span class="truncate">{{ item.label }}</span>
+        <span
+          v-if="item.count"
+          class="shrink-0 rounded-xs bg-danger-soft px-1 text-2xs font-medium tabular-nums text-danger-text"
+        >
+          {{ item.count }}
+        </span>
+        <span
+          class="absolute inset-x-0 bottom-0 h-0.5 bg-primary opacity-0 transition-opacity group-[.router-link-active]:opacity-100"
+        />
+      </component>
+    </nav>
+  </div>
 </template>

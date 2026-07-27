@@ -36,6 +36,29 @@ const props = defineProps<{
 
 const modelValue = defineModel<T | undefined>();
 const expanded = defineModel<string[]>("expanded", { default: () => [] });
+
+/**
+ * A row was chosen, with the event that chose it.
+ *
+ * Callers used to watch `modelValue` instead, which loses two things: the
+ * modifier keys — so Cmd-click could not mean "open in a new tab" — and any
+ * click on the row that is *already* selected, so re-opening a file whose tab
+ * you had just closed did nothing at all.
+ *
+ * Reka dispatches its own `select` for both a click and Enter/Space, carrying
+ * the originating event in `detail`, so this covers the keyboard too.
+ */
+const emit = defineEmits<{
+  select: [item: T, event: MouseEvent | KeyboardEvent];
+}>();
+
+type TreeSelectEvent = CustomEvent<{ originalEvent: MouseEvent | KeyboardEvent }>;
+
+function onSelect(item: T, event: TreeSelectEvent) {
+  // Not prevented: Reka skips its own selection for a defaulted event, and the
+  // selected row is what both trees highlight.
+  emit("select", item, event.detail.originalEvent);
+}
 </script>
 
 <template>
@@ -57,6 +80,7 @@ const expanded = defineModel<string[]>("expanded", { default: () => [] });
       v-bind="item.bind"
       :style="{ paddingLeft: `${(item.level - 1) * 12}px` }"
       class="group relative flex h-6 w-full items-center gap-1 rounded-sm pr-2 text-text-dim outline-none transition-colors hover:bg-hover hover:text-foreground focus-visible:bg-hover data-[selected]:bg-accent-soft data-[selected]:text-accent-text data-[selected]:font-medium"
+      @select="onSelect(item.value, $event as TreeSelectEvent)"
     >
       <!-- A fixed slot whether or not the row has children, so labels at the
            same level line up rather than shifting by the chevron's width. -->

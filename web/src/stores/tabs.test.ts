@@ -170,6 +170,95 @@ describe("useTabsStore", () => {
     });
   });
 
+  /**
+   * The one tab a plain click may reuse. Every rule here exists because the
+   * alternative loses something the user did: evicting a dirty preview throws
+   * away an unsaved buffer, and demoting a tab that was deliberately opened
+   * makes the next click delete it.
+   */
+  describe("the preview slot", () => {
+    it("reuses one tab for successive plain clicks", () => {
+      const tabs = useTabsStore();
+      tabs.openFile("a.yaml", { preview: true });
+      tabs.openFile("b.yaml", { preview: true });
+      tabs.openFile("c.yaml", { preview: true });
+
+      expect([...tabs.openTabs.keys()]).toEqual([fileTabId("c.yaml")]);
+      expect(tabs.previewId).toBe(fileTabId("c.yaml"));
+    });
+
+    it("keeps every tab a Cmd-click opened", () => {
+      const tabs = useTabsStore();
+      tabs.openFile("a.yaml");
+      tabs.openFile("b.yaml");
+      tabs.openFile("c.yaml", { preview: true });
+
+      expect(tabs.openTabs.size).toBe(3);
+      expect(tabs.previewId).toBe(fileTabId("c.yaml"));
+    });
+
+    it("leaves a permanent tab permanent when it is clicked again", () => {
+      // Otherwise a tab you had pinned would silently become the one the next
+      // click throws away. The preview tab is untouched by the visit, exactly as
+      // it is when an already-open file is clicked in an editor.
+      const tabs = useTabsStore();
+      const permanent = tabs.openFile("a.yaml");
+      tabs.openFile("b.yaml", { preview: true });
+      tabs.openFile("a.yaml", { preview: true });
+
+      expect(tabs.previewId).toBe(fileTabId("b.yaml"));
+      expect(tabs.openTabs.size).toBe(2);
+      expect(tabs.activeId).toBe(permanent);
+    });
+
+    it("promotes the preview when it is re-opened permanently", () => {
+      // A double-click: the first click previews, the second re-opens it.
+      const tabs = useTabsStore();
+      const id = tabs.openFile("a.yaml", { preview: true });
+      tabs.openFile("a.yaml");
+
+      expect(tabs.previewId).toBeNull();
+      expect(tabs.openTabs.size).toBe(1);
+      expect(tabs.get(id)).toBeDefined();
+    });
+
+    it("never evicts a preview that has been edited", () => {
+      const tabs = useTabsStore();
+      const edited = tabs.openFile("a.yaml", { preview: true });
+      tabs.markDirty(edited);
+      expect(tabs.previewId).toBeNull();
+
+      tabs.openFile("b.yaml", { preview: true });
+      expect(tabs.get(edited)).toBeDefined();
+      expect(tabs.openTabs.size).toBe(2);
+    });
+
+    it("empties the slot when the preview is closed", () => {
+      const tabs = useTabsStore();
+      const id = tabs.openFile("a.yaml", { preview: true });
+      tabs.closeTab(id);
+      expect(tabs.previewId).toBeNull();
+    });
+
+    it("previews sections, entries and runs alike", () => {
+      const tabs = useTabsStore();
+      tabs.openSection("techs", "techs.yaml", { preview: true });
+      tabs.openEntry("techs", "techs.yaml", "ccgt", { preview: true });
+      tabs.openRun({ id: "r1" }, { preview: true });
+
+      expect([...tabs.openTabs.keys()]).toEqual([runTabId("r1")]);
+      expect(tabs.previewId).toBe(runTabId("r1"));
+    });
+
+    it("restores and deep-links into permanent tabs", () => {
+      // A restored session must not hand the user a tab that the first click
+      // deletes.
+      const tabs = useTabsStore();
+      tabs.openFromId(fileTabId("a.yaml"));
+      expect(tabs.previewId).toBeNull();
+    });
+  });
+
   describe("closing", () => {
     it("activates the right-hand neighbour", () => {
       // The previous store jumped to whatever was last in the map, so closing a

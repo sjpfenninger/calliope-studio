@@ -8,7 +8,12 @@
  *
  * 32px tall with a 2px underline that sits *inside* the strip's bottom border,
  * so the active tab appears to break through it.
+ *
+ * It scrolls with no scrollbar: the global one is 10px, a third of the strip's
+ * height, drawn straight across the tabs. The wheel and the auto-reveal below
+ * are what replace it.
  */
+import { ref, watch } from "vue";
 import { BarChart3 } from "lucide-vue-next";
 import { X } from "lucide-vue-next";
 
@@ -16,6 +21,32 @@ import { fileIcon, ICON_STROKE_WIDTH, sectionIcon } from "@/lib/icons";
 import { useTabsStore, type TabEntry } from "@/stores/tabs";
 
 const tabs = useTabsStore();
+
+const strip = ref<HTMLElement | null>(null);
+
+function onWheel(event: WheelEvent) {
+  const el = strip.value;
+  if (!el || el.scrollWidth <= el.clientWidth) return;
+  // A vertical wheel — which is all a mouse has — is the only way to reach a
+  // tab that is off the end. A trackpad's horizontal delta already works, so it
+  // is left alone.
+  if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
+  event.preventDefault();
+  el.scrollLeft += event.deltaY;
+}
+
+// `post`, so the tab exists in the DOM by the time we look for it — activating
+// something can be what created it.
+watch(
+  () => tabs.activeId,
+  () => {
+    strip.value
+      ?.querySelector("[data-active]")
+      // `block: "nearest"` matters: without it the whole shell scrolls.
+      ?.scrollIntoView({ inline: "nearest", block: "nearest" });
+  },
+  { flush: "post" },
+);
 
 function iconFor(tab: TabEntry) {
   if (tab.kind === "run") return BarChart3;
@@ -47,8 +78,10 @@ function onAuxClick(id: string, event: MouseEvent) {
 <template>
   <div
     v-if="tabs.ordered.length"
+    ref="strip"
     data-testid="tab-strip"
-    class="flex h-8 shrink-0 items-stretch overflow-x-auto border-b border-border bg-panel"
+    class="scrollbar-none flex h-8 shrink-0 items-stretch overflow-x-auto border-b border-border bg-panel"
+    @wheel="onWheel"
   >
     <button
       v-for="tab in tabs.ordered"
@@ -56,9 +89,11 @@ function onAuxClick(id: string, event: MouseEvent) {
       type="button"
       :data-testid="`tab-${tab.kind}`"
       :data-active="tab.id === tabs.activeId || undefined"
+      :data-preview="tab.id === tabs.previewId || undefined"
       :title="tab.kind === 'entry' ? `${tab.entryName} · ${tab.section}` : tab.title"
-      class="group relative inline-flex shrink-0 select-none items-center gap-1.5 whitespace-nowrap border-r border-border-subtle px-3 text-sm text-muted-foreground transition-colors hover:bg-hover hover:text-foreground data-[active]:bg-surface data-[active]:text-foreground data-[active]:after:absolute data-[active]:after:inset-x-0 data-[active]:after:-bottom-px data-[active]:after:h-0.5 data-[active]:after:bg-primary"
+      class="group relative inline-flex shrink-0 select-none items-center gap-1.5 whitespace-nowrap border-r border-border-subtle px-3 text-sm text-muted-foreground transition-colors data-[preview]:italic hover:bg-hover hover:text-foreground data-[active]:bg-surface data-[active]:text-foreground data-[active]:after:absolute data-[active]:after:inset-x-0 data-[active]:after:-bottom-px data-[active]:after:h-0.5 data-[active]:after:bg-primary"
       @click="tabs.activate(tab.id)"
+      @dblclick="tabs.promote(tab.id)"
       @auxclick="onAuxClick(tab.id, $event)"
     >
       <component

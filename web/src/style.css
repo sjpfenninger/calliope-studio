@@ -252,3 +252,18 @@
     background-clip: padding-box;
   }
 }
+
+/**
+ * A scroller with no bar of its own.
+ *
+ * The rule above is global and 10px tall, which is a third of the 32px tab
+ * strip — so a strip that overflows lost a third of its height to a scrollbar
+ * sitting across the tabs. Anything using this has to offer another way to
+ * scroll: the tab bar takes the wheel and reveals the active tab itself.
+ */
+@utility scrollbar-none {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}

@@ -91,6 +91,18 @@ export interface JumpTarget {
   column: number;
 }
 
+/**
+ * How an `open*` call should treat the tab it opens.
+ *
+ * An options bag rather than a positional flag because `openFile` already had a
+ * second parameter nobody passed, and a bare `true` at a call site says nothing
+ * about what it means.
+ */
+export interface OpenOptions {
+  /** Park the tab in the reusable preview slot. A plain click; not a Cmd-click. */
+  preview?: boolean;
+}
+
 /** How many run panes stay live before the least recently fronted is dropped. */
 const MAX_LIVE_RUN_PANES = 4;
 
@@ -131,6 +143,16 @@ export const useTabsStore = defineStore("tabs", () => {
   const activeId = ref<string | null>(null);
   const versionId = ref<string | null>(null);
   const jumpTarget = ref<JumpTarget | null>(null);
+
+  /**
+   * The one tab a plain click is allowed to reuse, if there is one.
+   *
+   * Browsing a model is mostly *looking*: opening a permanent tab per click
+   * filled the bar within a minute of clicking around the tree. So a plain click
+   * parks its tab here and evicts whatever was here before, and only a
+   * Cmd-click, a double-click or the first edit makes a tab permanent.
+   */
+  const previewId = ref<string | null>(null);
 
   /** Most recently fronted last. Bounds how many run panes stay live. */
   const recency: string[] = [];
@@ -264,26 +286,66 @@ export const useTabsStore = defineStore("tabs", () => {
 
   // ── Opening ───────────────────────────────────────────────────────────────
 
-  function openFile(path: string, fileType: FileType = fileTypeOf(path)): string {
+  /**
+   * Takes a tab out of the preview slot, so nothing can evict it.
+   *
+   * Idempotent, and safe to call for a tab that was never previewed — every
+   * permanent open goes through it.
+   */
+  function promote(id: string) {
+    if (previewId.value === id) previewId.value = null;
+  }
+
+  /**
+   * Applies the preview rule to a tab that has just been opened and activated.
+   *
+   * The order the callers use matters: the new tab is activated *first*, so that
+   * closing the outgoing preview here never has to pick a successor. A tab that
+   * was already open and permanent stays permanent when it is clicked again —
+   * only a fresh open, or the preview slot's own tab, can be a preview. And a
+   * dirty preview is never evicted, since that would throw away a buffer the
+   * user is part-way through editing.
+   */
+  function settlePreview(id: string, existed: boolean, preview: boolean) {
+    if (!preview || (existed && previewId.value !== id)) {
+      promote(id);
+      return;
+    }
+    const prior = previewId.value;
+    previewId.value = id;
+    if (prior && prior !== id && !openTabs.get(prior)?.isDirty) closeTab(prior);
+  }
+
+  function openFile(
+    path: string,
+    options: OpenOptions & { fileType?: FileType } = {},
+  ): string {
     const id = fileTabId(path);
-    if (!openTabs.has(id)) {
+    const existed = openTabs.has(id);
+    if (!existed) {
       openTabs.set(id, {
         id,
         kind: "file",
         title: titleFor({ kind: "file", path }),
         path,
-        fileType,
+        fileType: options.fileType ?? fileTypeOf(path),
         isDirty: false,
         mounted: false,
       });
     }
     activate(id);
+    settlePreview(id, existed, options.preview ?? false);
     return id;
   }
 
-  function openSection(section: string, filePath: string): string {
+  function openSection(
+    section: string,
+    filePath: string,
+    options: OpenOptions = {},
+  ): string {
     const id = sectionTabId(section, filePath);
-    if (!openTabs.has(id)) {
+    const existed = openTabs.has(id);
+    if (!existed) {
       openTabs.set(id, {
         id,
         kind: "section",
@@ -296,12 +358,19 @@ export const useTabsStore = defineStore("tabs", () => {
       });
     }
     activate(id);
+    settlePreview(id, existed, options.preview ?? false);
     return id;
   }
 
-  function openEntry(section: string, filePath: string, entryName: string): string {
+  function openEntry(
+    section: string,
+    filePath: string,
+    entryName: string,
+    options: OpenOptions = {},
+  ): string {
     const id = entryTabId(section, filePath, entryName);
-    if (!openTabs.has(id)) {
+    const existed = openTabs.has(id);
+    if (!existed) {
       openTabs.set(id, {
         id,
         kind: "entry",
@@ -315,14 +384,18 @@ export const useTabsStore = defineStore("tabs", () => {
       });
     }
     activate(id);
+    settlePreview(id, existed, options.preview ?? false);
     return id;
   }
 
-  function openRun(run: {
-    id: string | null;
-    handle?: string | null;
-    label?: string | null;
-  }): string {
+  function openRun(
+    run: {
+      id: string | null;
+      handle?: string | null;
+      label?: string | null;
+    },
+    options: OpenOptions = {},
+  ): string {
     const id = runTabId(run.id, run.handle ?? null);
     const existing = openTabs.get(id);
 
@@ -351,6 +424,7 @@ export const useTabsStore = defineStore("tabs", () => {
       });
     }
     activate(id);
+    settlePreview(id, existing !== undefined, options.preview ?? false);
     return id;
   }
 
@@ -397,7 +471,12 @@ export const useTabsStore = defineStore("tabs", () => {
 
   function markDirty(id: string) {
     const tab = openTabs.get(id);
-    if (tab && tab.kind !== "run") tab.isDirty = true;
+    if (tab && tab.kind !== "run") {
+      tab.isDirty = true;
+      // Editing is intent to keep: a previewed file the user has started typing
+      // in must not be evicted by the next click in the tree.
+      promote(id);
+    }
   }
 
   function markClean(id: string) {
@@ -430,6 +509,7 @@ export const useTabsStore = defineStore("tabs", () => {
     const at = ids.indexOf(id);
 
     openTabs.delete(id);
+    if (previewId.value === id) previewId.value = null;
     const stale = recency.indexOf(id);
     if (stale >= 0) recency.splice(stale, 1);
 
@@ -447,7 +527,8 @@ export const useTabsStore = defineStore("tabs", () => {
 
   /** Opens a file tab and asks Monaco to reveal a position in it. */
   function jumpTo(path: string, line: number, column: number) {
-    openFile(path);
+    // A single click on a validation problem, so it previews like every other.
+    openFile(path, { preview: true });
     jumpTarget.value = { path, line, column };
   }
 
@@ -472,6 +553,7 @@ export const useTabsStore = defineStore("tabs", () => {
   return {
     openTabs,
     activeId,
+    previewId,
     activeTab,
     activeFilePath,
     ordered,
@@ -490,6 +572,7 @@ export const useTabsStore = defineStore("tabs", () => {
     openEntry,
     openRun,
     openFromId,
+    promote,
     updateRun,
     closeRun,
     markDirty,

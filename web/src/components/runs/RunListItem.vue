@@ -38,7 +38,8 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  open: [];
+  /** Carries the click, so Cmd-click can mean "in a tab that stays". */
+  open: [event: MouseEvent];
   rename: [label: string];
   cancel: [];
   remove: [];
@@ -96,7 +97,7 @@ function commitRename() {
         data-testid="run-open"
         class="min-w-0 flex-1 truncate text-left text-sm"
         :title="run.id"
-        @click="emit('open')"
+        @click="emit('open', $event)"
       >
         {{ title }}
       </button>

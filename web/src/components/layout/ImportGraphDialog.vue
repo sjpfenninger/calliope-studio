@@ -180,7 +180,8 @@ const flowGraph = computed(() => {
 });
 
 function onNodeClick(event: { node: Node }) {
-  tabsStore.openFile(event.node.id);
+  // A single click, like the tree's: previews rather than piling up a tab.
+  tabsStore.openFile(event.node.id, { preview: true });
   emit("update:visible", false);
 }
 </script>

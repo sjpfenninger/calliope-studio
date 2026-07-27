@@ -14,6 +14,7 @@ import ImportGraphDialog from "@/components/layout/ImportGraphDialog.vue";
 import { Tree } from "@/components/ui/tree";
 import { ICON_STROKE_WIDTH, sectionIcon } from "@/lib/icons";
 import { buildModelTree, STRUCTURED_SECTIONS, type ModelTreeNode } from "@/lib/modelTree";
+import { openIntent } from "@/lib/openIntent";
 import { useComponentTreeStore } from "@/stores/componentTree";
 import { useTabsStore } from "@/stores/tabs";
 import { useValidationStore } from "@/stores/validation";
@@ -41,21 +42,20 @@ function refresh() {
   if (tabs.versionId) componentTree.refresh(tabs.versionId);
 }
 
-function open(node: ModelTreeNode | undefined) {
-  if (!node?.file) return;
+function open(node: ModelTreeNode, event: MouseEvent | KeyboardEvent) {
+  if (!node.file) return;
+  const intent = openIntent(event);
 
   // Sections with no structured editor — an override is an arbitrary partial
   // model — open as raw YAML instead.
   if (!STRUCTURED_SECTIONS.has(node.section)) {
-    tabs.openFile(node.file);
+    tabs.openFile(node.file, intent);
     return;
   }
 
-  if (node.entryName) tabs.openEntry(node.section, node.file, node.entryName);
-  else tabs.openSection(node.section, node.file);
+  if (node.entryName) tabs.openEntry(node.section, node.file, node.entryName, intent);
+  else tabs.openSection(node.section, node.file, intent);
 }
-
-watch(selected, open);
 
 function validate() {
   if (tabs.versionId) validation.validate(tabs.versionId);
@@ -123,6 +123,7 @@ function validateDeep() {
       "
       data-testid="model-tree"
       class="min-h-0 flex-1"
+      @select="(node, event) => open(node as ModelTreeNode, event)"
     >
       <template #trailing="{ item }">
         <span

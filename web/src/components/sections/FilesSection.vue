@@ -12,6 +12,7 @@ import { computed, ref, watch } from "vue";
 import { Tree } from "@/components/ui/tree";
 import { fileIcon } from "@/lib/icons";
 import { type FileTreeNode } from "@/lib/fileTree";
+import { openIntent } from "@/lib/openIntent";
 import { fileTabId } from "@/lib/tabId";
 import { useTabsStore } from "@/stores/tabs";
 import { useVersionStore } from "@/stores/version";
@@ -30,10 +31,10 @@ watch(
   { immediate: true },
 );
 
-watch(selected, (node) => {
+function open(node: FileTreeNode, event: MouseEvent | KeyboardEvent) {
   // Only leaves are files; a directory just expands.
-  if (node?.leaf) tabs.openFile(node.key);
-});
+  if (node.leaf) tabs.openFile(node.key, openIntent(event));
+}
 </script>
 
 <template>
@@ -48,6 +49,7 @@ watch(selected, (node) => {
     "
     data-testid="file-tree"
     class="min-h-0 flex-1"
+    @select="(node, event) => open(node as FileTreeNode, event)"
   >
     <template #trailing="{ item }">
       <span

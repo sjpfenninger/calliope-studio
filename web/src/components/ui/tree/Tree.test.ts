@@ -83,4 +83,39 @@ describe("Tree", () => {
   it("gives every row a treeitem role", () => {
     expect(render().findAll('[role="treeitem"]').length).toBe(2);
   });
+
+  /**
+   * Both explorer trees open from this rather than from a `modelValue` watcher,
+   * which could see neither the modifier keys — so Cmd-click could not mean "a
+   * tab that stays" — nor a click on the row that is already selected.
+   */
+  describe("select", () => {
+    it("emits the item and the click that chose it", async () => {
+      const wrapper = render();
+      await wrapper.findAll('[role="treeitem"]')[1].trigger("click");
+
+      const emitted = wrapper.emitted("select");
+      expect(emitted).toHaveLength(1);
+      // Deep equality: the item arrives back through a reactive proxy.
+      expect(emitted![0][0]).toEqual(items[1]);
+      expect(emitted![0][1]).toBeInstanceOf(Event);
+    });
+
+    it("carries the modifier keys through", async () => {
+      const wrapper = render();
+      await wrapper.findAll('[role="treeitem"]')[0].trigger("click", { metaKey: true });
+
+      const event = wrapper.emitted("select")![0][1] as MouseEvent;
+      expect(event.metaKey).toBe(true);
+    });
+
+    it("fires again for a row that is already selected", async () => {
+      // Clicking a file whose tab you had just closed has to reopen it.
+      const wrapper = render({ modelValue: items[0] });
+      await wrapper.findAll('[role="treeitem"]')[0].trigger("click");
+      await wrapper.findAll('[role="treeitem"]')[0].trigger("click");
+
+      expect(wrapper.emitted("select")).toHaveLength(2);
+    });
+  });
 });

@@ -3,7 +3,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import client from "../api/client";
 import { runTabId } from "../lib/tabId";
-import { useRunsStore, type RunRecord } from "./runs";
+import {
+  MAX_LOG_LINES,
+  passesFilter,
+  useRunsStore,
+  type LogFilter,
+  type RunRecord,
+} from "./runs";
 import { useTabsStore } from "./tabs";
 
 vi.mock("../api/client", () => ({
@@ -39,8 +45,9 @@ class FakeEventSource {
     this.closed = true;
   }
 
-  emit(data: string) {
-    this.onmessage?.({ data } as MessageEvent);
+  /** One log event, as the server sends them: JSON, on a named event. */
+  emitLog(msg: string, level = "INFO", logger = "calliope.model") {
+    this.emitEvent("log", JSON.stringify({ t: "log", level, logger, msg }));
   }
 
   emitEvent(type: string, data: string) {
@@ -254,11 +261,11 @@ describe("useRunsStore", () => {
       runs.connectLogs("a");
       runs.connectLogs("b");
 
-      FakeEventSource.instances[0].emit("solving a");
-      FakeEventSource.instances[1].emit("solving b");
+      FakeEventSource.instances[0].emitLog("solving a");
+      FakeEventSource.instances[1].emitLog("solving b");
 
-      expect(runs.logsFor("a")).toEqual(["solving a"]);
-      expect(runs.logsFor("b")).toEqual(["solving b"]);
+      expect(runs.logsFor("a").map((line) => line.text)).toEqual(["solving a"]);
+      expect(runs.logsFor("b").map((line) => line.text)).toEqual(["solving b"]);
     });
 
     it("does not open a second stream for a run already streaming", () => {
@@ -268,15 +275,82 @@ describe("useRunsStore", () => {
       expect(FakeEventSource.instances.length).toBe(1);
     });
 
-    it("records the stage the worker announces", () => {
+    it("keeps the level and the logger a line arrived with", () => {
+      const runs = useRunsStore();
+      runs.connectLogs("a");
+      FakeEventSource.instances[0].emitLog("Presolve removed 4120 rows", "DEBUG", "x");
+
+      expect(runs.logsFor("a")[0]).toEqual({
+        text: "Presolve removed 4120 rows",
+        level: "DEBUG",
+        logger: "x",
+      });
+    });
+
+    it("splits a multi-line record into lines", () => {
+      /**
+       * Calliope logs a solver's output in chunks, so one record carries a whole
+       * screen of it. Kept whole it would be one unfilterable paragraph, and the
+       * retention cap would count blocks rather than lines.
+       */
+      const runs = useRunsStore();
+      runs.connectLogs("a");
+      FakeEventSource.instances[0].emitLog("Welcome to CBC\nVersion: 2.10.13", "DEBUG");
+
+      expect(runs.logsFor("a").map((line) => line.text)).toEqual([
+        "Welcome to CBC",
+        "Version: 2.10.13",
+      ]);
+    });
+
+    it("keeps the most recent lines and counts what it dropped", () => {
+      const runs = useRunsStore();
+      runs.connectLogs("a");
+      const source = FakeEventSource.instances[0];
+      for (let i = 0; i < MAX_LOG_LINES + 20; i += 1) source.emitLog(`line ${i}`);
+
+      const lines = runs.logsFor("a");
+      expect(lines.length).toBe(MAX_LOG_LINES);
+      expect(lines[lines.length - 1].text).toBe(`line ${MAX_LOG_LINES + 19}`);
+      expect(runs.trimmedFor("a")).toBe(20);
+    });
+
+    it("records the stage the worker announces, and what it is doing", () => {
       const runs = useRunsStore();
       runs.connectLogs("a");
       FakeEventSource.instances[0].emitEvent(
         "stage",
-        JSON.stringify({ t: "stage", stage: "solve", status: "start" }),
+        // `name`, which is the key the worker has always sent. Reading `stage`
+        // put the word "undefined" in the header for as long as it existed, and
+        // this test asserted the wrong key, so nothing caught it.
+        JSON.stringify({
+          t: "stage",
+          name: "build",
+          status: "start",
+          detail: "constraints",
+        }),
       );
 
-      expect(runs.stages.get("a")).toEqual({ name: "solve", status: "start" });
+      expect(runs.stages.get("a")).toEqual({
+        name: "build",
+        status: "start",
+        detail: "constraints",
+      });
+    });
+
+    it("filters by level without discarding anything", () => {
+      const runs = useRunsStore();
+      runs.connectLogs("a");
+      const source = FakeEventSource.instances[0];
+      source.emitLog("iteration 400", "DEBUG");
+      source.emitLog("backend build complete", "INFO");
+      source.emitLog("could not find a solution", "ERROR");
+
+      const shown = (filter: LogFilter) =>
+        runs.logsFor("a").filter((line) => passesFilter(line, filter)).length;
+      expect(shown("all")).toBe(3);
+      expect(shown("info")).toBe(2);
+      expect(shown("errors")).toBe(1);
     });
 
     it("closes the stream and asks once more when the run is done", async () => {

@@ -14,10 +14,19 @@
 import { computed, nextTick, ref, watch } from "vue";
 import { Square } from "lucide-vue-next";
 
+import RunProgress from "./RunProgress.vue";
 import RunStatusPill from "./RunStatusPill.vue";
+import { cn } from "@/lib/utils";
 import { formatDuration, formatObjective, formatTimestamp } from "@/lib/format";
+import { FIELD } from "@/lib/formClasses";
 import { ICON_STROKE_WIDTH } from "@/lib/icons";
-import { isTerminal, useRunsStore } from "@/stores/runs";
+import {
+  isTerminal,
+  passesFilter,
+  useRunsStore,
+  type LogFilter,
+  type LogLine,
+} from "@/stores/runs";
 
 const props = defineProps<{ runId: string }>();
 
@@ -27,9 +36,38 @@ const viewport = ref<HTMLElement | null>(null);
 const pinned = ref(true);
 
 const run = computed(() => runs.get(props.runId));
-const lines = computed(() => runs.logsFor(props.runId));
+const lines = computed(() =>
+  runs.logsFor(props.runId).filter((line) => passesFilter(line, runs.logFilter)),
+);
+const trimmed = computed(() => runs.trimmedFor(props.runId));
 const stage = computed(() => runs.stages.get(props.runId));
 const running = computed(() => (run.value ? !isTerminal(run.value.status) : false));
+
+/**
+ * How a line is coloured.
+ *
+ * The level used to be thrown away on the wire, so every line — a solver's
+ * iteration count, a deprecation warning, the exception that ended the run —
+ * rendered identically. Solver output is DEBUG and deliberately recedes: it is
+ * the bulk of a long run's log and the least of what a reader is looking for.
+ */
+const LEVEL_STYLE: Record<string, string> = {
+  DEBUG: "text-text-dim",
+  INFO: "text-text",
+  WARNING: "text-warning-text",
+  ERROR: "text-danger-text",
+  CRITICAL: "text-danger-text",
+};
+
+function styleFor(line: LogLine): string {
+  return LEVEL_STYLE[line.level] ?? "text-text";
+}
+
+const FILTERS: Array<{ id: LogFilter; label: string }> = [
+  { id: "all", label: "All" },
+  { id: "info", label: "No solver output" },
+  { id: "errors", label: "Errors only" },
+];
 
 function onScroll() {
   const element = viewport.value;
@@ -57,11 +95,20 @@ watch(
       class="flex h-7 shrink-0 items-center gap-2 border-b border-border bg-panel px-2"
     >
       <RunStatusPill v-if="run" :status="run.status" />
-      <span v-if="stage && running" class="text-2xs text-text-faint">
-        {{ stage.name }} · {{ stage.status }}
-      </span>
+      <RunProgress :stage="stage" :running="running" />
 
-      <div class="flex-1" />
+      <div class="min-w-2 flex-1" />
+
+      <select
+        v-model="runs.logFilter"
+        data-testid="log-filter"
+        aria-label="Log detail"
+        :class="cn(FIELD, 'h-5 w-auto py-0 text-2xs text-text-dim')"
+      >
+        <option v-for="option in FILTERS" :key="option.id" :value="option.id">
+          {{ option.label }}
+        </option>
+      </select>
 
       <span v-if="run?.solver" class="text-2xs text-text-faint">{{ run.solver }}</span>
       <span v-if="run?.objective != null" class="text-2xs tabular-nums text-text-faint">
@@ -91,12 +138,27 @@ watch(
       class="min-h-0 flex-1 overflow-auto bg-surface p-2 font-mono text-xs leading-4"
       @scroll="onScroll"
     >
-      <p v-for="(line, index) in lines" :key="index" class="whitespace-pre-wrap">
-        {{ line }}
+      <p v-if="trimmed" class="mb-1 text-2xs text-text-faint">
+        {{ trimmed.toLocaleString() }} earlier lines trimmed — all of them are in
+        <code>run.log</code>.
+      </p>
+
+      <p
+        v-for="(line, index) in lines"
+        :key="index"
+        :data-level="line.level"
+        class="whitespace-pre-wrap"
+        :class="styleFor(line)"
+      >
+        {{ line.text }}
       </p>
 
       <p v-if="!lines.length" class="text-sm text-muted-foreground">
-        {{ running ? "Waiting for the worker…" : "This run produced no log output." }}
+        <template v-if="running">Waiting for the worker…</template>
+        <template v-else-if="runs.logFilter !== 'all'">
+          Nothing at this level. The whole log is under “All”.
+        </template>
+        <template v-else>This run produced no log output.</template>
       </p>
 
       <!-- The error is in `outcome.json` rather than in the stream when the

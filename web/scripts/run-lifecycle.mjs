@@ -35,12 +35,36 @@ await testId("start-run").click();
 await testId("run-log").waitFor({ timeout: 30000 });
 check("the run's tab opens immediately, on the log", page.url().includes("tab=run"));
 
+// Sampled twice rather than counted once: a fixed wait and a `> 1` count would
+// pass on the two lines a run emits before the solver starts, which is exactly
+// what it did while all of the solver's own output was being dropped on the wire.
+const lines = () => page.locator('[data-testid="run-log"] p').count();
 await page.waitForTimeout(3000);
-check(
-  "log lines stream while it solves",
-  (await page.locator('[data-testid="run-log"] p').count()) > 1,
-);
+const early = await lines();
+check("log lines arrive as soon as the run starts", early > 1);
 
+// The stages Calliope reports passing, sampled as the run goes: they are gone
+// from the display the moment the next one starts.
+const seenStages = new Set();
+for (let i = 0; i < 90; i += 1) {
+  const progress = testId("run-progress");
+  if (await progress.count()) {
+    const stage = await progress.first().getAttribute("data-stage");
+    if (stage) seenStages.add(stage);
+  }
+  if (seenStages.has("solve")) break;
+  await page.waitForTimeout(1000);
+}
+check("progress reports the backend build", seenStages.has("build"));
+check("progress reports the solve", seenStages.has("solve"));
+
+await page.waitForTimeout(3000);
+const later = await lines();
+check(
+  "the log keeps growing while the solver runs",
+  later > early,
+  `${early} lines at 3s, ${later} later`,
+);
 // The tab moves itself to the charts when the results handle arrives.
 await testId("run-results").waitFor({ timeout: 300000 });
 await page.waitForTimeout(5000);
@@ -57,6 +81,30 @@ check("no console errors through the whole loop", consoleErrors.length === 0);
 const settled = frames.length;
 await testId("run-subtab-log").click();
 await page.waitForTimeout(500);
+
+// Asserted here rather than mid-solve: Pyomo buffers a subprocess solver's
+// output and hands Calliope the lot at the end, so CBC's arrives in two chunks
+// when it exits. The point is that it arrives at all — it used to reach nothing
+// but `run.log`, and all but the first line of each chunk was dropped by the
+// wire format on the way here.
+check(
+  "the solver's own output reaches the log, not only run.log",
+  (await page.locator('[data-testid="run-log"] p[data-level="DEBUG"]').count()) > 2,
+);
+
+const shown = () => page.locator('[data-testid="run-log"] p[data-level]').count();
+const everything = await shown();
+await testId("log-filter").selectOption("errors");
+await page.waitForTimeout(200);
+const onlyErrors = await shown();
+await testId("log-filter").selectOption("all");
+await page.waitForTimeout(200);
+check(
+  "the log filter narrows the view and gives it back",
+  onlyErrors < everything && (await shown()) === everything,
+  `${everything} lines, ${onlyErrors} at errors-only`,
+);
+
 await testId("run-subtab-results").click();
 await page.waitForTimeout(2000);
 check("returning to the charts issues no new frame request", frames.length === settled);

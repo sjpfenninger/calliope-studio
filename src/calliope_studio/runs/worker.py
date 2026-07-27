@@ -9,69 +9,202 @@ Everything this process learns is written to `events.jsonl` (see
 outcome to report, not a crash to hide.
 """
 
+import contextlib
 import logging
+import os
 import sys
+import threading
 import time
 import traceback
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Iterator
 
 from calliope_studio.runs import protocol
+from calliope_studio.runs.stages import StageEvent, StageTracker
 
 #: Solver output is only emitted when this logger is at DEBUG. Calliope routes
 #: the solver's stdout into it via `LogWriter`, which is how CBC and Gurobi
 #: iteration lines become streamable.
 SOLVER_LOGGER = "calliope.backend.backend_model.<solve>"
 
+#: Where `logging.captureWarnings` puts `warnings.warn`. A tree of its own, not
+#: under `calliope`, so it needs its own handler — and Calliope raises its own
+#: user-facing warnings through `warnings`, not through the logger.
+WARNINGS_LOGGER = "py.warnings"
+
+#: What captured stdout and stderr are attributed to in the log. Not a real
+#: logger name — nothing in this process logs under it — but "this is the
+#: solver talking" is the distinction a reader wants.
+STDIO_LOGGER = "solver"
+
+#: And at what level. DEBUG, to match the records Calliope puts on
+#: `SOLVER_LOGGER` when the solver's output *does* reach it: this is the same
+#: output arriving by a different route, and it must colour the same way and
+#: answer the same filter, or turning the solver down would quieten CBC and
+#: leave Gurobi roaring. Raw process output is not classified any finer than
+#: this — stdout and stderr share one pipe, and a solver writes harmlessly to
+#: both.
+STDIO_LEVEL = "DEBUG"
+
+#: How many captured stdout lines are worth putting in the event stream.
+#:
+#: `events.jsonl` is replayed in full to every client that connects, and held
+#: line by line in the browser, so it cannot be unbounded. A Gurobi log is a few
+#: hundred lines; a MILP logging every node is not. Past the cap the lines still
+#: go to `run.log`, which is exactly what that file is for.
+MAX_STDIO_LINES = 20_000
+
+
+def _stage_event(run_dir: Path, event: StageEvent) -> None:
+    protocol.append_event(
+        run_dir,
+        {
+            "t": "stage",
+            "name": event.stage,
+            "status": event.status,
+            "detail": event.detail,
+            "at": datetime.now(timezone.utc).isoformat(),
+        },
+    )
+
 
 class EventLogHandler(logging.Handler):
-    """Forwards Calliope's log records into the run's event stream."""
+    """Forwards Calliope's log records into the run's event stream.
 
-    def __init__(self, run_dir: Path) -> None:
+    Also reads them for progress: Calliope announces its own stage boundaries
+    through this same logger, so the records that describe them arrive here
+    anyway. See `calliope_studio.runs.stages`.
+
+    A warning is recorded once. Building `national_scale` raises 365 of them and
+    only six are distinct — the same pyparsing deprecation 81 times, the same
+    xarray one 90 times — which buried Calliope's own account of the run in a
+    log the user is meant to read. Deduplicated here rather than with
+    `warnings.simplefilter("once")`, which by the time a solve is under way has
+    been defeated by somebody's `catch_warnings` block: the filters belong to
+    every library in the process, and this set belongs to us.
+    """
+
+    def __init__(self, run_dir: Path, tracker: StageTracker) -> None:
         super().__init__()
         self.run_dir = run_dir
+        self.tracker = tracker
+        self._warned: set[str] = set()
 
     def emit(self, record: logging.LogRecord) -> None:
         try:
+            message = record.getMessage()
+            if record.name == WARNINGS_LOGGER:
+                if message in self._warned:
+                    return
+                self._warned.add(message)
             protocol.append_event(
                 self.run_dir,
                 {
                     "t": "log",
                     "level": record.levelname,
                     "logger": record.name,
-                    "msg": record.getMessage(),
+                    "msg": message,
                     "at": record.created,
                 },
             )
+            for event in self.tracker.observe(message):
+                _stage_event(self.run_dir, event)
         except Exception:  # pragma: no cover - logging must never raise
             pass
 
 
-def _stage(run_dir: Path, name: str, status: str) -> None:
-    protocol.append_event(
-        run_dir,
-        {
-            "t": "stage",
-            "name": name,
-            "status": status,
-            "at": datetime.now(timezone.utc).isoformat(),
-        },
-    )
-
-
-def _install_logging(run_dir: Path) -> None:
+def _install_logging(run_dir: Path, tracker: StageTracker) -> None:
     """Routes Calliope's logging into the event stream.
 
     Deliberately does not use `calliope.set_log_verbosity`, which clears the
     logger's handlers and attaches its own to stdout.
     """
-    handler = EventLogHandler(run_dir)
+    handler = EventLogHandler(run_dir, tracker)
     calliope_logger = logging.getLogger("calliope")
     calliope_logger.addHandler(handler)
     calliope_logger.setLevel(logging.INFO)
     logging.getLogger(SOLVER_LOGGER).setLevel(logging.DEBUG)
     logging.captureWarnings(True)
-    logging.getLogger("py.warnings").addHandler(handler)
+    logging.getLogger(WARNINGS_LOGGER).addHandler(handler)
+
+
+@contextlib.contextmanager
+def _capture_stdio(run_dir: Path) -> Iterator[None]:
+    """Puts everything written to stdout and stderr into the event stream.
+
+    At file-descriptor level, which is the whole point. Calliope's Pyomo backend
+    already redirects the solver's output into a logger, but it does so with
+    `contextlib.redirect_stdout`, which only rebinds `sys.stdout` — and Gurobi
+    writes its log from the C library straight to fd 1. So a Gurobi solve
+    streamed nothing at all: its output went to the inherited stdout, into
+    `run.log`, which nothing reads. The native `gurobi` backend does not redirect
+    anything in the first place. Capturing the descriptor catches both, and
+    anything else that ever prints.
+
+    Lines are written through to the original descriptor as well, so `run.log`
+    stays the complete backstop it is documented to be — including past
+    `MAX_STDIO_LINES`, where the event stream gives up and it does not.
+    """
+    sys.stdout.flush()
+    sys.stderr.flush()
+    saved_out, saved_err = os.dup(1), os.dup(2)
+    # Duplicated before the thread starts, so that restoring the descriptors on
+    # the way out cannot close the one it is writing through.
+    passthrough_fd = os.dup(saved_out)
+    read_fd, write_fd = os.pipe()
+    os.dup2(write_fd, 1)
+    os.dup2(write_fd, 2)
+    os.close(write_fd)
+    # Otherwise this process's own writes sit in a block buffer until it exits,
+    # fd 1 no longer being a terminal.
+    sys.stdout.reconfigure(line_buffering=True)
+    sys.stderr.reconfigure(line_buffering=True)
+
+    def pump() -> None:
+        emitted = 0
+        with (
+            os.fdopen(read_fd, "rb") as source,
+            os.fdopen(passthrough_fd, "wb") as passthrough,
+        ):
+            for raw in source:
+                passthrough.write(raw)
+                passthrough.flush()
+                if emitted > MAX_STDIO_LINES:
+                    continue
+                emitted += 1
+                if emitted > MAX_STDIO_LINES:
+                    text = f"[output continues in {protocol.LOG_FILE}]"
+                else:
+                    text = raw.decode(errors="replace").rstrip("\n")
+                try:
+                    protocol.append_event(
+                        run_dir,
+                        {
+                            "t": "log",
+                            "level": STDIO_LEVEL,
+                            "logger": STDIO_LOGGER,
+                            "msg": text,
+                            "at": time.time(),
+                        },
+                    )
+                except Exception:  # pragma: no cover - never break the solve
+                    pass
+
+    reader = threading.Thread(target=pump, daemon=True)
+    reader.start()
+    try:
+        yield
+    finally:
+        sys.stdout.flush()
+        sys.stderr.flush()
+        # Restoring the descriptors drops the last reference to the pipe's write
+        # end, which is what lets the reader see EOF and finish.
+        os.dup2(saved_out, 1)
+        os.dup2(saved_err, 2)
+        os.close(saved_out)
+        os.close(saved_err)
+        reader.join(timeout=5)
 
 
 #: Calliope's objective variable for a cost-minimising run. A 0-d scalar in
@@ -134,6 +267,84 @@ def _model_root(run_dir: Path, request: protocol.RunRequest) -> Path:
     return Path(request.workspace)
 
 
+def _execute(
+    run_dir: Path, request: protocol.RunRequest, outcome: dict, tracker: StageTracker
+) -> None:
+    """Reads, builds, solves and saves, recording what happened into `outcome`.
+
+    Stages go through `tracker` rather than straight into the event stream, so
+    that the boundaries announced here and the finer ones Calliope announces
+    through the log are one ordered account of the run instead of two.
+    """
+
+    def stage(name: str, status: str) -> None:
+        for event in tracker.announce(name, status):
+            _stage_event(run_dir, event)
+
+    import calliope
+
+    root = _model_root(run_dir, request)
+    outcome["solved_from"] = (
+        "snapshot" if root != Path(request.workspace) else "workspace"
+    )
+    model_path = root / request.model_file
+
+    stage("preprocess", "start")
+    model = calliope.read_yaml(
+        str(model_path),
+        scenario=request.scenario,
+        override_dict=request.override_dict or None,
+    )
+    stage("preprocess", "done")
+
+    if request.init_only:
+        # Resolution: hand the model back as Calliope understands it and stop.
+        # No `build()` — the math is irrelevant to what the definition *means*,
+        # and skipping it is the difference between 4 seconds and rather more
+        # on a real model.
+        stage("save", "start")
+        model.to_netcdf(str(run_dir / protocol.RESOLVED_FILE))
+        stage("save", "done")
+        outcome["status"] = "success"
+        outcome["termination_condition"] = "not_solved"
+        _record_diagnostics(outcome, model, build_only=True)
+        return
+
+    stage("build", "start")
+    model.build()
+    stage("build", "done")
+
+    if request.build_only:
+        # Used by the "validate" tier: assembling the problem exercises all
+        # of the math without needing a solver.
+        outcome["status"] = "success"
+        outcome["termination_condition"] = "not_solved"
+    else:
+        stage("solve", "start")
+        model.solve()
+        # Calliope announces the end of the solver and the end of postprocessing
+        # itself, and by here it already has. These are the safety net for the
+        # day it stops: without them a wording change would leave a finished run
+        # displaying "solving" for ever. `announce` drops whichever of them the
+        # log already reported.
+        stage("solve", "done")
+        stage("postprocess", "done")
+
+        condition = str(getattr(model.runtime, "termination_condition", "unknown"))
+        outcome["termination_condition"] = condition
+
+        stage("save", "start")
+        model.to_netcdf(str(run_dir / protocol.RESULTS_FILE))
+        stage("save", "done")
+
+        # A model that solved but was found infeasible is a legitimate,
+        # informative result, not an error — but it is not a success either,
+        # and the UI must not offer results that do not exist.
+        outcome["status"] = "success" if condition == "optimal" else "infeasible"
+
+    _record_diagnostics(outcome, model, build_only=request.build_only)
+
+
 def run(run_dir: Path) -> int:
     """Executes the run described by `run_dir/request.json`.
 
@@ -142,7 +353,8 @@ def run(run_dir: Path) -> int:
     """
     started = time.time()
     request = protocol.RunRequest.read(run_dir)
-    _install_logging(run_dir)
+    tracker = StageTracker()
+    _install_logging(run_dir, tracker)
 
     outcome: dict = {
         "started_at": datetime.now(timezone.utc).isoformat(),
@@ -150,63 +362,11 @@ def run(run_dir: Path) -> int:
     }
 
     try:
-        import calliope
-
-        root = _model_root(run_dir, request)
-        outcome["solved_from"] = (
-            "snapshot" if root != Path(request.workspace) else "workspace"
-        )
-        model_path = root / request.model_file
-
-        _stage(run_dir, "read", "start")
-        model = calliope.read_yaml(
-            str(model_path),
-            scenario=request.scenario,
-            override_dict=request.override_dict or None,
-        )
-        _stage(run_dir, "read", "done")
-
-        if request.init_only:
-            # Resolution: hand the model back as Calliope understands it and stop.
-            # No `build()` — the math is irrelevant to what the definition *means*,
-            # and skipping it is the difference between 4 seconds and rather more
-            # on a real model.
-            _stage(run_dir, "save", "start")
-            model.to_netcdf(str(run_dir / protocol.RESOLVED_FILE))
-            _stage(run_dir, "save", "done")
-            outcome["status"] = "success"
-            outcome["termination_condition"] = "not_solved"
-            _record_diagnostics(outcome, model, build_only=True)
-            return _finish(run_dir, outcome, started)
-
-        _stage(run_dir, "build", "start")
-        model.build()
-        _stage(run_dir, "build", "done")
-
-        if request.build_only:
-            # Used by the "validate" tier: assembling the problem exercises all
-            # of the math without needing a solver.
-            outcome["status"] = "success"
-            outcome["termination_condition"] = "not_solved"
-        else:
-            _stage(run_dir, "solve", "start")
-            model.solve()
-            _stage(run_dir, "solve", "done")
-
-            condition = str(getattr(model.runtime, "termination_condition", "unknown"))
-            outcome["termination_condition"] = condition
-
-            _stage(run_dir, "save", "start")
-            model.to_netcdf(str(run_dir / protocol.RESULTS_FILE))
-            _stage(run_dir, "save", "done")
-
-            # A model that solved but was found infeasible is a legitimate,
-            # informative result, not an error — but it is not a success either,
-            # and the UI must not offer results that do not exist.
-            outcome["status"] = "success" if condition == "optimal" else "infeasible"
-
-        _record_diagnostics(outcome, model, build_only=request.build_only)
-
+        # The capture ends before the terminal event is written: a client stops
+        # reading at `done`, so anything the pump were still draining after it
+        # would never be delivered.
+        with _capture_stdio(run_dir):
+            _execute(run_dir, request, outcome, tracker)
     except Exception as exc:
         outcome["status"] = "failed"
         outcome["error"] = f"{type(exc).__name__}: {exc}"

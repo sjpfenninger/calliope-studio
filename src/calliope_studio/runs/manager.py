@@ -251,15 +251,18 @@ class RunManager:
         request.write(run_dir)
         self.register_dir(run_id, run_dir)
 
-        log_file = open(run_dir / protocol.LOG_FILE, "w")
-        process = subprocess.Popen(
-            [sys.executable, "-m", "calliope_studio.runs.worker", str(run_dir)],
-            stdout=log_file,
-            stderr=subprocess.STDOUT,
-            # Its own process group, so cancelling kills the solver too rather
-            # than leaving it orphaned and still burning CPU.
-            start_new_session=True,
-        )
+        # Closed as soon as the child has inherited it: the parent has no use for
+        # the handle, and holding one open per run leaks a descriptor for the
+        # lifetime of the server.
+        with open(run_dir / protocol.LOG_FILE, "w") as log_file:
+            process = subprocess.Popen(
+                [sys.executable, "-m", "calliope_studio.runs.worker", str(run_dir)],
+                stdout=log_file,
+                stderr=subprocess.STDOUT,
+                # Its own process group, so cancelling kills the solver too rather
+                # than leaving it orphaned and still burning CPU.
+                start_new_session=True,
+            )
         self._processes[run_id] = process
         # Recorded on disk as well as in memory, so that a server restarted
         # mid-solve can still tell this run is alive, and still cancel it.
@@ -293,8 +296,17 @@ class RunManager:
         pid = protocol.read_pid(run_dir)
         return pid is not None and _pid_alive(pid)
 
-    def get(self, run_id: str) -> RunRecord:
-        """Derives a run's state from its directory, markers and any live process."""
+    def get(self, run_id: str, *, with_size: bool = True) -> RunRecord:
+        """Derives a run's state from its directory, markers and any live process.
+
+        Args:
+            run_id: The run to look up.
+            with_size: Whether to total the directory's bytes. That is an `rglob`
+                and a `stat` per file over a directory containing a results file
+                of some hundreds of megabytes, which is affordable for a listing
+                and not at all affordable four times a second — so the tailer,
+                which only wants the status, asks without it.
+        """
         run_dir = self.run_dir(run_id)
         try:
             request = protocol.RunRequest.read(run_dir)
@@ -320,7 +332,7 @@ class RunManager:
             snapshot_complete=manifest.get("complete") if manifest else None,
             solved_from=outcome.get("solved_from")
             or (manifest.get("solve_from") if manifest else None),
-            size_bytes=_directory_size(run_dir),
+            size_bytes=_directory_size(run_dir) if with_size else 0,
         )
 
         if outcome:
@@ -405,22 +417,41 @@ class RunManager:
 
         Replaying from the start means a client that connects late, or
         reconnects, still sees the whole log.
+
+        Reads pick up from a byte offset rather than re-reading the file and
+        discarding what has already been sent. That was quadratic in the length
+        of the log, and survivable only while the log was a handful of lines a
+        second — the solver's own output now goes through here too.
         """
         run_dir = self.run_dir(run_id)
-        seen = 0
+        offset = 0
+
+        async def drain() -> list[dict]:
+            nonlocal offset
+            events, offset = await asyncio.to_thread(
+                protocol.read_events_from, run_dir, offset
+            )
+            return events
 
         while True:
-            events = list(protocol.read_events(run_dir))
-            for event in events[seen:]:
+            events = await drain()
+            for event in events:
                 yield event
-            seen = len(events)
-
             if any(event.get("t") == "done" for event in events):
                 return
-            if self.get(run_id).status in TERMINAL_STATUSES:
+
+            status = (await asyncio.to_thread(self.get, run_id, with_size=False)).status
+            if status in TERMINAL_STATUSES:
+                # One more read before giving up: the worker writes its outcome
+                # before the event announcing it, so a run can be terminal here
+                # while its last few events are still unread.
+                for event in await drain():
+                    yield event
+                    if event.get("t") == "done":
+                        return
                 # Terminal without a `done` event: the worker was killed. Say so
                 # rather than streaming forever.
-                yield {"t": "done", "status": self.get(run_id).status}
+                yield {"t": "done", "status": status}
                 return
 
             await asyncio.sleep(POLL_INTERVAL)

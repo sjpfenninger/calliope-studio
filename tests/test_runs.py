@@ -7,11 +7,15 @@ prototype this code came from failed to do.
 """
 
 import json
+import logging
 import shutil
+import subprocess
+import sys
 import time
 
 import pytest
 
+from calliope_studio.runs import protocol
 from calliope_studio.runs.manager import RunManager
 
 TERMINAL = {"success", "infeasible", "failed", "cancelled"}
@@ -38,6 +42,29 @@ def wait_for_terminal(client, run_id, timeout=300):
             return record
         time.sleep(0.5)
     pytest.fail(f"run {run_id} did not finish within {timeout}s")
+
+
+def read_stream(client, run_id):
+    """Consumes a run's SSE stream to the end, as `[{"event": …, "data": …}]`.
+
+    Every event now carries a JSON body, log lines included, so there is one
+    shape to parse rather than a special case for the untyped ones.
+    """
+    events, name = [], None
+    with client.stream("GET", f"/api/runs/{run_id}/logs/") as response:
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("text/event-stream")
+        for line in response.iter_lines():
+            if line.startswith("event: "):
+                name = line.removeprefix("event: ").strip()
+            elif line.startswith("data: ") and name:
+                events.append(
+                    {"event": name, "data": json.loads(line.removeprefix("data: "))}
+                )
+                if name == "done":
+                    break
+                name = None
+    return events
 
 
 def wait_for_task(client, task_id, timeout=300):
@@ -277,33 +304,70 @@ class TestRunLifecycle:
 
     def test_events_stream_reports_stages_and_completion(self, client, ws):
         run_id = client.post(f"/api/versions/{ws}/runs/").json()["id"]
+        events = read_stream(client, run_id)
 
-        stages, done = [], None
-        with client.stream("GET", f"/api/runs/{run_id}/logs/") as response:
-            assert response.status_code == 200
-            assert response.headers["content-type"].startswith("text/event-stream")
-            event = None
-            for line in response.iter_lines():
-                if line.startswith("event: "):
-                    event = line.removeprefix("event: ").strip()
-                elif line.startswith("data: ") and event:
-                    payload = line.removeprefix("data: ").strip()
-                    if event == "stage":
-                        stages.append(json.loads(payload)["name"])
-                    elif event == "done":
-                        done = json.loads(payload)
-                        break
-                    event = None
-
+        done = next((e for e in events if e["event"] == "done"), None)
         assert done is not None, "stream ended without a done event"
-        assert done["status"] == "success"
-        # Every stage the worker announces, in order.
-        assert [s for i, s in enumerate(stages) if i == 0 or stages[i - 1] != s] == [
-            "read",
-            "build",
-            "solve",
-            "save",
+        assert done["data"]["status"] == "success"
+
+        stages = [e["data"]["name"] for e in events if e["event"] == "stage"]
+        # Calliope's own divisions, in order — `postprocess` among them, which
+        # only Calliope knows the boundaries of.
+        assert [
+            s for i, s in enumerate(stages) if i == 0 or stages[i - 1] != s
+        ] == list(protocol.STAGES)
+
+    def test_stage_events_carry_what_the_stage_is_doing(self, client, ws):
+        """The build reports which group of components it is generating."""
+        run_id = client.post(f"/api/versions/{ws}/runs/").json()["id"]
+        events = read_stream(client, run_id)
+
+        details = {
+            e["data"]["detail"]
+            for e in events
+            if e["event"] == "stage" and e["data"]["name"] == "build"
+        }
+        assert "constraints" in details
+        assert "variables" in details
+
+    def test_log_events_carry_their_level_and_survive_newlines(
+        self, client, national_scale
+    ):
+        """A log line goes out as JSON, not as a bare `data:` string.
+
+        Solvers write their output in multi-line chunks and Calliope logs each
+        chunk as one record. Sent raw, SSE ends the event at the newline and
+        everything after it is read as unknown fields and discarded — which is
+        what used to happen to all but the first line of CBC's output. The level
+        and the logger went the same way, so nothing could be coloured either.
+
+        Assembled by hand rather than solved for: this is about the wire format,
+        and a real solver's chunking is not the thing under test.
+        """
+        run_id = "3fa85f64-5717-4562-b3fc-2c963f66afa7"
+        run_dir = national_scale / "calliope-studio" / "runs" / run_id
+        run_dir.mkdir(parents=True)
+        protocol.RunRequest(workspace=str(national_scale)).write(run_dir)
+        chunk = "Welcome to the CBC MILP Solver\nVersion: 2.10.13\nBuild Date: May 12"
+        protocol.append_event(
+            run_dir, {"t": "log", "level": "DEBUG", "logger": "<solve>", "msg": chunk}
+        )
+        protocol.append_event(run_dir, {"t": "done", "status": "success"})
+
+        logs = [e["data"] for e in read_stream(client, run_id) if e["event"] == "log"]
+        assert [(log["level"], log["logger"], log["msg"]) for log in logs] == [
+            ("DEBUG", "<solve>", chunk)
         ]
+
+    def test_run_log_is_not_the_only_place_solver_output_lands(self, client, ws):
+        """A solved run's log has more in it than Calliope's own INFO lines."""
+        run_id = client.post(f"/api/versions/{ws}/runs/").json()["id"]
+        wait_for_terminal(client, run_id)
+
+        logs = [e["data"] for e in read_stream(client, run_id) if e["event"] == "log"]
+        assert any(
+            log["logger"].endswith("<solve>") for log in logs
+        ), "the solver's own output never reached the event stream"
 
     def test_stream_replays_history_for_a_late_subscriber(self, client, ws):
         """Connecting after a run finished still yields its whole log."""
@@ -700,3 +764,130 @@ class TestDeepValidation:
 
     def test_unknown_task_is_404(self, client):
         assert client.get("/api/tasks/nope/").status_code == 404
+
+
+class TestStdioCapture:
+    """Whatever the worker's stdout receives, the log receives.
+
+    Calliope routes a Pyomo solver's output into a logger, but it does so with
+    `redirect_stdout`, which only rebinds `sys.stdout`. Gurobi writes from the C
+    library straight to file descriptor 1 and goes straight past it, which is why
+    the capture is at descriptor level — and why this has to be tested in a real
+    process rather than in pytest's captured one.
+    """
+
+    SCRIPT = """
+import os, sys
+from pathlib import Path
+from calliope_studio.runs.worker import _capture_stdio
+
+with _capture_stdio(Path(sys.argv[1])):
+    os.write(1, b"Gurobi 12.0 (mac64[arm]) logging in\\n")   # as a C library does
+    print("and a plain print")
+    print("on standard error", file=sys.stderr)
+"""
+
+    @pytest.fixture
+    def run_dir(self, tmp_path):
+        directory = tmp_path / "run"
+        directory.mkdir()
+        protocol.RunRequest(workspace=str(tmp_path)).write(directory)
+        return directory
+
+    def emitted(self, run_dir):
+        with open(run_dir / protocol.LOG_FILE, "w") as log_file:
+            subprocess.run(
+                [sys.executable, "-c", self.SCRIPT, str(run_dir)],
+                stdout=log_file,
+                stderr=subprocess.STDOUT,
+                check=True,
+            )
+        return [e for e in protocol.read_events(run_dir) if e.get("t") == "log"]
+
+    def test_a_c_level_write_becomes_a_log_event(self, run_dir):
+        events = self.emitted(run_dir)
+        messages = [event["msg"] for event in events]
+        assert "Gurobi 12.0 (mac64[arm]) logging in" in messages
+        assert "and a plain print" in messages
+        assert "on standard error" in messages
+        # At the level Calliope's own solver records use, so that turning the
+        # solver's output down quietens every solver rather than only the ones
+        # whose output happens to arrive through a logger.
+        assert {event["level"] for event in events} == {"DEBUG"}
+
+    def test_run_log_still_receives_everything(self, run_dir):
+        """The backstop stays a backstop: capturing must not divert."""
+        self.emitted(run_dir)
+        written = (run_dir / protocol.LOG_FILE).read_text()
+        assert "Gurobi 12.0 (mac64[arm]) logging in" in written
+        assert "and a plain print" in written
+
+    def test_output_past_the_cap_stops_at_the_event_stream(self, run_dir, monkeypatch):
+        """`events.jsonl` is replayed in full to every client, so it is bounded."""
+        script = """
+import sys
+from pathlib import Path
+from calliope_studio.runs import worker
+
+worker.MAX_STDIO_LINES = 3
+with worker._capture_stdio(Path(sys.argv[1])):
+    for i in range(20):
+        print("line", i)
+"""
+        with open(run_dir / protocol.LOG_FILE, "w") as log_file:
+            subprocess.run(
+                [sys.executable, "-c", script, str(run_dir)],
+                stdout=log_file,
+                stderr=subprocess.STDOUT,
+                check=True,
+            )
+
+        messages = [
+            event["msg"] for event in protocol.read_events(run_dir) if event.get("t")
+        ]
+        assert messages[:3] == ["line 0", "line 1", "line 2"]
+        assert messages[3] == f"[output continues in {protocol.LOG_FILE}]"
+        assert len(messages) == 4
+        # Nothing was dropped from the file the notice points at.
+        assert "line 19" in (run_dir / protocol.LOG_FILE).read_text()
+
+
+class TestLogNoise:
+    """What a log the user is meant to read must not be full of."""
+
+    def test_a_repeated_warning_is_recorded_once(self, tmp_path):
+        """Building `national_scale` raises 365 warnings, six of them distinct.
+
+        The same pyparsing deprecation 81 times and the same xarray one 90 times
+        buried Calliope's own account of the run — eight lines of it — under a
+        wall of identical text. Deduplicated in the handler rather than with
+        `warnings.simplefilter("once")`, which by the time a solve is under way
+        has been undone by somebody's `catch_warnings` block.
+        """
+        from calliope_studio.runs.stages import StageTracker
+        from calliope_studio.runs.worker import WARNINGS_LOGGER, EventLogHandler
+
+        run_dir = tmp_path / "run"
+        run_dir.mkdir()
+        handler = EventLogHandler(run_dir, StageTracker())
+
+        def record(name, message):
+            return logging.LogRecord(
+                name, logging.WARNING, __file__, 1, message, (), None
+            )
+
+        for _ in range(50):
+            handler.emit(record(WARNINGS_LOGGER, "'oneOf' deprecated - use 'one_of'"))
+        handler.emit(record(WARNINGS_LOGGER, "a different warning"))
+        # Only warnings are deduplicated: a solver repeating itself is the log.
+        for _ in range(3):
+            handler.emit(record("calliope.model", "Running SPORE 1."))
+
+        messages = [event["msg"] for event in protocol.read_events(run_dir)]
+        assert messages == [
+            "'oneOf' deprecated - use 'one_of'",
+            "a different warning",
+            "Running SPORE 1.",
+            "Running SPORE 1.",
+            "Running SPORE 1.",
+        ]

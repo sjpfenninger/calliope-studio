@@ -64,10 +64,74 @@ export interface RunOptions {
   build_only?: boolean;
 }
 
-/** Which stage the worker last announced, and whether it finished it. */
+/**
+ * The stages a run passes through, in order.
+ *
+ * Mirrors `STAGES` in src/calliope_studio/runs/protocol.py. These are Calliope's
+ * own divisions rather than the worker's wrapper boundaries, which is why
+ * `postprocess` is among them: only Calliope knows where it begins.
+ *
+ * Not every run visits every one — a resolution goes straight from `preprocess`
+ * to `save` — so a stage the run never entered is skipped, not pending.
+ */
+export const RUN_STAGES = [
+  "preprocess",
+  "build",
+  "solve",
+  "postprocess",
+  "save",
+] as const;
+
+export type RunStageName = (typeof RUN_STAGES)[number];
+
+/** Which stage the run last announced, and what it is doing within it. */
 export interface RunStage {
   name: string;
   status: string;
+  /** What the stage is working on, when Calliope says: a component group, a
+   * time window, a SPORE. Null when it has not said. */
+  detail: string | null;
+}
+
+/** One line of a run's log. */
+export interface LogLine {
+  text: string;
+  level: string;
+  logger: string;
+}
+
+/** How much of the log to show. */
+export type LogFilter = "all" | "info" | "errors";
+
+/**
+ * How many lines of a run's log are kept.
+ *
+ * The whole log is on disk and replayed on connect, so this bounds the browser
+ * rather than the record. A solver logging every node of a long MILP would
+ * otherwise put a hundred thousand reactive strings behind one `v-for`.
+ */
+export const MAX_LOG_LINES = 5000;
+
+const LEVEL_RANK: Record<string, number> = {
+  DEBUG: 0,
+  INFO: 1,
+  WARNING: 2,
+  ERROR: 3,
+  CRITICAL: 4,
+};
+
+/** The lowest level each filter shows. */
+const FILTER_FLOOR: Record<LogFilter, number> = {
+  all: 0,
+  info: LEVEL_RANK.INFO,
+  errors: LEVEL_RANK.ERROR,
+};
+
+export function passesFilter(line: LogLine, filter: LogFilter): boolean {
+  // Solver output arrives at DEBUG, which is what makes "hide debug" the useful
+  // middle setting: Calliope's own account of the run, without the iteration
+  // log underneath it.
+  return (LEVEL_RANK[line.level] ?? LEVEL_RANK.INFO) >= FILTER_FLOOR[filter];
 }
 
 /**
@@ -95,9 +159,12 @@ export const RETENTION_CHOICES: Array<number | null> = [5, 10, 20, 50, 100, null
 
 export const useRunsStore = defineStore("runs", () => {
   const records = reactive(new Map<string, RunRecord>());
-  const logs = reactive(new Map<string, string[]>());
+  const logs = reactive(new Map<string, LogLine[]>());
+  /** How many lines were dropped from the front of each buffer, if any. */
+  const trimmed = reactive(new Map<string, number>());
   const stages = reactive(new Map<string, RunStage>());
   const streaming = reactive(new Set<string>());
+  const logFilter = ref<LogFilter>("all");
   const isLoading = ref(false);
   const error = ref<string | null>(null);
   /** How many runs this workspace keeps. Null means all of them. */
@@ -123,8 +190,12 @@ export const useRunsStore = defineStore("runs", () => {
     return records.get(runId);
   }
 
-  function logsFor(runId: string): string[] {
+  function logsFor(runId: string): LogLine[] {
     return logs.get(runId) ?? [];
+  }
+
+  function trimmedFor(runId: string): number {
+    return trimmed.get(runId) ?? 0;
   }
 
   /**
@@ -188,6 +259,7 @@ export const useRunsStore = defineStore("runs", () => {
   function connectLogs(runId: string) {
     if (streams.has(runId)) return;
     logs.set(runId, []);
+    trimmed.set(runId, 0);
 
     // Same origin as the app, so no token in the query string: EventSource
     // cannot set headers, which is why the Django version needed one.
@@ -195,14 +267,25 @@ export const useRunsStore = defineStore("runs", () => {
     streams.set(runId, source);
     streaming.add(runId);
 
-    source.onmessage = (event) => {
-      logs.get(runId)?.push(event.data);
-    };
+    source.addEventListener("log", (event) => {
+      try {
+        appendLog(runId, JSON.parse((event as MessageEvent).data));
+      } catch {
+        // A line we cannot parse is not worth breaking the log over.
+      }
+    });
 
     source.addEventListener("stage", (event) => {
       try {
         const payload = JSON.parse((event as MessageEvent).data);
-        stages.set(runId, { name: payload.stage, status: payload.status });
+        // `payload.name`, not `payload.stage`: the worker has always sent
+        // `name`, and reading the wrong key put the word "undefined" where the
+        // stage should have been for as long as the display existed.
+        stages.set(runId, {
+          name: payload.name,
+          status: payload.status,
+          detail: payload.detail ?? null,
+        });
       } catch {
         // A stage line we cannot parse is not worth breaking the log over.
       }
@@ -218,6 +301,30 @@ export const useRunsStore = defineStore("runs", () => {
     source.onerror = () => {
       disconnectLogs(runId);
     };
+  }
+
+  /**
+   * Adds one log event, which may be many lines.
+   *
+   * Calliope logs a solver's output in chunks, so one record routinely carries
+   * a whole screen of it. Splitting here is what lets the viewport scroll, the
+   * filter apply and the cap count in lines rather than in arbitrary blocks.
+   */
+  function appendLog(runId: string, payload: Record<string, unknown>) {
+    const buffer = logs.get(runId);
+    if (!buffer) return;
+
+    const level = String(payload.level ?? "INFO");
+    const logger = String(payload.logger ?? "");
+    for (const text of String(payload.msg ?? "").split("\n")) {
+      buffer.push({ text, level, logger });
+    }
+
+    const excess = buffer.length - MAX_LOG_LINES;
+    if (excess > 0) {
+      buffer.splice(0, excess);
+      trimmed.set(runId, trimmedFor(runId) + excess);
+    }
   }
 
   function disconnectLogs(runId: string) {
@@ -316,6 +423,7 @@ export const useRunsStore = defineStore("runs", () => {
     disconnectLogs(runId);
     records.delete(runId);
     logs.delete(runId);
+    trimmed.delete(runId);
     stages.delete(runId);
     useTabsStore().closeRun(runId);
   }
@@ -330,6 +438,7 @@ export const useRunsStore = defineStore("runs", () => {
     records,
     logs,
     stages,
+    logFilter,
     ordered,
     active,
     totalBytes,
@@ -338,6 +447,7 @@ export const useRunsStore = defineStore("runs", () => {
     retention,
     get,
     logsFor,
+    trimmedFor,
     isStreaming,
     load,
     setRetention,

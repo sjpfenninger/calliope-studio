@@ -34,6 +34,7 @@ import dataclasses
 import json
 import os
 import tempfile
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterator
@@ -73,7 +74,15 @@ PID_FILE = "worker.pid"
 CANCELLED_FILE = "cancelled"
 
 #: Ordered stages a run passes through, for the frontend's progress display.
-STAGES = ("read", "build", "solve", "save")
+#:
+#: These are Calliope's own divisions, not this package's wrapper boundaries —
+#: see `calliope_studio.runs.stages`. `solve` used to cover the solver *and*
+#: postprocessing, which on a real model is where all of the time goes and so
+#: the one place a progress display was worth having.
+#:
+#: Not every run visits every stage: an `init_only` request goes straight from
+#: `preprocess` to `save`.
+STAGES = ("preprocess", "build", "solve", "postprocess", "save")
 
 
 @dataclass(frozen=True)
@@ -118,26 +127,59 @@ class RunRequest:
         return cls(**{key: value for key, value in raw.items() if key in known})
 
 
+#: Serialises appends within the worker. Solver output is captured on a reader
+#: thread while the main thread is announcing stages, and an O_APPEND write is
+#: only atomic below `PIPE_BUF` — a solver line is not bounded by anything.
+_APPEND_LOCK = threading.Lock()
+
+
 def append_event(run_dir: Path, event: dict) -> None:
     """Appends one event, flushed, so a reader tailing the file sees it promptly."""
-    with open(run_dir / EVENTS_FILE, "a") as fh:
-        fh.write(json.dumps(event, default=str) + "\n")
-        fh.flush()
+    line = json.dumps(event, default=str) + "\n"
+    with _APPEND_LOCK:
+        with open(run_dir / EVENTS_FILE, "a") as fh:
+            fh.write(line)
+            fh.flush()
 
 
 def read_events(run_dir: Path) -> Iterator[dict]:
     """Replays the events written so far, skipping any partial trailing line."""
+    events, _ = read_events_from(run_dir, 0)
+    yield from events
+
+
+def read_events_from(run_dir: Path, offset: int) -> tuple[list[dict], int]:
+    """Events after `offset` bytes, and where to resume from next time.
+
+    Byte offsets rather than a line count because this is called four times a
+    second per client watching a run, and re-reading the whole file to throw away
+    everything already seen is quadratic in the length of the log — which was
+    tolerable only while the log was a few dozen lines and the solver's own
+    output went somewhere else entirely.
+
+    The returned offset is the end of the last *complete* line, so a partially
+    written event is simply read again whole on the next call.
+
+    Read in binary: a text-mode `seek` only accepts a cookie from `tell`, and the
+    offset here has to be a plain byte count for the caller to carry between
+    calls.
+    """
     path = run_dir / EVENTS_FILE
     if not path.is_file():
-        return
-    with open(path) as fh:
-        for line in fh:
-            if not line.endswith("\n"):
+        return [], offset
+
+    events: list[dict] = []
+    with open(path, "rb") as fh:
+        fh.seek(offset)
+        for raw in fh:
+            if not raw.endswith(b"\n"):
                 break  # a partially written line; the next poll will see it whole
+            offset += len(raw)
             try:
-                yield json.loads(line)
-            except json.JSONDecodeError:
+                events.append(json.loads(raw))
+            except (json.JSONDecodeError, UnicodeDecodeError):
                 continue
+    return events, offset
 
 
 def _read_json(path: Path) -> dict[str, Any] | None:

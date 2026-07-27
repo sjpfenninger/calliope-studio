@@ -340,13 +340,14 @@ async def stream_logs(
 
     async def events() -> AsyncIterator[str]:
         async for event in runs.stream(run_id):
-            if event.get("t") == "done":
-                yield f"event: done\ndata: {json.dumps(event)}\n\n"
-            elif event.get("t") == "stage":
-                yield f"event: stage\ndata: {json.dumps(event)}\n\n"
-            else:
-                # The frontend's default handler appends these as log lines.
-                yield f"data: {event.get('msg', '')}\n\n"
+            # Every event goes out as JSON, log lines included. They used to go
+            # as a bare `data: {msg}`, which lost the level and the logger — so
+            # nothing could be coloured or filtered — and, worse, silently
+            # truncated any message containing a newline: SSE ends the event at
+            # the blank line, and a solver writes its output in multi-line
+            # chunks. Encoding escapes the newlines and the problem with them.
+            name = event.get("t") if event.get("t") in {"done", "stage"} else "log"
+            yield f"event: {name}\ndata: {json.dumps(event)}\n\n"
 
     return StreamingResponse(
         events(),

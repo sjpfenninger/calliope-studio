@@ -1,43 +1,50 @@
 <script setup lang="ts">
 /**
- * NodesEditor — accordion-per-node editor for the `nodes:` YAML section.
+ * NodesEditor — the `nodes:` YAML section, as a map or as a list.
  *
  * Supports three modes via props:
- *   - Section tab (entryName=null): shows all nodes in the file
- *   - Entry tab (entryName="region1"): shows only the named node
- *   - File structured view (tabId=filePath, entryName=null): shows all nodes
+ *   - Section tab (entryName=null): every node in the file, map or list
+ *   - Entry tab (entryName="region1"): only the named node, list
+ *   - File structured view (tabId=filePath, entryName=null): every node
  *
  * Saves always write the full section back to the file.
+ *
+ * The map is the default view and is an editing surface: dragging a node writes
+ * its coordinates, clicking one opens its form underneath. Its geometry is built
+ * from `entries` rather than fetched, so an unsaved drag or a half-typed
+ * coordinate shows immediately — and links attached to a node being dragged
+ * follow it, because they are rebuilt from the same positions. What the server
+ * payload is for is the rest of the model: the links, and any node defined in a
+ * file this editor did not load, which is drawn but not movable.
  */
 import { ref, computed, onMounted, onUnmounted, watch } from "vue";
-import { List, Map, Plus, Trash2, X } from "lucide-vue-next";
+// `Map` is aliased so it cannot shadow the global `Map` constructor.
+import { List, Map as MapIcon, Plus, Trash2 } from "lucide-vue-next";
 
 import client from "@/api/client";
+import EditorMapPane from "./EditorMapPane.vue";
 import EditorToolbar from "./EditorToolbar.vue";
-import InheritedFields from "./InheritedFields.vue";
-import NodesMapView from "./NodesMapView.vue";
-import ScalarOrDataVar from "./ScalarOrDataVar.vue";
+import NodeFields, { type DataTableParam } from "./NodeFields.vue";
 import {
   Accordion,
   AccordionContent,
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
-import { Switch } from "@/components/ui/switch";
-import {
-  DANGER_ICON_BUTTON,
-  FIELD,
-  FIELD_LABEL,
-  GHOST_BUTTON,
-  ICON_BUTTON,
-  SECTION_HEADING,
-} from "@/lib/formClasses";
+import { DANGER_ICON_BUTTON, GHOST_BUTTON } from "@/lib/formClasses";
 import { ICON_STROKE_WIDTH } from "@/lib/icons";
-import { cn } from "@/lib/utils";
+import { useModelGeo } from "@/composables/useModelGeo";
 import { useTabsStore } from "@/stores/tabs";
 import { useSectionDataStore } from "@/stores/sectionData";
 import { useComponentTreeStore } from "@/stores/componentTree";
 import { useUiStore } from "@/stores/ui";
+import {
+  buildGeo,
+  linksFromFeatures,
+  missingCoordinates,
+  nodesFromFeatures,
+  type MapNode,
+} from "@/lib/mapGeo";
 import { nodeToRaw, rawToNode, type NodeEntry } from "@/lib/entries";
 
 const props = defineProps<{
@@ -58,9 +65,15 @@ const error = ref<string | null>(null);
 const entries = ref<NodeEntry[]>([]);
 const templatesData = ref<Record<string, Record<string, any>>>({});
 
-interface DtParam { value: any; time_varying: boolean; source: string }
 // Map from node name → param name → data-table info
-const dataTableParams = ref<Record<string, Record<string, DtParam>>>({});
+const dataTableParams = ref<Record<string, Record<string, DataTableParam>>>({});
+
+const { geo: savedGeo, error: geoError, reload: reloadGeo } = useModelGeo(
+  computed(() => props.versionId),
+);
+
+/** Which node the map has selected, and so whose form is shown below it. */
+const activeNode = ref<string | null>(null);
 
 // When entryName is set (entry tab), show only the matching entry
 const visibleEntries = computed(() =>
@@ -69,7 +82,54 @@ const visibleEntries = computed(() =>
     : entries.value
 );
 
+/** The map only makes sense for a whole section. */
+const showMap = computed(() => !props.entryName && ui.sectionView.nodes === "map");
 
+/**
+ * Every node on the map: this file's, plus the ones defined elsewhere.
+ *
+ * Only the former are `editable` — moving a node defined in another file would
+ * mean writing to a section this editor never loaded, and silently editing a file
+ * the user is not looking at is worse than not offering to.
+ */
+const mapNodes = computed<MapNode[]>(() => {
+  const mine = entries.value
+    .filter((entry) => entry.name)
+    .map((entry) => ({
+      name: entry.name,
+      latitude: entry.latitude,
+      longitude: entry.longitude,
+      editable: true,
+    }));
+  const names = new Set(mine.map((node) => node.name));
+  const elsewhere = nodesFromFeatures(savedGeo.value?.nodes).filter(
+    (node) => !names.has(node.name),
+  );
+  return [...mine, ...elsewhere];
+});
+
+const mapGeo = computed(() =>
+  buildGeo(
+    mapNodes.value,
+    linksFromFeatures(savedGeo.value?.links),
+    savedGeo.value?.colors,
+  ),
+);
+
+const missing = computed(() => missingCoordinates(mapNodes.value));
+
+const activeEntry = computed(() =>
+  entries.value.find((entry) => entry.name === activeNode.value) ?? null,
+);
+
+/** Where a node the map shows but this editor does not own is defined. */
+const activeElsewhere = computed(() => {
+  if (!activeNode.value || activeEntry.value) return null;
+  const found = (componentTreeStore.tree?.nodes?.entries ?? []).find(
+    (entry) => typeof entry !== "string" && entry.name === activeNode.value,
+  );
+  return typeof found === "string" || !found ? null : found;
+});
 
 async function load() {
   isLoading.value = true;
@@ -137,21 +197,6 @@ async function loadDataTableParams() {
   }
 }
 
-function isNodeFieldOverridden(entry: NodeEntry, key: string): boolean {
-  if (key === "template") return false;
-  if (key === "active") return entry.active === false;
-  if (key === "latitude") return entry.latitude !== null;
-  if (key === "longitude") return entry.longitude !== null;
-  if (key === "techs") return entry.techs.length > 0;
-  return entry.extraParams.some((p) => p.key === key);
-}
-
-function formatTemplateValue(v: any): string {
-  if (v === null || v === undefined) return "";
-  if (typeof v === "object") return JSON.stringify(v);
-  return String(v);
-}
-
 function buildPayload(): Record<string, any> {
   const result: Record<string, any> = {};
   for (const e of entries.value) {
@@ -171,6 +216,10 @@ async function save() {
     );
     sectionDataStore.set(props.versionId, props.filePath, "nodes", payload);
     tabsStore.markClean(props.tabId);
+    // A node added, removed or renamed changes the explorer, and moves the links
+    // the server draws between them.
+    await componentTreeStore.refresh(props.versionId);
+    await reloadGeo();
   } finally {
     isSaving.value = false;
   }
@@ -180,79 +229,42 @@ function onChange() {
   tabsStore.markDirty(props.tabId);
 }
 
-/** Template fields, as displayable strings. */
-function templateFields(name: string | null): Record<string, string> {
-  const raw = (name && templatesData.value[name]) || {};
-  return Object.fromEntries(
-    Object.entries(raw).map(([key, value]) => [key, formatTemplateValue(value)]),
-  );
-}
-
-/** Data-table values for one node, and which table each came from. */
-function dataTableFields(name: string): Record<string, string> {
-  return Object.fromEntries(
-    Object.entries(dataTableParams.value[name] ?? {}).map(([key, param]) => [
-      key,
-      param.time_varying ? "time-varying" : String(param.value),
-    ]),
-  );
-}
-
-function dataTableSources(name: string): Record<string, string> {
-  return Object.fromEntries(
-    Object.entries(dataTableParams.value[name] ?? {}).map(([key, param]) => [
-      key,
-      param.source,
-    ]),
-  );
-}
-
-/** A coordinate field writes a number, or null — never the DOM's string. */
-function setCoordinate(entry: NodeEntry, key: "latitude" | "longitude", raw: string) {
-  const trimmed = raw.trim();
-  entry[key] = trimmed === "" ? null : Number(trimmed);
+/**
+ * A node was dragged to a new position.
+ *
+ * Rounded to five decimals — about a metre. Dragging produces the full float the
+ * projection happens to yield, and fifteen digits of it in a YAML file that a
+ * person also reads and hand-edits is noise.
+ */
+function onNodeMoved(move: { node: string; latitude: number; longitude: number }) {
+  const entry = entries.value.find((candidate) => candidate.name === move.node);
+  if (!entry) return;
+  entry.latitude = Number(move.latitude.toFixed(5));
+  entry.longitude = Number(move.longitude.toFixed(5));
+  activeNode.value = entry.name;
   onChange();
 }
 
 function addEntry() {
   entries.value.push({ name: "", template: null, active: true, latitude: null, longitude: null, extraParams: [], techs: [] });
+  // A node with no name and no coordinates cannot be shown on a map, so adding
+  // one is also a request to see the list.
+  ui.setSectionView("nodes", "structured");
   onChange();
 }
 
 function removeEntry(entry: NodeEntry) {
   const i = entries.value.indexOf(entry);
   if (i !== -1) entries.value.splice(i, 1);
+  if (activeNode.value === entry.name) activeNode.value = null;
   onChange();
 }
 
-function addExtraParam(entry: NodeEntry) {
-  entry.extraParams.push({ key: "", value: null });
-  onChange();
-}
-
-function removeExtraParam(entry: NodeEntry, j: number) {
-  entry.extraParams.splice(j, 1);
-  onChange();
-}
-
-function addTech(entry: NodeEntry) {
-  entry.techs.push({ techName: "", params: [] });
-  onChange();
-}
-
-function removeTech(entry: NodeEntry, ti: number) {
-  entry.techs.splice(ti, 1);
-  onChange();
-}
-
-function addTechParam(entry: NodeEntry, ti: number) {
-  entry.techs[ti].params.push({ key: "", value: null });
-  onChange();
-}
-
-function removeTechParam(entry: NodeEntry, ti: number, pi: number) {
-  entry.techs[ti].params.splice(pi, 1);
-  onChange();
+function openElsewhere() {
+  const target = activeElsewhere.value;
+  if (target?.file && target.name) {
+    tabsStore.openEntry("nodes", target.file, target.name);
+  }
 }
 
 function onKeydown(e: KeyboardEvent) {
@@ -290,24 +302,61 @@ watch(() => props.filePath, load);
         <button
           v-if="!entryName"
           type="button"
-          data-testid="nodes-view"
+          data-testid="view-toggle"
           :class="GHOST_BUTTON"
-          @click="ui.toggleNodesView()"
+          @click="ui.toggleSectionView('nodes')"
         >
           <component
-            :is="ui.nodesView === 'map' ? List : Map"
+            :is="showMap ? List : MapIcon"
             class="size-3.5"
             :stroke-width="ICON_STROKE_WIDTH"
           />
-          {{ ui.nodesView === "map" ? "List" : "Map" }}
+          {{ showMap ? "List" : "Map" }}
         </button>
       </EditorToolbar>
 
-      <NodesMapView
-        v-if="ui.nodesView === 'map' && !entryName"
-        :version-id="versionId"
-        class="min-h-0 flex-1"
-      />
+      <EditorMapPane
+        v-if="showMap"
+        :geo="mapGeo"
+        :selected="activeNode ? [activeNode] : []"
+        :missing="missing"
+        :error="geoError"
+        draggable-nodes
+        @update:selected="activeNode = $event[0] ?? null"
+        @node-moved="onNodeMoved"
+        @show-list="ui.setSectionView('nodes', 'structured')"
+      >
+        <template #empty>No nodes yet — add one to place it.</template>
+
+        <template #detail>
+          <NodeFields
+            v-if="activeEntry"
+            :key="activeEntry.name"
+            :entry="activeEntry"
+            :templates="templatesData"
+            :data-table-params="dataTableParams[activeEntry.name] ?? {}"
+            @change="onChange"
+          />
+          <div
+            v-else-if="activeElsewhere"
+            class="flex items-center gap-2 py-1 text-sm text-muted-foreground"
+          >
+            <span>
+              <code class="font-mono">{{ activeNode }}</code> is defined in
+              <code class="font-mono">{{ activeElsewhere.file }}</code>.
+            </span>
+            <button type="button" :class="GHOST_BUTTON" @click="openElsewhere">
+              Open it
+            </button>
+          </div>
+          <p
+            v-else
+            class="flex h-full items-center justify-center text-sm text-muted-foreground"
+          >
+            Click a node to edit it, or drag one to move it.
+          </p>
+        </template>
+      </EditorMapPane>
 
       <div v-else class="min-h-0 flex-1 overflow-auto">
         <p
@@ -345,213 +394,12 @@ watch(() => props.filePath, load);
             </div>
 
             <AccordionContent>
-              <div class="flex flex-col gap-2 pb-2">
-                <div class="flex flex-col gap-1">
-                  <label :class="FIELD_LABEL">name</label>
-                  <input
-                    v-model="entry.name"
-                    type="text"
-                    :class="FIELD"
-                    @input="onChange"
-                  />
-                </div>
-
-                <div class="flex flex-col gap-1">
-                  <label :class="FIELD_LABEL">template</label>
-                  <input
-                    :value="entry.template ?? ''"
-                    type="text"
-                    placeholder="(none)"
-                    :class="FIELD"
-                    @change="
-                      entry.template =
-                        ($event.target as HTMLInputElement).value || null;
-                      onChange();
-                    "
-                  />
-                </div>
-
-                <div class="flex items-center justify-between gap-2">
-                  <label :class="FIELD_LABEL">active</label>
-                  <Switch v-model="entry.active" @update:model-value="onChange" />
-                </div>
-
-                <div class="flex gap-2">
-                  <div class="flex min-w-0 flex-1 flex-col gap-1">
-                    <label :class="FIELD_LABEL">latitude</label>
-                    <input
-                      :value="entry.latitude ?? ''"
-                      type="number"
-                      step="any"
-                      min="-90"
-                      max="90"
-                      :class="FIELD"
-                      @change="
-                        setCoordinate(
-                          entry,
-                          'latitude',
-                          ($event.target as HTMLInputElement).value,
-                        )
-                      "
-                    />
-                  </div>
-                  <div class="flex min-w-0 flex-1 flex-col gap-1">
-                    <label :class="FIELD_LABEL">longitude</label>
-                    <input
-                      :value="entry.longitude ?? ''"
-                      type="number"
-                      step="any"
-                      min="-180"
-                      max="180"
-                      :class="FIELD"
-                      @change="
-                        setCoordinate(
-                          entry,
-                          'longitude',
-                          ($event.target as HTMLInputElement).value,
-                        )
-                      "
-                    />
-                  </div>
-                </div>
-
-                <div v-if="entry.extraParams.length" class="flex flex-col gap-1">
-                  <div
-                    v-for="(param, j) in entry.extraParams"
-                    :key="j"
-                    class="flex items-start gap-1"
-                  >
-                    <input
-                      v-model="param.key"
-                      type="text"
-                      placeholder="parameter"
-                      :class="cn(FIELD, 'w-36 shrink-0')"
-                      @input="onChange"
-                    />
-                    <ScalarOrDataVar
-                      :model-value="param.value"
-                      @update:model-value="
-                        param.value = $event;
-                        onChange();
-                      "
-                    />
-                    <button
-                      type="button"
-                      title="Remove this parameter"
-                      :class="DANGER_ICON_BUTTON"
-                      @click="removeExtraParam(entry, j)"
-                    >
-                      <X class="size-3.5" :stroke-width="2" />
-                    </button>
-                  </div>
-                </div>
-
-                <button
-                  type="button"
-                  :class="cn(GHOST_BUTTON, 'self-start')"
-                  @click="addExtraParam(entry)"
-                >
-                  <Plus class="size-3.5" :stroke-width="ICON_STROKE_WIDTH" />
-                  Add parameter
-                </button>
-
-                <!-- Per-node technology overrides: the same tech, tuned here. -->
-                <div class="flex flex-col gap-1.5 rounded-sm border border-border p-2">
-                  <div class="flex items-center justify-between">
-                    <span :class="SECTION_HEADING">techs</span>
-                    <button
-                      type="button"
-                      title="Add a technology"
-                      :class="ICON_BUTTON"
-                      @click="addTech(entry)"
-                    >
-                      <Plus class="size-3.5" :stroke-width="ICON_STROKE_WIDTH" />
-                    </button>
-                  </div>
-
-                  <div
-                    v-for="(techOvr, ti) in entry.techs"
-                    :key="ti"
-                    class="flex flex-col gap-1 border-t border-border-subtle pt-1.5 first:border-t-0 first:pt-0"
-                  >
-                    <div class="flex items-center gap-1">
-                      <input
-                        v-model="techOvr.techName"
-                        type="text"
-                        placeholder="tech name"
-                        :class="FIELD"
-                        @input="onChange"
-                      />
-                      <button
-                        type="button"
-                        title="Remove this technology"
-                        :class="DANGER_ICON_BUTTON"
-                        @click="removeTech(entry, ti)"
-                      >
-                        <X class="size-3.5" :stroke-width="2" />
-                      </button>
-                    </div>
-
-                    <div
-                      v-for="(p, pi) in techOvr.params"
-                      :key="pi"
-                      class="flex items-start gap-1"
-                    >
-                      <input
-                        v-model="p.key"
-                        type="text"
-                        placeholder="parameter"
-                        :class="cn(FIELD, 'w-36 shrink-0')"
-                        @input="onChange"
-                      />
-                      <ScalarOrDataVar
-                        :model-value="p.value"
-                        @update:model-value="
-                          p.value = $event;
-                          onChange();
-                        "
-                      />
-                      <button
-                        type="button"
-                        title="Remove this override"
-                        :class="DANGER_ICON_BUTTON"
-                        @click="removeTechParam(entry, ti, pi)"
-                      >
-                        <X class="size-3.5" :stroke-width="2" />
-                      </button>
-                    </div>
-
-                    <button
-                      type="button"
-                      :class="cn(GHOST_BUTTON, 'self-start')"
-                      @click="addTechParam(entry, ti)"
-                    >
-                      <Plus class="size-3.5" :stroke-width="ICON_STROKE_WIDTH" />
-                      Add override
-                    </button>
-                  </div>
-
-                  <p v-if="!entry.techs.length" class="text-2xs text-text-faint">
-                    No techs assigned.
-                  </p>
-                </div>
-
-                <InheritedFields
-                  v-if="entry.template"
-                  :label="`From: ${entry.template}`"
-                  :fields="templateFields(entry.template)"
-                  :is-overridden="(key) => isNodeFieldOverridden(entry, key)"
-                  empty-text="Template definition not available."
-                />
-
-                <InheritedFields
-                  v-if="Object.keys(dataTableParams[entry.name] ?? {}).length"
-                  label="From data tables"
-                  :fields="dataTableFields(entry.name)"
-                  :sources="dataTableSources(entry.name)"
-                  :is-overridden="(key) => isNodeFieldOverridden(entry, key)"
-                />
-              </div>
+              <NodeFields
+                :entry="entry"
+                :templates="templatesData"
+                :data-table-params="dataTableParams[entry.name] ?? {}"
+                @change="onChange"
+              />
             </AccordionContent>
           </AccordionItem>
         </Accordion>

@@ -4,15 +4,25 @@ import { defineStore } from "pinia";
 export type ThemePreference = "system" | "light" | "dark";
 export type ThemeMode = "light" | "dark";
 
+/** A structured editor either lists its entries or shows them on a map. */
+export type EditorView = "structured" | "map";
+
+/** The two sections that are geography, and so have a map at all. */
+export type MappableSection = "nodes" | "links";
+
 const THEME_KEY = "calligraph.theme";
 const SPLITTER_KEY = "calligraph.splitter.sizes";
 const DATA_TABLE_SPLIT_KEY = "calligraph.dataTable.split";
+const MAP_SPLIT_KEY = "calligraph.map.split";
 
 /** Explorer | editor | side panel. Replaced by a 2-panel shell later. */
 const DEFAULT_SPLITTER = [20, 55, 25];
 
 /** Config above, CSV grid below. The grid gets the larger half. */
 const DEFAULT_DATA_TABLE_SPLIT = [40, 60];
+
+/** Map above, the selected entry's form below. */
+const DEFAULT_MAP_SPLIT = [72, 28];
 
 const DARK_QUERY = "(prefers-color-scheme: dark)";
 
@@ -121,7 +131,7 @@ export const useUiStore = defineStore("ui", () => {
   /**
    * How a single data table divides its configuration from its CSV.
    *
-   * Here for the same reason as `nodesView`: as a local ref it would reset on
+   * Here for the same reason as `sectionView`: as a local ref it would reset on
    * every tab switch, which is the one thing a splitter must not do.
    */
   const dataTableSplit = ref<number[]>(readDataTableSplit());
@@ -144,20 +154,74 @@ export const useUiStore = defineStore("ui", () => {
     localStorage.setItem(DATA_TABLE_SPLIT_KEY, JSON.stringify(sizes));
   }
 
-  // ── Nodes editor view ────────────────────────────────────────────────────
+  // ── Geographic editors ───────────────────────────────────────────────────
 
   /**
-   * Whether the nodes editor shows a list or a map.
+   * How an editor's map divides from the form under it.
+   *
+   * A splitter rather than a pane that grows to fit its contents, and not for
+   * taste: a content-sized pane changes height the moment a node is selected,
+   * which resizes the map *under the pointer*. Mid-drag that is worse than
+   * cosmetic — the node ends up somewhere the user did not put it, because the
+   * projection moved between grabbing it and letting go.
+   */
+  const mapSplit = ref<number[]>(readMapSplit());
+
+  function readMapSplit(): number[] {
+    try {
+      const stored = localStorage.getItem(MAP_SPLIT_KEY);
+      if (!stored) return [...DEFAULT_MAP_SPLIT];
+      const parsed = JSON.parse(stored) as unknown;
+      return Array.isArray(parsed) && parsed.length === DEFAULT_MAP_SPLIT.length
+        ? (parsed as number[])
+        : [...DEFAULT_MAP_SPLIT];
+    } catch {
+      return [...DEFAULT_MAP_SPLIT];
+    }
+  }
+
+  function setMapSplit(sizes: number[]) {
+    mapSplit.value = sizes;
+    localStorage.setItem(MAP_SPLIT_KEY, JSON.stringify(sizes));
+  }
+
+  /**
+   * Whether `nodes` and `links` show their list or their map.
+   *
+   * Both **default to the map**, because both sections are geography and a
+   * coordinate pair is a worse way to say where something is than a position on
+   * a map. A model whose nodes are not all placed still opens on the map — greyed
+   * out, saying so, with a way through to the list — rather than quietly showing
+   * something different depending on the state of the file.
    *
    * Here rather than as a `ref` inside the component, because CLAUDE.md's rule
    * that UI state lives in a store exists precisely for this: as a local ref it
-   * reset every time the tab was switched away from and back.
+   * reset every time the tab was switched away from and back. Per *section*
+   * rather than per tab: two files' nodes are still the same kind of thing to
+   * look at, and this matches how the toggle behaved before.
    */
-  const nodesView = ref<"structured" | "map">("structured");
+  const sectionView = ref<Record<MappableSection, EditorView>>({
+    nodes: "map",
+    links: "map",
+  });
 
-  function toggleNodesView() {
-    nodesView.value = nodesView.value === "map" ? "structured" : "map";
+  function setSectionView(section: MappableSection, view: EditorView) {
+    sectionView.value[section] = view;
   }
+
+  function toggleSectionView(section: MappableSection) {
+    setSectionView(section, sectionView.value[section] === "map" ? "structured" : "map");
+  }
+
+  /**
+   * Template a link drawn on the map is created from, or null for none.
+   *
+   * A bare `base_tech: transmission` is not yet a usable technology — it has no
+   * carriers and no costs — and in practice a model's links are all variations on
+   * one or two templates, so the picker is set once and then every link drawn
+   * inherits from it.
+   */
+  const newLinkTemplate = ref<string | null>(null);
 
   return {
     preference,
@@ -170,7 +234,11 @@ export const useUiStore = defineStore("ui", () => {
     setSplitterSizes,
     dataTableSplit,
     setDataTableSplit,
-    nodesView,
-    toggleNodesView,
+    mapSplit,
+    setMapSplit,
+    sectionView,
+    setSectionView,
+    toggleSectionView,
+    newLinkTemplate,
   };
 });

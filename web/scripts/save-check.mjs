@@ -42,6 +42,16 @@ const SECTIONS = [
   ["scenarios", "scenarios.yaml"],
 ];
 
+/**
+ * Sections that open on a map, and so have a list to switch to.
+ *
+ * The list is what this check is about — the forms are what marshal a section
+ * back to YAML — so it switches to it deliberately. Without that, making the map
+ * the default view would have quietly stopped exercising the marshalling this was
+ * written to protect, while still passing.
+ */
+const MAPPABLE = new Set(["nodes", "links"]);
+
 const { check, finish } = results();
 
 const comments = (text) =>
@@ -89,6 +99,21 @@ for (const [section, file] of SECTIONS) {
     (await page.locator('[data-testid^="tab-"][data-active] .rounded-full').count()) ===
       0,
   );
+
+  if (MAPPABLE.has(section)) {
+    check(`${section}: opens on the map`, (await testId("editor-map").count()) === 1);
+    await testId("view-toggle").click();
+    await page.waitForTimeout(750);
+    check(
+      `${section}: the toggle reaches the list`,
+      (await testId("editor-map").count()) === 0,
+    );
+    check(
+      `${section}: switching view does not mark the tab dirty`,
+      (await page.locator('[data-testid^="tab-"][data-active] .rounded-full').count()) ===
+        0,
+    );
+  }
 
   await testId("save").click();
   await page.waitForTimeout(1500);

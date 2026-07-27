@@ -184,4 +184,40 @@ describe("useUiStore", () => {
       expect(useUiStore().splitterSizes).toEqual([20, 55, 25]);
     });
   });
+
+  describe("the geographic editors' view", () => {
+    it("opens both nodes and links on the map", () => {
+      // The whole point of the section: geography is edited on a map, and the
+      // list is where you go when a map cannot say it.
+      stubMatchMedia(false);
+      const ui = useUiStore();
+      expect(ui.sectionView.nodes).toBe("map");
+      expect(ui.sectionView.links).toBe("map");
+    });
+
+    it("toggles one section without touching the other", () => {
+      stubMatchMedia(false);
+      const ui = useUiStore();
+
+      ui.toggleSectionView("nodes");
+      expect(ui.sectionView.nodes).toBe("structured");
+      expect(ui.sectionView.links).toBe("map");
+
+      ui.toggleSectionView("nodes");
+      expect(ui.sectionView.nodes).toBe("map");
+    });
+
+    it("sets a view outright, for the greyed map's way out", () => {
+      stubMatchMedia(false);
+      const ui = useUiStore();
+      ui.setSectionView("links", "structured");
+      ui.setSectionView("links", "structured");
+      expect(ui.sectionView.links).toBe("structured");
+    });
+
+    it("remembers no template for new links until one is picked", () => {
+      stubMatchMedia(false);
+      expect(useUiStore().newLinkTemplate).toBeNull();
+    });
+  });
 });

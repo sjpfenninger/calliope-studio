@@ -2,7 +2,7 @@ import { computed, ref, watch, type InjectionKey } from "vue";
 import { defineStore } from "pinia";
 
 import { fetchCatalog, fetchGeo, type Catalog, type ResultQuery } from "../api/results";
-import type { GeoPayload } from "../components/map/ModelMap.vue";
+import type { GeoPayload } from "../lib/mapGeo";
 
 /**
  * What one set of results is filtered to — one store per results handle.

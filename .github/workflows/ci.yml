@@ -105,6 +105,11 @@ jobs:
         working-directory: web
         run: npm run save-check -- http://127.0.0.1:8791
 
+      # The map as an input: it has a size at all, a node drags, a link draws.
+      - name: Map editing
+        working-directory: web
+        run: npm run map-edit -- http://127.0.0.1:8791
+
       # Really solves, with CBC, and drives the run tab from log to charts.
       - name: Run lifecycle
         working-directory: web

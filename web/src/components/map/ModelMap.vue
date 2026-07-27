@@ -6,6 +6,7 @@ import { onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue";
 import maplibregl, { type StyleSpecification } from "maplibre-gl";
 
 import { resolvedColor } from "../../lib/cssColor";
+import { emptyCollection, type GeoPayload } from "../../lib/mapGeo";
 import { useUiStore } from "../../stores/ui";
 
 /**
@@ -18,14 +19,15 @@ import { useUiStore } from "../../stores/ui";
  * Selection is ordinary component state. v0.2.0 needed a server-side Bokeh
  * callback for it, which is exactly what could not survive a change of
  * frontend.
+ *
+ * On the editor side the map is also an *input*: a node is placed by dragging it
+ * and a link is drawn by clicking its two endpoints. Every one of those
+ * affordances is opt-in, so the results view behaves exactly as before. Note
+ * what the drag deliberately does *not* do: it keeps no optimistic local
+ * geometry. It emits the new position, the editor writes it into the entry it
+ * owns, and the recomputed payload comes back down — which is also what makes
+ * the links attached to a dragged node follow it, for free.
  */
-
-export interface GeoPayload {
-  nodes: GeoJSON.FeatureCollection;
-  links: GeoJSON.FeatureCollection;
-  bounds: [[number, number], [number, number]] | null;
-  colors?: Record<string, string>;
-}
 
 const props = withDefaults(
   defineProps<{
@@ -35,11 +37,48 @@ const props = withDefaults(
     values?: Record<string, number> | null;
     interactive?: boolean;
     height?: string;
+    /** Enables dragging; a feature's own `editable` decides whether it moves. */
+    draggableNodes?: boolean;
+    /** Click replaces the selection instead of adding to it. */
+    singleSelect?: boolean;
+    /** Hover and click on the link lines, for editing them. */
+    interactiveLinks?: boolean;
+    /** Node a link is being drawn from: a dashed line follows the cursor. */
+    pendingLinkFrom?: string | null;
+    /**
+     * Whether an empty map is covered with the "no nodes" message.
+     *
+     * The results view wants that: a solved model with no geography is a dead end.
+     * The editors turn it off, because there an empty map is a map you are about
+     * to put something on, not an error, and covering it hides the one thing the
+     * user came to look at.
+     */
+    emptyMessage?: boolean;
   }>(),
-  { selected: () => [], values: null, interactive: true, height: "100%" },
+  {
+    selected: () => [],
+    values: null,
+    interactive: true,
+    height: "100%",
+    draggableNodes: false,
+    singleSelect: false,
+    interactiveLinks: false,
+    pendingLinkFrom: null,
+    emptyMessage: true,
+  },
 );
 
-const emit = defineEmits<{ "update:selected": [string[]] }>();
+const emit = defineEmits<{
+  "update:selected": [string[]];
+  /**
+   * A node was clicked, whatever that did to the selection. The links view needs
+   * this: its two-click flow is about the clicks themselves, and inferring them
+   * from how the selection array changed is guesswork.
+   */
+  nodeClick: [string];
+  nodeMoved: [{ node: string; latitude: number; longitude: number }];
+  linkClick: [string];
+}>();
 
 const ui = useUiStore();
 
@@ -49,6 +88,9 @@ const ready = ref(false);
 
 const MIN_RADIUS = 5;
 const MAX_RADIUS = 22;
+
+/** How far the pointer may travel during a press and still count as a click. */
+const CLICK_SLOP = 3;
 
 /**
  * OpenStreetMap raster tiles, declared inline.
@@ -130,6 +172,7 @@ function layerPaint() {
     // against a dimmed basemap.
     nodeStrokeSelected: resolvedColor("--cg-text", "#1f1f1f"),
     nodeStroke: resolvedColor("--cg-surface", "#ffffff"),
+    accent: resolvedColor("--cg-accent", "#026fff"),
   };
 }
 
@@ -161,31 +204,125 @@ function nodeFeatures(): GeoJSON.FeatureCollection {
   };
 }
 
-function emptyCollection(): GeoJSON.FeatureCollection {
-  return { type: "FeatureCollection", features: [] };
-}
-
 function setData() {
   const instance = map.value;
   if (!instance || !ready.value) return;
   (instance.getSource("nodes") as maplibregl.GeoJSONSource)?.setData(nodeFeatures());
-  (instance.getSource("links") as maplibregl.GeoJSONSource)?.setData(
-    props.geo?.links ?? emptyCollection(),
-  );
+  const links = props.geo?.links ?? emptyCollection();
+  (instance.getSource("links") as maplibregl.GeoJSONSource)?.setData(links);
+  (instance.getSource("links-hit") as maplibregl.GeoJSONSource)?.setData(links);
 }
 
-function fit() {
+/**
+ * The set of nodes on the map, as a value that only changes when a node appears
+ * or disappears.
+ *
+ * The viewport is fitted on that, not on every payload: the editor rebuilds its
+ * geometry on each drag frame and each keystroke in a coordinate field, and
+ * re-fitting on those would yank the map out from under the pointer.
+ */
+function nodeSignature(): string {
+  return (props.geo?.nodes.features ?? [])
+    .map((feature) => String(feature.id))
+    .sort()
+    .join(" ");
+}
+
+let fittedSignature: string | null = null;
+
+function fit(force = false) {
   const instance = map.value;
   const bounds = props.geo?.bounds;
-  if (!instance || !bounds) return;
+  if (!instance || !bounds || dragging) return;
+  const signature = nodeSignature();
+  if (!force && signature === fittedSignature) return;
+  fittedSignature = signature;
   instance.fitBounds(bounds, { padding: 48, duration: 0, maxZoom: 9 });
 }
 
-function toggle(id: string) {
-  const next = props.selected.includes(id)
-    ? props.selected.filter((name) => name !== id)
-    : [...props.selected, id];
-  emit("update:selected", next);
+function select(id: string) {
+  if (props.singleSelect) {
+    emit("update:selected", props.selected.includes(id) && props.selected.length === 1 ? [] : [id]);
+    return;
+  }
+  emit(
+    "update:selected",
+    props.selected.includes(id)
+      ? props.selected.filter((name) => name !== id)
+      : [...props.selected, id],
+  );
+}
+
+// ── Dragging a node ────────────────────────────────────────────────────────
+//
+// A `circle` layer has no DOM element, so `maplibregl.Marker({draggable})` is not
+// an option: this is MapLibre's own drag-a-point pattern, with `dragPan`
+// suspended for the duration so the map does not pan instead.
+
+let dragging: string | null = null;
+let dragOrigin: { x: number; y: number } | null = null;
+let dragTravel = 0;
+let suppressClick = false;
+let frame = 0;
+let queued: maplibregl.LngLat | null = null;
+
+function flushDrag() {
+  frame = 0;
+  if (!dragging || !queued) return;
+  emit("nodeMoved", {
+    node: dragging,
+    latitude: queued.lat,
+    longitude: queued.lng,
+  });
+  queued = null;
+}
+
+function endDrag() {
+  const instance = map.value;
+  if (!dragging || !instance) return;
+  if (frame) {
+    cancelAnimationFrame(frame);
+    flushDrag();
+  }
+  instance.dragPan.enable();
+  instance.getCanvas().style.cursor = "";
+  // Swallow the click MapLibre is about to synthesise, or every drag also
+  // changes the selection.
+  suppressClick = dragTravel > CLICK_SLOP;
+  dragging = null;
+  dragOrigin = null;
+}
+
+// ── The line that follows the cursor while a link is being drawn ───────────
+
+function pendingLine(cursor: maplibregl.LngLat | null): GeoJSON.FeatureCollection {
+  const from = props.pendingLinkFrom;
+  if (!from || !cursor) return emptyCollection();
+  const feature = (props.geo?.nodes.features ?? []).find(
+    (candidate) => String(candidate.id) === from,
+  );
+  if (!feature || feature.geometry?.type !== "Point") return emptyCollection();
+  return {
+    type: "FeatureCollection",
+    features: [
+      {
+        type: "Feature",
+        geometry: {
+          type: "LineString",
+          coordinates: [feature.geometry.coordinates, [cursor.lng, cursor.lat]],
+        },
+        properties: {},
+      },
+    ],
+  };
+}
+
+function setPending(cursor: maplibregl.LngLat | null) {
+  const instance = map.value;
+  if (!instance || !ready.value) return;
+  (instance.getSource("pending") as maplibregl.GeoJSONSource)?.setData(
+    pendingLine(cursor),
+  );
 }
 
 /**
@@ -206,6 +343,7 @@ function applyTheme(instance: maplibregl.Map) {
 
   const paint = layerPaint();
   instance.setPaintProperty("links", "line-color", paint.linkColor);
+  instance.setPaintProperty("pending", "line-color", paint.accent);
   instance.setPaintProperty("nodes", "circle-color", paint.nodeColor);
   instance.setPaintProperty("nodes", "circle-stroke-color", [
     "case",
@@ -217,6 +355,8 @@ function applyTheme(instance: maplibregl.Map) {
 
 function addLayers(instance: maplibregl.Map) {
   instance.addSource("links", { type: "geojson", data: emptyCollection() });
+  instance.addSource("links-hit", { type: "geojson", data: emptyCollection() });
+  instance.addSource("pending", { type: "geojson", data: emptyCollection() });
   instance.addSource("nodes", { type: "geojson", data: emptyCollection() });
 
   const paint = layerPaint();
@@ -231,6 +371,27 @@ function addLayers(instance: maplibregl.Map) {
       "line-color": paint.linkColor,
       "line-width": 2.5,
       "line-opacity": 0.85,
+    },
+  });
+
+  // A 2.5px line is not something anyone can hit with a mouse, and MapLibre has
+  // no hit tolerance, so clicks go to a wide invisible twin.
+  instance.addLayer({
+    id: "links-hit",
+    type: "line",
+    source: "links-hit",
+    paint: { "line-color": paint.linkColor, "line-width": 14, "line-opacity": 0 },
+  });
+
+  instance.addLayer({
+    id: "pending",
+    type: "line",
+    source: "pending",
+    layout: { "line-cap": "round" },
+    paint: {
+      "line-color": paint.accent,
+      "line-width": 2,
+      "line-dasharray": [2, 2],
     },
   });
 
@@ -264,8 +425,8 @@ function addLayers(instance: maplibregl.Map) {
 
   instance.on("mousemove", "nodes", (event) => {
     const feature = event.features?.[0];
-    if (!feature) return;
-    instance.getCanvas().style.cursor = "pointer";
+    if (!feature || dragging) return;
+    instance.getCanvas().style.cursor = props.draggableNodes ? "grab" : "pointer";
     const name = feature.properties?.node ?? feature.id;
     const value = feature.properties?.value;
     popup
@@ -279,15 +440,87 @@ function addLayers(instance: maplibregl.Map) {
   });
 
   instance.on("mouseleave", "nodes", () => {
+    if (dragging) return;
     instance.getCanvas().style.cursor = "";
     popup.remove();
   });
 
   instance.on("click", "nodes", (event) => {
+    if (suppressClick) {
+      suppressClick = false;
+      return;
+    }
     const feature = event.features?.[0];
-    if (feature) toggle(String(feature.properties?.node ?? feature.id));
+    if (!feature) return;
+    const name = String(feature.properties?.node ?? feature.id);
+    emit("nodeClick", name);
+    select(name);
+  });
+
+  instance.on("mousedown", "nodes", (event) => {
+    if (!props.draggableNodes) return;
+    const feature = event.features?.[0];
+    if (!feature || feature.properties?.editable === false) return;
+    event.preventDefault();
+    popup.remove();
+    dragging = String(feature.properties?.node ?? feature.id);
+    dragOrigin = { x: event.point.x, y: event.point.y };
+    dragTravel = 0;
+    suppressClick = false;
+    instance.dragPan.disable();
+    instance.getCanvas().style.cursor = "grabbing";
+  });
+
+  instance.on("mousemove", (event) => {
+    if (props.pendingLinkFrom) setPending(event.lngLat);
+    if (!dragging) return;
+    if (dragOrigin) {
+      dragTravel = Math.max(
+        dragTravel,
+        Math.hypot(event.point.x - dragOrigin.x, event.point.y - dragOrigin.y),
+      );
+    }
+    queued = event.lngLat;
+    if (!frame) frame = requestAnimationFrame(flushDrag);
+  });
+
+  instance.on("mouseup", endDrag);
+
+  if (!props.interactiveLinks) return;
+
+  instance.on("mousemove", "links-hit", (event) => {
+    if (dragging || overNode(instance, event.point)) return;
+    instance.getCanvas().style.cursor = "pointer";
+    const feature = event.features?.[0];
+    if (feature) {
+      popup
+        .setLngLat(event.lngLat)
+        .setHTML(`<strong>${feature.properties?.tech ?? feature.id}</strong>`)
+        .addTo(instance);
+    }
+  });
+
+  instance.on("mouseleave", "links-hit", () => {
+    if (dragging) return;
+    instance.getCanvas().style.cursor = "";
+    popup.remove();
+  });
+
+  instance.on("click", "links-hit", (event) => {
+    // A layer-scoped handler fires even when another layer covers the point, so
+    // a click on a node sitting on one of its own links would hit both.
+    if (overNode(instance, event.point)) return;
+    const feature = event.features?.[0];
+    if (feature) emit("linkClick", String(feature.properties?.tech ?? feature.id));
   });
 }
+
+function overNode(instance: maplibregl.Map, point: maplibregl.PointLike): boolean {
+  return instance.queryRenderedFeatures(point, { layers: ["nodes"] }).length > 0;
+}
+
+let observer: ResizeObserver | null = null;
+let hadSize = false;
 
 onMounted(() => {
   if (!container.value) return;
@@ -307,19 +540,59 @@ onMounted(() => {
     fit();
   });
 
+  // The map lives behind a `v-if` and inside a draggable splitter, so it can be
+  // built at zero size and grow later. Nothing told it to re-measure before, and
+  // a `fitBounds` computed against a 0×0 canvas is meaningless — hence the
+  // re-fit the first time it has real dimensions.
+  observer = new ResizeObserver(([entry]) => {
+    instance.resize();
+    const { width, height } = entry.contentRect;
+    if (!hadSize && width > 0 && height > 0) {
+      hadSize = true;
+      fit(true);
+    }
+  });
+  observer.observe(container.value);
+
+  // A release outside the canvas still ends the drag.
+  window.addEventListener("mouseup", endDrag);
+
+  // The one testing seam in this component. The map draws to a canvas, so a node
+  // has no DOM element and `data-testid` cannot reach it — and `npm run map-edit`
+  // has to turn "region1" into a pixel to drag from. `map.project` is the only
+  // thing that can do that, so the instance is reachable. Handy in the console
+  // for the same reason.
+  (window as unknown as { __cgMap?: maplibregl.Map }).__cgMap = instance;
+
   map.value = instance;
 });
 
 onBeforeUnmount(() => {
+  window.removeEventListener("mouseup", endDrag);
+  const global = window as unknown as { __cgMap?: maplibregl.Map };
+  if (global.__cgMap === map.value) delete global.__cgMap;
+  observer?.disconnect();
+  observer = null;
+  if (frame) cancelAnimationFrame(frame);
   map.value?.remove();
   map.value = null;
 });
 
-watch(() => props.geo, () => {
-  setData();
-  fit();
-});
+watch(
+  () => props.geo,
+  () => {
+    setData();
+    fit();
+  },
+);
 watch([() => props.selected, () => props.values], setData, { deep: true });
+
+watch(
+  () => props.pendingLinkFrom,
+  (from) => {
+    if (!from) setPending(null);
+  },
+);
 
 watch(
   () => ui.revision,
@@ -332,12 +605,19 @@ watch(
 
 <template>
   <div class="map-root" :style="{ height }">
+    <!-- The overlay is a slot with the empty-model message as its fallback, so
+         the editor can grey the map out over the top of a partly-placed model
+         without this component knowing why. -->
     <div
-      v-if="geo && geo.nodes.features.length === 0"
+      v-if="$slots.overlay || (emptyMessage && geo && geo.nodes.features.length === 0)"
       class="map-placeholder"
+      :class="{ 'over-content': !!$slots.overlay }"
+      data-testid="map-overlay"
     >
-      No nodes with coordinates to display.
-      <span class="hint">Add latitude and longitude to your nodes.</span>
+      <slot name="overlay">
+        No nodes with coordinates to display.
+        <span class="hint">Add latitude and longitude to your nodes.</span>
+      </slot>
     </div>
     <div ref="container" class="map" />
   </div>
@@ -367,6 +647,16 @@ watch(
   text-align: center;
   font-size: 12px;
   color: var(--cg-text-muted);
+}
+
+/* Greying out a map that does have something on it: the geography stays
+   readable underneath, drained and blurred, and the overlay still swallows every
+   pointer event so nothing can be edited through it. `color-mix` is fine here —
+   this is DOM-only CSS, and no canvas ever has to parse it. */
+.map-placeholder.over-content {
+  background: color-mix(in oklch, var(--cg-surface) 72%, transparent);
+  backdrop-filter: grayscale(1) blur(1.5px);
+  padding: 1rem;
 }
 
 .hint {

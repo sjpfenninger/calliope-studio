@@ -5,6 +5,15 @@
  * Lifted out of the old editor panel so the tab body stays about layout. The tab
  * is narrowed to the two kinds that have a section, so none of this needs the
  * non-null assertions the previous version was full of.
+ *
+ * The wrapper below is a **flex column**, not `h-full overflow-auto`. Every
+ * structured editor's root is `flex min-h-0 flex-1 flex-col` with its own
+ * scrolling region inside, which only works if this container is a flex box —
+ * against a block parent `flex-1` is inert, each editor's height collapses to
+ * its content, and anything sized as a fraction of it gets nothing. That is
+ * exactly how the nodes map came to render at zero height and draw nothing at
+ * all: `height: 100%` of an auto-height parent is `auto`, and `auto` of an empty
+ * map container is 0.
  */
 import ConfigEditor from "@/components/editor/ConfigEditor.vue";
 import DataTablesEditor from "@/components/editor/DataTablesEditor.vue";
@@ -25,7 +34,7 @@ const entryName = () => (props.tab.kind === "entry" ? props.tab.entryName : null
 </script>
 
 <template>
-  <div class="h-full overflow-auto">
+  <div class="flex h-full min-h-0 flex-col">
     <ConfigEditor
       v-if="tab.section === 'config'"
       :versionId="versionId"

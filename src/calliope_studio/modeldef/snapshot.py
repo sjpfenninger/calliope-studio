@@ -23,7 +23,7 @@ of them is not a model that can be built:
    to the import graph.
 
 If a run history ever grows large enough to matter, the fix is content-addressed
-storage — `calligraph/blobs/{sha256}` with hardlinks into each snapshot — so that
+storage — `calliope-studio/blobs/{sha256}` with hardlinks into each snapshot — so that
 an unchanged CSV costs nothing across runs. Deliberately not built yet.
 """
 
@@ -125,7 +125,7 @@ def collect(workspace: Path) -> Collected:
             return
 
         relative = str(resolved.relative_to(root))
-        # Guards against a pathological `import: calligraph/runs/x/snapshot/...`
+        # Guards against a pathological `import: calliope-studio/runs/x/snapshot/...`
         # making every snapshot contain the previous one.
         if is_excluded(Path(relative)) or relative in seen:
             return

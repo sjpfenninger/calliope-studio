@@ -19,7 +19,7 @@ import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterator
+from typing import Iterable, Iterator
 
 import platformdirs
 
@@ -32,19 +32,22 @@ from calliope_studio.runs import protocol
 #: another tool, share them, or tell what their history is costing them. The
 #: previous `.calligraph` also appeared merely from opening a model, so a folder
 #: gained a hidden directory before the user had done anything at all.
-WORKSPACE_DATA_DIR = "calligraph"
+WORKSPACE_DATA_DIR = "calliope-studio"
 
-#: The earlier hidden name, migrated on open. Kept as a constant because
-#: `modeldef.paths.EXCLUDED_NAMES` still hides it, so a workspace that somehow
+#: Earlier names, migrated on open, oldest first. Kept as constants because
+#: `modeldef.paths.EXCLUDED_NAMES` still hides them, so a workspace that somehow
 #: escapes migration does not suddenly show run artefacts in its file tree.
-LEGACY_WORKSPACE_DATA_DIR = ".calligraph"
+#: `.calligraph` was the hidden name and came first; `calligraph` was the
+#: visible directory under the project's previous name.
+LEGACY_WORKSPACE_DATA_DIRS = (".calligraph", "calligraph")
 
 #: Written into the data directory the first time anything is put there, so that
 #: a model kept under version control does not sprout untracked files. Ignores
 #: itself: nothing in this directory is part of the model definition.
 GITIGNORE_CONTENTS = """\
-# Calliope Studio writes run outputs here. Everything in this directory is derived
-# from the model definition and can be deleted freely, including this file.
+# Calliope Studio writes run outputs here. Everything in this directory is
+# derived from the model definition and can be deleted freely, including this
+# file.
 *
 """
 
@@ -62,6 +65,14 @@ VALIDATION_RETENTION = 3
 #: write into the developer's real state directory, and it is a useful escape
 #: hatch for running several instances against separate registries.
 STATE_DIR_ENV_VAR = "CALLIOPE_STUDIO_STATE_DIR"
+
+#: What `platformdirs` is asked for, and what the registry inside it is called.
+STATE_DIR_NAME = "calliope-studio"
+REGISTRY_FILENAME = "workspaces.json"
+
+#: State directories used under earlier names, oldest first. Read once, to seed a
+#: fresh one; see `carry_over_registry`.
+LEGACY_STATE_DIR_NAMES = ("calligraph",)
 
 
 class WorkspaceNotFound(KeyError):
@@ -107,30 +118,81 @@ def default_registry_path() -> Path:
     """
     override = os.environ.get(STATE_DIR_ENV_VAR)
     state_dir = (
-        Path(override) if override else Path(platformdirs.user_state_dir("calligraph"))
+        Path(override)
+        if override
+        else Path(platformdirs.user_state_dir(STATE_DIR_NAME))
     )
-    return state_dir / "workspaces.json"
+    return state_dir / REGISTRY_FILENAME
+
+
+def legacy_registry_paths() -> list[Path]:
+    """Where earlier names kept the registry, newest first."""
+    return [
+        Path(platformdirs.user_state_dir(name)) / REGISTRY_FILENAME
+        for name in reversed(LEGACY_STATE_DIR_NAMES)
+    ]
+
+
+def carry_over_registry(registry: Path, candidates: Iterable[Path]) -> bool:
+    """Seeds a fresh state directory from the one an earlier name used.
+
+    The registry is the user's list of models, and it is the only thing in the
+    state directory worth anything — losing it means every model they have opened
+    silently disappears from the recents list. Renaming the application moves the
+    directory `platformdirs` hands out, so without this the first launch under
+    the new name looks like a fresh install.
+
+    Copied rather than moved, so an installation under the old name still works.
+    Best-effort: a failure here is not worth refusing to start over, and the cost
+    is a recents list the user rebuilds by opening their models again.
+
+    Only ever called for the *default* location. An explicitly chosen state
+    directory — `$CALLIOPE_STUDIO_STATE_DIR`, which the suite sets for every
+    test — means the caller has said where the registry is, and quietly
+    populating it from somewhere else would be the opposite of that.
+    """
+    if registry.exists():
+        return False
+    for legacy in candidates:
+        if not legacy.is_file():
+            continue
+        try:
+            registry.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(legacy, registry)
+        except OSError:
+            return False
+        return True
+    return False
 
 
 def _migrate_legacy_data_dir(workspace_path: Path) -> None:
-    """Renames the earlier hidden `.calligraph/` to the visible `calligraph/`.
+    """Renames an earlier run-output directory to the current one.
 
-    A single rename on open, rather than teaching every lookup about two possible
-    locations forever. Does nothing if there is nothing to move, or if both exist
-    — in that case the visible one is authoritative and the hidden one is left
-    alone rather than merged, because silently combining two run histories is
-    worse than leaving one behind (and `EXCLUDED_NAMES` still hides it).
+    A single rename on open, rather than teaching every lookup about three
+    possible locations forever. Does nothing if there is nothing to move, or if
+    the current one already exists — in that case it is authoritative and the old
+    one is left alone rather than merged, because silently combining two run
+    histories is worse than leaving one behind (and `EXCLUDED_NAMES` still hides
+    it).
+
+    Newest legacy name first, so a workspace carrying both `.calligraph/` and
+    `calligraph/` promotes the one that was already authoritative under the old
+    rules and leaves the other where it is, exactly as before.
     """
-    legacy = workspace_path / LEGACY_WORKSPACE_DATA_DIR
     current = workspace_path / WORKSPACE_DATA_DIR
-    if not legacy.is_dir() or current.exists():
+    if current.exists():
         return
-    try:
-        legacy.rename(current)
-    except OSError:
-        # A read-only or otherwise awkward workspace. Not worth failing to open
-        # a model over; the old directory simply stays where it is.
-        pass
+    for name in reversed(LEGACY_WORKSPACE_DATA_DIRS):
+        legacy = workspace_path / name
+        if not legacy.is_dir():
+            continue
+        try:
+            legacy.rename(current)
+        except OSError:
+            # A read-only or otherwise awkward workspace. Not worth failing to
+            # open a model over; the old directory simply stays where it is.
+            pass
+        return
 
 
 def _retention_of(entry: dict) -> int | None:
@@ -166,6 +228,8 @@ class LocalStorage:
 
     def __init__(self, registry_path: Path | None = None) -> None:
         self.registry_path = registry_path or default_registry_path()
+        if registry_path is None and not os.environ.get(STATE_DIR_ENV_VAR):
+            carry_over_registry(self.registry_path, legacy_registry_paths())
         #: Created on first use; see `validations_dir`.
         self._validations_root: Path | None = None
         #: Created on first use; see `resolutions_dir`.

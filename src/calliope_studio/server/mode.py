@@ -97,7 +97,7 @@ def _results_target(results_file: Path) -> Target:
 
     A results file sitting next to a `request.json` *is* a run's output, so its
     owning workspace can be recovered from the request and the whole application
-    opened on that run. That turns `calliope-studio calligraph/runs/<id>/results.nc`
+    opened on that run. That turns `calliope-studio calliope-studio/runs/<id>/results.nc`
     from the most crippled invocation into the best one.
     """
     run_dir = results_file.parent

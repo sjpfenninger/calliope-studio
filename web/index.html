@@ -9,9 +9,15 @@
       // white flash before the bundle parses, which on a dark-mode machine is
       // the first thing you see on every reload. Keep the key in step with
       // THEME_KEY there.
+      //
+      // The legacy fallback runs before lib/storageKeys.ts can migrate anything
+      // — this script is in <head> and that runs with the bundle — so without it
+      // the first load after the rename flashes for everyone who had a theme set.
       (function () {
         try {
-          var preference = localStorage.getItem("calligraph.theme");
+          var preference =
+            localStorage.getItem("calliope-studio.theme") ||
+            localStorage.getItem("calligraph.theme");
           var dark =
             preference === "dark" ||
             ((preference === "system" || !preference) &&

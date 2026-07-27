@@ -89,17 +89,17 @@ describe("useUiStore", () => {
     it("persists the preference", () => {
       stubMatchMedia(false);
       useUiStore().setPreference("dark");
-      expect(localStorage.getItem("calligraph.theme")).toBe("dark");
+      expect(localStorage.getItem("calliope-studio.theme")).toBe("dark");
     });
 
     it("restores a persisted preference", () => {
-      localStorage.setItem("calligraph.theme", "dark");
+      localStorage.setItem("calliope-studio.theme", "dark");
       stubMatchMedia(false);
       expect(useUiStore().mode).toBe("dark");
     });
 
     it("ignores a corrupt persisted preference", () => {
-      localStorage.setItem("calligraph.theme", "chartreuse");
+      localStorage.setItem("calliope-studio.theme", "chartreuse");
       stubMatchMedia(false);
       expect(useUiStore().preference).toBe("system");
     });
@@ -173,13 +173,13 @@ describe("useUiStore", () => {
     it("ignores a stored layout with the wrong number of panels", () => {
       // The shell's panel count changes during this migration; restoring three
       // sizes into two panels puts a panel at a width it never asked for.
-      localStorage.setItem("calligraph.splitter.sizes", JSON.stringify([50, 50]));
+      localStorage.setItem("calliope-studio.splitter.sizes", JSON.stringify([50, 50]));
       stubMatchMedia(false);
       expect(useUiStore().splitterSizes).toEqual([20, 55, 25]);
     });
 
     it("ignores corrupt stored geometry", () => {
-      localStorage.setItem("calligraph.splitter.sizes", "not json");
+      localStorage.setItem("calliope-studio.splitter.sizes", "not json");
       stubMatchMedia(false);
       expect(useUiStore().splitterSizes).toEqual([20, 55, 25]);
     });

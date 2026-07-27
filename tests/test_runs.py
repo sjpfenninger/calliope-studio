@@ -62,7 +62,7 @@ class TestWorkspaceIsUntouchedUntilYouRun:
         """The interface lists runs on load; that must not create a directory.
 
         `runs_dir()` used to create the directory as a side effect of being asked
-        for it, so a folder gained a `calligraph/` before the user had done
+        for it, so a folder gained a `calliope-studio/` before the user had done
         anything at all.
         """
         before = sorted(path.name for path in national_scale.iterdir())
@@ -70,7 +70,7 @@ class TestWorkspaceIsUntouchedUntilYouRun:
         assert client.get(f"/api/versions/{ws}/runs/").json() == []
 
         assert sorted(path.name for path in national_scale.iterdir()) == before
-        assert not (national_scale / "calligraph").exists()
+        assert not (national_scale / "calliope-studio").exists()
 
     def test_running_creates_the_directory_with_a_gitignore(
         self, client, ws, national_scale
@@ -78,7 +78,7 @@ class TestWorkspaceIsUntouchedUntilYouRun:
         run_id = client.post(f"/api/versions/{ws}/runs/").json()["id"]
         wait_for_terminal(client, run_id)
 
-        data_dir = national_scale / "calligraph"
+        data_dir = national_scale / "calliope-studio"
         assert (data_dir / "runs" / run_id).is_dir()
         assert (data_dir / ".gitignore").is_file()
 
@@ -94,7 +94,7 @@ class TestWorkspaceIsUntouchedUntilYouRun:
         wait_for_task(client, task_id)
 
         assert sorted(path.name for path in national_scale.iterdir()) == before
-        assert not (national_scale / "calligraph").exists()
+        assert not (national_scale / "calliope-studio").exists()
         assert not (national_scale / ".calligraph").exists()
 
 
@@ -112,7 +112,7 @@ class TestRunLifecycle:
         # `created_at` is taken from a directory whose mtime keeps moving.
         assert record["created_at"] <= record["completed_at"]
 
-        results = national_scale / "calligraph" / "runs" / run_id / "results.nc"
+        results = national_scale / "calliope-studio" / "runs" / run_id / "results.nc"
         assert results.is_file()
 
         # The file has to be readable by the analysis half, which is the whole
@@ -162,7 +162,7 @@ class TestRunLifecycle:
         from calliope_studio.runs import protocol
 
         run_id = "3fa85f64-5717-4562-b3fc-2c963f66afa6"
-        run_dir = national_scale / "calligraph" / "runs" / run_id
+        run_dir = national_scale / "calliope-studio" / "runs" / run_id
         run_dir.mkdir(parents=True)
         protocol.RunRequest(workspace=str(national_scale)).write(run_dir)
         (run_dir / protocol.RESULTS_FILE).write_bytes(b"not finished yet")
@@ -229,7 +229,9 @@ class TestRunLifecycle:
         run_id = client.post(f"/api/versions/{ws}/runs/").json()["id"]
         created_at = wait_for_terminal(client, run_id)["created_at"]
 
-        request_file = national_scale / "calligraph" / "runs" / run_id / "request.json"
+        request_file = (
+            national_scale / "calliope-studio" / "runs" / run_id / "request.json"
+        )
         import os
 
         os.utime(request_file, (0, 0))
@@ -248,7 +250,9 @@ class TestRunLifecycle:
         run_id = client.post(f"/api/versions/{ws}/runs/").json()["id"]
         wait_for_terminal(client, run_id)
 
-        request_file = national_scale / "calligraph" / "runs" / run_id / "request.json"
+        request_file = (
+            national_scale / "calliope-studio" / "runs" / run_id / "request.json"
+        )
         payload = json.loads(request_file.read_text())
         payload["a_field_from_the_future"] = {"nested": True}
         request_file.write_text(json.dumps(payload))
@@ -405,7 +409,7 @@ class TestFrozenConfig:
         """
         run_id = client.post(f"/api/versions/{ws}/runs/").json()["id"]
         wait_for_terminal(client, run_id)
-        run_dir = national_scale / "calligraph" / "runs" / run_id
+        run_dir = national_scale / "calliope-studio" / "runs" / run_id
         shutil.rmtree(run_dir / "snapshot")
         (run_dir / "snapshot.json").unlink()
 
@@ -527,7 +531,7 @@ class TestRunOptions:
         assert "no_such_scenario" in response.json()["detail"]
 
         # Nothing was created, so a typo leaves no wreckage in the history.
-        assert not (national_scale / "calligraph" / "runs").exists()
+        assert not (national_scale / "calliope-studio" / "runs").exists()
 
 
 class TestRenamingAndDeleting:
@@ -557,7 +561,7 @@ class TestRenamingAndDeleting:
     def test_a_run_can_be_deleted(self, client, ws, finished, national_scale):
         assert client.delete(f"/api/runs/{finished}/").status_code == 204
 
-        assert not (national_scale / "calligraph" / "runs" / finished).exists()
+        assert not (national_scale / "calliope-studio" / "runs" / finished).exists()
         assert client.get(f"/api/runs/{finished}/").status_code == 404
         assert client.get(f"/api/versions/{ws}/runs/").json() == []
 
@@ -610,7 +614,7 @@ class TestRetention:
         wait_for_terminal(client, run_id)
 
         client.patch(f"/api/versions/{ws}/settings/", json={"run_retention": 1})
-        assert (national_scale / "calligraph" / "runs" / run_id).is_dir()
+        assert (national_scale / "calliope-studio" / "runs" / run_id).is_dir()
 
     def test_a_lowered_limit_prunes_on_the_next_run(self, client, ws):
         first = client.post(f"/api/versions/{ws}/runs/").json()["id"]

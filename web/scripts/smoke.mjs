@@ -89,7 +89,7 @@ const themeValue = () =>
     getComputedStyle(document.documentElement).getPropertyValue("--cg-bg").trim(),
   );
 const lightBg = await themeValue();
-await page.evaluate(() => localStorage.setItem("calligraph.theme", "dark"));
+await page.evaluate(() => localStorage.setItem("calliope-studio.theme", "dark"));
 await page.reload({ waitUntil: "networkidle" });
 await testId("run-results").waitFor({ timeout: 20000 });
 check("the theme token actually changes", Boolean(lightBg) && lightBg !== (await themeValue()));

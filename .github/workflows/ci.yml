@@ -117,7 +117,7 @@ jobs:
 
       - name: Results view, on what that run produced
         run: |
-          results=$(ls example-model/calligraph/runs/*/results.nc | head -1)
+          results=$(ls example-model/calliope-studio/runs/*/results.nc | head -1)
           pixi run calliope-studio --no-browser --port 8792 "$results" &
           npx --yes wait-on -t 120000 http://127.0.0.1:8792/api/health
           cd web && npm run smoke -- http://127.0.0.1:8792

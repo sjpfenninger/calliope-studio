@@ -62,9 +62,9 @@ def browse(path: str | None = None) -> dict:
         children = []
 
     # `EXCLUDED_NAMES` is about what belongs to a *model definition*, and it is
-    # the right rule inside a model folder — `calligraph/` there is this
+    # the right rule inside a model folder — `calliope-studio/` there is this
     # application's own output. Applied everywhere it is wrong: any folder on the
-    # machine called `calligraph` would become unreachable, including the one
+    # machine called `calliope-studio` would become unreachable, including the one
     # this project is developed in. So it only applies where it means something.
     listing_a_model = find_model_yaml(target) is not None
 

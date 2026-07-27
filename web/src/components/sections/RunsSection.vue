@@ -147,12 +147,12 @@ function setRetention(keep: number | null) {
 
       <p v-if="!runs.ordered.length" class="p-3 text-sm text-muted-foreground">
         No runs yet. Solving writes results beside the model, in
-        <code class="font-mono text-xs">calligraph/runs/</code>.
+        <code class="font-mono text-xs">calliope-studio/runs/</code>.
       </p>
     </div>
 
     <!-- What the history costs, and how much of it is kept. Visible because the
-         directory is visible: a user told to look in `calligraph/` needs to know
+         directory is visible: a user told to look in `calliope-studio/` needs to know
          both what it is costing and why old runs disappear. -->
     <div
       v-if="tabs.versionId"

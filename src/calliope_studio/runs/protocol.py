@@ -10,7 +10,7 @@ than reading the child's stdout, and buys three things worth having:
 - Calliope's own logging setup clears handlers on the `calliope` logger and
   attaches its own to stdout, so stdout is not ours to define a protocol on.
 
-Layout under `{workspace}/calligraph/runs/{run_id}/`:
+Layout under `{workspace}/calliope-studio/runs/{run_id}/`:
 
     request.json    what to run; written by the parent before starting
     snapshot.json   what was frozen, and whether the freeze is complete

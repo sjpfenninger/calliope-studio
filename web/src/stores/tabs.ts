@@ -2,6 +2,7 @@ import { computed, reactive, ref } from "vue";
 import { defineStore } from "pinia";
 
 import client from "../api/client";
+import { KEY_PREFIX } from "../lib/storageKeys";
 import {
   entryTabId,
   fileTabId,
@@ -190,7 +191,7 @@ export const useTabsStore = defineStore("tabs", () => {
    * *copy* of state the files themselves already hold, which goes stale the
    * moment the model is edited outside the app.
    */
-  const storageKey = (id: string) => `calligraph.tabs.${id}`;
+  const storageKey = (id: string) => `${KEY_PREFIX}tabs.${id}`;
 
   function persist() {
     if (!versionId.value) return;

@@ -30,7 +30,7 @@ async function withoutTheBundle({ colorScheme, stored }) {
   const isolated = await context.newPage();
   if (stored) {
     await isolated.addInitScript(
-      (value) => localStorage.setItem("calligraph.theme", value),
+      (value) => localStorage.setItem("calliope-studio.theme", value),
       stored,
     );
   }
@@ -154,7 +154,7 @@ if (consoleErrors.length) console.log("console errors:", consoleErrors.slice(0, 
 const toggle = page.locator('[data-testid="theme-toggle"]');
 check("a theme toggle exists", (await toggle.count()) === 1);
 
-const preference = () => page.evaluate(() => localStorage.getItem("calligraph.theme"));
+const preference = () => page.evaluate(() => localStorage.getItem("calliope-studio.theme"));
 const cycled = [];
 for (let step = 0; step < 3; step += 1) {
   await toggle.click();

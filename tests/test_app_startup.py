@@ -64,7 +64,7 @@ class TestTargetIsOneDecision:
     def test_opening_a_runs_results_file_recovers_the_whole_workspace(
         self, client, national_scale, storage
     ):
-        """`calliope-studio calligraph/runs/<id>/results.nc` used to be the most
+        """`calliope-studio calliope-studio/runs/<id>/results.nc` used to be the most
         crippled invocation: no workspace, so every editing route was unreachable.
         A `.nc` beside a `request.json` is a run's output, so both the run and its
         model can be recovered.
@@ -78,7 +78,9 @@ class TestTargetIsOneDecision:
                 break
             time.sleep(0.5)
 
-        results_file = national_scale / "calligraph" / "runs" / run_id / "results.nc"
+        results_file = (
+            national_scale / "calliope-studio" / "runs" / run_id / "results.nc"
+        )
         assert results_file.is_file(), "run did not produce results"
 
         with TestClient(create_app(results_file, storage)) as reopened:

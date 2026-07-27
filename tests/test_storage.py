@@ -98,7 +98,7 @@ class TestRunDirectories:
     def test_the_data_directory_is_visible(self, storage, national_scale):
         """Not hidden: results are the output, and a user must be able to find it."""
         workspace = storage.open(national_scale)
-        assert storage.runs_dir(workspace).parent.name == "calligraph"
+        assert storage.runs_dir(workspace).parent.name == "calliope-studio"
 
     def test_locating_runs_creates_nothing(self, storage, national_scale):
         """Opening a model and asking about its runs must leave no trace.
@@ -120,7 +120,7 @@ class TestRunDirectories:
         """A model under version control must not sprout untracked files."""
         workspace = storage.open(national_scale)
         storage.runs_dir(workspace, create=True)
-        marker = national_scale / "calligraph" / ".gitignore"
+        marker = national_scale / "calliope-studio" / ".gitignore"
         assert marker.is_file()
         # Ignores itself, so nothing in here shows up in `git status` at all.
         assert "*" in marker.read_text()
@@ -193,7 +193,7 @@ class TestRunRetention:
     ):
         workspace = storage.open(national_scale)
         assert storage.prune_runs(workspace) == []
-        assert not (national_scale / "calligraph").exists()
+        assert not (national_scale / "calliope-studio").exists()
 
 
 class TestRetentionSetting:
@@ -261,25 +261,49 @@ class TestRetentionSetting:
 
 
 class TestLegacyDataDirectory:
-    def test_hidden_directory_is_migrated_on_open(self, storage, national_scale):
-        """A workspace from before the rename keeps its run history at the new path."""
-        legacy = national_scale / ".calligraph" / "runs" / "old-run"
+    @pytest.mark.parametrize("legacy_name", [".calligraph", "calligraph"])
+    def test_an_earlier_directory_is_migrated_on_open(
+        self, storage, national_scale, legacy_name
+    ):
+        """A workspace from before the rename keeps its run history.
+
+        Both earlier names: `.calligraph` is the older, hidden one; `calligraph` is
+        the visible directory this project used before it was renamed.
+        """
+        legacy = national_scale / legacy_name / "runs" / "old-run"
         legacy.mkdir(parents=True)
         (legacy / "request.json").write_text("{}")
 
         storage.open(national_scale)
 
-        assert not (national_scale / ".calligraph").exists()
-        assert (national_scale / "calligraph" / "runs" / "old-run").is_dir()
+        assert not (national_scale / legacy_name).exists()
+        assert (national_scale / "calliope-studio" / "runs" / "old-run").is_dir()
 
-    def test_migration_leaves_an_existing_visible_directory_alone(
+    def test_migration_leaves_an_existing_current_directory_alone(
         self, storage, national_scale
     ):
         """Two histories are never silently merged."""
         (national_scale / ".calligraph" / "runs").mkdir(parents=True)
-        (national_scale / "calligraph" / "runs" / "current").mkdir(parents=True)
+        (national_scale / "calliope-studio" / "runs" / "current").mkdir(parents=True)
 
         storage.open(national_scale)
 
         assert (national_scale / ".calligraph").is_dir()
-        assert (national_scale / "calligraph" / "runs" / "current").is_dir()
+        assert (national_scale / "calliope-studio" / "runs" / "current").is_dir()
+
+    def test_the_newest_earlier_name_wins(self, storage, national_scale):
+        """A workspace carrying both earlier names promotes only one.
+
+        `calligraph/` was authoritative over `.calligraph/` under the old rules —
+        that is what the earlier migration decided — so it stays authoritative
+        here. The other is left where it is rather than merged, and
+        `EXCLUDED_NAMES` keeps hiding it.
+        """
+        (national_scale / ".calligraph" / "runs" / "hidden-era").mkdir(parents=True)
+        (national_scale / "calligraph" / "runs" / "visible-era").mkdir(parents=True)
+
+        storage.open(national_scale)
+
+        assert (national_scale / "calliope-studio" / "runs" / "visible-era").is_dir()
+        assert (national_scale / ".calligraph" / "runs" / "hidden-era").is_dir()
+        assert not (national_scale / "calligraph").exists()

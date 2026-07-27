@@ -414,7 +414,7 @@ describe("useTabsStore", () => {
     });
 
     it("ignores a stored entry it cannot read", () => {
-      localStorage.setItem("calligraph.tabs.v1", "not json");
+      localStorage.setItem("calliope-studio.tabs.v1", "not json");
       const store = useTabsStore();
       expect(store.restore("v1")).toBeNull();
     });
@@ -422,7 +422,7 @@ describe("useTabsStore", () => {
     it("skips a tab id that no longer parses", () => {
       // These outlive the scheme that wrote them.
       localStorage.setItem(
-        "calligraph.tabs.v1",
+        "calliope-studio.tabs.v1",
         JSON.stringify({ tabs: ["\0s:techs:techs.yaml", fileTabId("a.yaml")] }),
       );
       const store = useTabsStore();

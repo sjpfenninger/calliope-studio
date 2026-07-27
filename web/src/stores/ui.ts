@@ -1,6 +1,8 @@
 import { computed, ref, watch } from "vue";
 import { defineStore } from "pinia";
 
+import { KEY_PREFIX } from "../lib/storageKeys";
+
 export type ThemePreference = "system" | "light" | "dark";
 export type ThemeMode = "light" | "dark";
 
@@ -10,10 +12,10 @@ export type EditorView = "structured" | "map";
 /** The two sections that are geography, and so have a map at all. */
 export type MappableSection = "nodes" | "links";
 
-const THEME_KEY = "calligraph.theme";
-const SPLITTER_KEY = "calligraph.splitter.sizes";
-const DATA_TABLE_SPLIT_KEY = "calligraph.dataTable.split";
-const MAP_SPLIT_KEY = "calligraph.map.split";
+const THEME_KEY = `${KEY_PREFIX}theme`;
+const SPLITTER_KEY = `${KEY_PREFIX}splitter.sizes`;
+const DATA_TABLE_SPLIT_KEY = `${KEY_PREFIX}dataTable.split`;
+const MAP_SPLIT_KEY = `${KEY_PREFIX}map.split`;
 
 /** Explorer | editor | side panel. Replaced by a 2-panel shell later. */
 const DEFAULT_SPLITTER = [20, 55, 25];

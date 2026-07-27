@@ -163,18 +163,20 @@ class TestIncompleteModels:
 
     def test_the_data_directory_is_never_captured(self, national_scale, tmp_path):
         """Otherwise every snapshot would contain the previous one."""
-        nested = national_scale / "calligraph" / "runs" / "old" / "snapshot"
+        nested = national_scale / "calliope-studio" / "runs" / "old" / "snapshot"
         nested.mkdir(parents=True)
         (nested / "model.yaml").write_text("techs: {}\n")
         model = national_scale / "model.yaml"
         model.write_text(
             model.read_text().replace(
-                "import:", 'import:\n  - "calligraph/runs/old/snapshot/model.yaml"', 1
+                "import:",
+                'import:\n  - "calliope-studio/runs/old/snapshot/model.yaml"',
+                1,
             )
         )
 
         _, paths = captured(national_scale, tmp_path / "snapshot")
-        assert not any(path.startswith("calligraph") for path in paths)
+        assert not any(path.startswith("calliope-studio") for path in paths)
 
 
 class TestScenarioNames:

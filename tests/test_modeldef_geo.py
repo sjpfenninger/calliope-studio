@@ -36,6 +36,71 @@ class TestNodes:
         names = {f["id"] for f in geo.nodes_geojson(national_scale)["features"]}
         assert "region1" not in names
 
+    def test_coordinates_can_come_from_a_data_table(self, tmp_path):
+        """`latitude` is an ordinary parameter, so a CSV can supply it.
+
+        `examples/model_nld-NUTS3-v1` defines all 37 of its nodes as `techs: {}`
+        and gets 31 positions from `tabular-data/scalars/nodes.csv`. Reading only
+        the `nodes:` section left that model's geography off the map entirely.
+        """
+        model = tmp_path / "tabular"
+        (model / "data").mkdir(parents=True)
+        (model / "model.yaml").write_text(
+            "data_tables:\n"
+            "  nodes:\n"
+            '    data: "data/nodes.csv"\n'
+            "    rows: nodes\n"
+            "    columns: [parameters]\n"
+            "nodes:\n"
+            "  a:\n"
+            "    techs: {}\n"
+            "  b:\n"
+            "    techs: {}\n"
+        )
+        (model / "data" / "nodes.csv").write_text(
+            "nodes,latitude,longitude\na,50,4\nb,51,5\n"
+        )
+
+        positions = geo.node_positions(model)
+        assert positions == {"a": [4.0, 50.0], "b": [5.0, 51.0]}
+
+    def test_the_yaml_wins_over_a_data_table(self, tmp_path):
+        """Which is what Calliope does, and what a drag depends on.
+
+        Dragging a node writes a YAML coordinate; if the table won, the node
+        would spring back to where the CSV puts it.
+        """
+        model = tmp_path / "both"
+        (model / "data").mkdir(parents=True)
+        (model / "model.yaml").write_text(
+            "data_tables:\n"
+            "  nodes:\n"
+            '    data: "data/nodes.csv"\n'
+            "    rows: nodes\n"
+            "    columns: [parameters]\n"
+            "nodes:\n"
+            "  a:\n"
+            "    latitude: 60\n"
+        )
+        (model / "data" / "nodes.csv").write_text("nodes,latitude,longitude\na,50,4\n")
+
+        # Latitude from the file being edited, longitude from the table.
+        assert geo.node_positions(model) == {"a": [4.0, 60.0]}
+
+    def test_a_node_only_a_table_names_is_still_a_node(self, tmp_path):
+        model = tmp_path / "csv-only"
+        (model / "data").mkdir(parents=True)
+        (model / "model.yaml").write_text(
+            "data_tables:\n"
+            "  nodes:\n"
+            '    data: "data/nodes.csv"\n'
+            "    rows: nodes\n"
+            "    columns: [parameters]\n"
+        )
+        (model / "data" / "nodes.csv").write_text("nodes,latitude,longitude\nz,50,4\n")
+
+        assert "z" in geo.node_positions(model)
+
     def test_a_relative_path_works(self, national_scale, monkeypatch):
         """Imports resolve to absolute paths and are checked against the base.
 

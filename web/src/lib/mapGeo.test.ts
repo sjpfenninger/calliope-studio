@@ -4,6 +4,7 @@ import {
   DEGENERATE_PADDING,
   boundsOf,
   buildGeo,
+  coordinatesFrom,
   linksFromFeatures,
   missingCoordinates,
   nodesFromFeatures,
@@ -131,6 +132,43 @@ describe("reading a server payload back", () => {
   it("tolerates nothing at all", () => {
     expect(nodesFromFeatures(null)).toEqual([]);
     expect(linksFromFeatures(undefined)).toEqual([]);
+  });
+});
+
+describe("coordinatesFrom", () => {
+  /**
+   * `examples/model_nld-NUTS3-v1` defines its nodes with nothing but `techs: {}`
+   * and gets 31 of its 37 positions from a CSV. Judging "has coordinates" by the
+   * YAML fields alone put that whole model behind the greyed-out map.
+   */
+  it("reads a position a data table supplies", () => {
+    expect(
+      coordinatesFrom({
+        latitude: { value: 51.2797, time_varying: false, source: "nodes" },
+        longitude: { value: 4.55, time_varying: false, source: "nodes" },
+        country_id: { value: "BEL", time_varying: false, source: "nodes" },
+      }),
+    ).toEqual({ latitude: 51.2797, longitude: 4.55 });
+  });
+
+  it("ignores a time-varying one, which is not a position", () => {
+    expect(
+      coordinatesFrom({ latitude: { value: null, time_varying: true } }),
+    ).toEqual({ latitude: null, longitude: null });
+  });
+
+  it("copes with a node no table mentions", () => {
+    expect(coordinatesFrom(undefined)).toEqual({ latitude: null, longitude: null });
+    expect(coordinatesFrom({})).toEqual({ latitude: null, longitude: null });
+  });
+
+  it("is a fallback, not an override: the form's own value wins", () => {
+    // What NodesEditor does with it — the YAML coordinate has precedence, which
+    // is also how Calliope unions the `nodes:` section over its data tables.
+    const table = coordinatesFrom({ latitude: { value: 10 }, longitude: { value: 20 } });
+    const entry = { latitude: 40, longitude: null };
+    expect(entry.latitude ?? table.latitude).toBe(40);
+    expect(entry.longitude ?? table.longitude).toBe(20);
   });
 });
 

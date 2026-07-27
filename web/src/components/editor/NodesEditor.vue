@@ -40,6 +40,7 @@ import { useComponentTreeStore } from "@/stores/componentTree";
 import { useUiStore } from "@/stores/ui";
 import {
   buildGeo,
+  coordinatesFrom,
   linksFromFeatures,
   missingCoordinates,
   nodesFromFeatures,
@@ -91,16 +92,25 @@ const showMap = computed(() => !props.entryName && ui.sectionView.nodes === "map
  * Only the former are `editable` — moving a node defined in another file would
  * mean writing to a section this editor never loaded, and silently editing a file
  * the user is not looking at is worse than not offering to.
+ *
+ * A node's position may come from a data table rather than from these fields, so
+ * the form's own value only *wins* — it does not decide whether there is one.
+ * Dragging such a node writes a YAML coordinate that overrides the table, which
+ * is the same precedence Calliope applies and is shown as an override in the
+ * form's "From data tables" list.
  */
 const mapNodes = computed<MapNode[]>(() => {
   const mine = entries.value
     .filter((entry) => entry.name)
-    .map((entry) => ({
-      name: entry.name,
-      latitude: entry.latitude,
-      longitude: entry.longitude,
-      editable: true,
-    }));
+    .map((entry) => {
+      const table = coordinatesFrom(dataTableParams.value[entry.name]);
+      return {
+        name: entry.name,
+        latitude: entry.latitude ?? table.latitude,
+        longitude: entry.longitude ?? table.longitude,
+        editable: true,
+      };
+    });
   const names = new Set(mine.map((node) => node.name));
   const elsewhere = nodesFromFeatures(savedGeo.value?.nodes).filter(
     (node) => !names.has(node.name),

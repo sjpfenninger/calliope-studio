@@ -186,6 +186,38 @@ export function linksFromFeatures(
   }));
 }
 
+/** One parameter as `data-table-params/` reports it. */
+export interface TableParam {
+  value: unknown;
+  time_varying?: boolean;
+  /** Which data table it came from, which the forms show and this ignores. */
+  source?: string;
+}
+
+/**
+ * The position a data table supplies for one node, if it supplies one.
+ *
+ * `latitude` and `longitude` are ordinary parameters, so a table with
+ * `rows: nodes` can carry them — and models do: `examples/model_nld-NUTS3-v1`
+ * gets 31 of its 37 positions from a CSV and the rest from YAML. Reading only the
+ * form's own fields put that model behind the "not all nodes have coordinates"
+ * curtain, which was both wrong and unfixable from where it pointed.
+ *
+ * A time-varying `latitude` is not a position, and the provenance reader gives
+ * those no value at all.
+ */
+export function coordinatesFrom(params: Record<string, TableParam> | undefined): {
+  latitude: number | null;
+  longitude: number | null;
+} {
+  const read = (key: string): number | null => {
+    const param = params?.[key];
+    if (!param || param.time_varying) return null;
+    return coordinate(param.value);
+  };
+  return { latitude: read("latitude"), longitude: read("longitude") };
+}
+
 /** Named nodes that cannot go on a map yet, in definition order. */
 export function missingCoordinates(nodes: MapNode[]): string[] {
   return nodes

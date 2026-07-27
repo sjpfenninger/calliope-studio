@@ -3,7 +3,7 @@
  * Resolves a set of results to a run tab, then replaces itself with the shell.
  *
  * Serves three entry points: `/results`, `/results/:runId` and `/runs/:runId`.
- * The first is how `calligraph results.nc` lands straight on the charts, and the
+ * The first is how `calliope-studio results.nc` lands straight on the charts, and the
  * other two are what an old bookmark looks like.
  *
  * Three ways to find something to open, in order of how specific they are:

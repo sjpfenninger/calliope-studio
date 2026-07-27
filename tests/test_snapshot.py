@@ -13,8 +13,8 @@ found in `urban_scale` and would not have occurred to anyone inventing a fixture
 import calliope
 import pytest
 
-from calligraph.modeldef.imports import scenario_names
-from calligraph.modeldef.snapshot import SNAPSHOT_VERSION, collect, write_snapshot
+from calliope_studio.modeldef.imports import scenario_names
+from calliope_studio.modeldef.snapshot import SNAPSHOT_VERSION, collect, write_snapshot
 
 
 def captured(workspace, destination):

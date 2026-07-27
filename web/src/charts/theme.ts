@@ -14,7 +14,7 @@ import { cssVar, cssVarPx, resolvedColor } from "../lib/cssColor";
  * through `lib/cssColor`, which paints the token and converts what comes back.
  */
 
-export const THEME_NAME = "calligraph";
+export const THEME_NAME = "calliope-studio";
 
 /**
  * The ordinal fallback ramp, for series with no technology identity — carriers,
@@ -23,7 +23,7 @@ export const THEME_NAME = "calligraph";
  * This is deliberately **not** the technology palette. A technology's colour is
  * per-model data: it must be identical in the editor, on the map and in every
  * chart, and the model's own `color:` parameter has to win, so it is assigned in
- * `src/calligraph/results/colors.py` and arrives per series in Arrow field
+ * `src/calliope_studio/results/colors.py` and arrives per series in Arrow field
  * metadata, which `ResultChart` applies as `itemStyle.color`. A series carrying
  * one never reaches this array.
  *

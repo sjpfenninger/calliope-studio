@@ -13,7 +13,7 @@ import {
 } from "./mapGeo";
 
 /**
- * The rules here are `src/calligraph/modeldef/geo.py`'s rules, so these are the
+ * The rules here are `src/calliope_studio/modeldef/geo.py`'s rules, so these are the
  * frontend counterparts of `tests/test_modeldef_geo.py`. Where the two disagree,
  * the same model draws differently before and after a save.
  */

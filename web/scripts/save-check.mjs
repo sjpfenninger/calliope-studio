@@ -1,7 +1,7 @@
 /**
  * A no-op save must not change the file.
  *
- *   pixi run calligraph --no-browser --port 8791 example-model
+ *   pixi run calliope-studio --no-browser --port 8791 example-model
  *   npm run save-check -- http://127.0.0.1:8791
  *
  * Table-driven over every structured section: open the editor, press Save

@@ -1,13 +1,13 @@
 """Geometry read from a model definition.
 
 Both halves of the app render the same GeoJSON, so these also pin the shape
-`calligraph.results.geo` has to keep producing.
+`calliope_studio.results.geo` has to keep producing.
 """
 
 import pytest
 
-from calligraph.modeldef import geo
-from calligraph.modeldef.entities import merged_section
+from calliope_studio.modeldef import geo
+from calliope_studio.modeldef.entities import merged_section
 
 
 class TestNodes:

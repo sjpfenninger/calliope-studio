@@ -4,7 +4,7 @@ Three rules, all stated in CLAUDE.md:
 
 - `results`, `modeldef` and `runs` must stay importable without a web framework,
   so that they remain usable from a notebook and cannot grow HTTP concerns.
-  Only `calligraph.server` may import `fastapi`.
+  Only `calliope_studio.server` may import `fastapi`.
 - No layer may import a plotting library. The server exposes data, never
   figures; all charts are built in the frontend. Reintroducing a Python-side
   plotting library would also reintroduce the duplicated theme definitions that
@@ -18,7 +18,7 @@ import re
 import subprocess
 import sys
 
-SRC = pathlib.Path(__file__).parent.parent / "src" / "calligraph"
+SRC = pathlib.Path(__file__).parent.parent / "src" / "calliope_studio"
 
 #: Layers that must not depend on the web framework.
 DOMAIN_LAYERS = ("results", "modeldef", "runs")
@@ -30,10 +30,10 @@ PLOTTING_LIBRARIES = ("panel", "param", "plotly", "bokeh", "matplotlib", "altair
 
 IMPORT_RE = re.compile(r"^\s*(?:import|from)\s+([a-zA-Z0-9_]+)", re.MULTILINE)
 
-#: Captures the layer in `from calligraph.<layer> import ...`. The rule above
-#: cannot use `IMPORT_RE`, which only ever sees the leading `calligraph`.
-CALLIGRAPH_IMPORT_RE = re.compile(
-    r"^\s*(?:from|import)\s+calligraph\.([a-zA-Z0-9_]+)", re.MULTILINE
+#: Captures the layer in `from calliope_studio.<layer> import ...`. The rule above
+#: cannot use `IMPORT_RE`, which only ever sees the leading `calliope_studio`.
+PACKAGE_IMPORT_RE = re.compile(
+    r"^\s*(?:from|import)\s+calliope_studio\.([a-zA-Z0-9_]+)", re.MULTILINE
 )
 
 
@@ -42,7 +42,7 @@ def _imported_top_level_modules(path: pathlib.Path) -> set[str]:
 
 
 def _imported_layers(path: pathlib.Path) -> set[str]:
-    return set(CALLIGRAPH_IMPORT_RE.findall(path.read_text()))
+    return set(PACKAGE_IMPORT_RE.findall(path.read_text()))
 
 
 def _python_files(*relative_dirs: str):
@@ -90,7 +90,7 @@ class TestImportRules:
         """Catches transitive imports that the source-level scan cannot see."""
         code = (
             "import sys; "
-            "import calligraph.results, calligraph.modeldef, calligraph.runs; "
+            "import calliope_studio.results, calliope_studio.modeldef, calliope_studio.runs; "
             f"banned = set({WEB_FRAMEWORKS!r}) & set(sys.modules); "
             "assert not banned, f'web framework imported: {banned}'"
         )

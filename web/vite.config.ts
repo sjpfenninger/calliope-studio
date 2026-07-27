@@ -15,7 +15,7 @@ export default defineConfig({
   build: {
     // Build straight into the Python package so that a wheel serves the UI from
     // the same process as the API. See `pixi run web-build`.
-    outDir: fileURLToPath(new URL("../src/calligraph/server/static", import.meta.url)),
+    outDir: fileURLToPath(new URL("../src/calliope_studio/server/static", import.meta.url)),
     emptyOutDir: true,
   },
   test: {

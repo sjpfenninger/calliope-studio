@@ -1,7 +1,7 @@
 /**
  * Node and link geometry, built in the browser.
  *
- * The client-side twin of `src/calligraph/modeldef/geo.py`, and it exists for one
+ * The client-side twin of `src/calliope_studio/modeldef/geo.py`, and it exists for one
  * reason: the editor's map has to show state that is not on disk yet. A node
  * being dragged, a coordinate half-typed, a link that so far exists only in the
  * form — a payload fetched from the server can show none of those, because the

@@ -17,7 +17,7 @@ import { useTabsStore } from "./tabs";
  * because there isn't one.
  */
 
-/** Matches `TERMINAL_STATUSES` in src/calligraph/runs/manager.py. */
+/** Matches `TERMINAL_STATUSES` in src/calliope_studio/runs/manager.py. */
 export type RunStatus =
   | "pending"
   | "running"

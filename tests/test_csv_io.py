@@ -6,7 +6,7 @@ column read as text sorts "10" before "9", and a text column read as numeric
 turns a node named `2005` into a number on the way back out.
 """
 
-from calligraph.modeldef.csv_io import parse_csv
+from calliope_studio.modeldef.csv_io import parse_csv
 
 
 def parse(text: str) -> dict:

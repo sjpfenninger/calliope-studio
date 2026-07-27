@@ -7035,7 +7035,7 @@ packages:
   size: 44286201
   timestamp: 1777595386338
 - pypi: ./
-  name: calligraph
+  name: calliope-studio
   requires_dist:
   - calliope>=0.7.0.dev7,<0.8.0
   - fastapi>=0.115

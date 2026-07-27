@@ -14,15 +14,15 @@ that whichever spelling the file uses is the one that gets edited.
 
 import pytest
 
-from calligraph.modeldef.imports import component_tree
-from calligraph.modeldef.overrides import (
+from calliope_studio.modeldef.imports import component_tree
+from calliope_studio.modeldef.overrides import (
     describe,
     flatten,
     is_value,
     set_path,
     unset_path,
 )
-from calligraph.modeldef.yaml_io import read_section, write_section
+from calliope_studio.modeldef.yaml_io import read_section, write_section
 
 
 class TestFlatten:

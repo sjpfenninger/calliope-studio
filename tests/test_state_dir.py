@@ -9,7 +9,7 @@ from pathlib import Path
 
 import platformdirs
 
-from calligraph.server.storage import (
+from calliope_studio.server.storage import (
     STATE_DIR_ENV_VAR,
     LocalStorage,
     default_registry_path,

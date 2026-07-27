@@ -9,7 +9,7 @@ import json
 
 import pytest
 
-from calligraph.server.storage import LocalStorage, WorkspaceNotFound, workspace_id
+from calliope_studio.server.storage import LocalStorage, WorkspaceNotFound, workspace_id
 
 
 class TestWorkspaceId:
@@ -208,7 +208,7 @@ class TestRetentionSetting:
         assert storage.open(national_scale).run_retention == 20
 
     def test_the_setting_persists(self, storage, national_scale, tmp_path):
-        from calligraph.server.storage import LocalStorage
+        from calliope_studio.server.storage import LocalStorage
 
         workspace = storage.open(national_scale)
         storage.set_run_retention(workspace, 3)

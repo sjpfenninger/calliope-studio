@@ -12,8 +12,8 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from calligraph.server.app import create_app
-from calligraph.server.storage import STATE_DIR_ENV_VAR, LocalStorage
+from calliope_studio.server.app import create_app
+from calliope_studio.server.storage import STATE_DIR_ENV_VAR, LocalStorage
 
 
 @pytest.fixture(autouse=True)
@@ -75,7 +75,7 @@ def solved_results(tmp_path_factory) -> Path:
 @pytest.fixture
 def results(solved_results: Path):
     """A loaded results handle for the solved model."""
-    from calligraph.results.store import ResultStore
+    from calliope_studio.results.store import ResultStore
 
     store = ResultStore()
     return store.get(store.register(solved_results))

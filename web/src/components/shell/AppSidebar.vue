@@ -46,7 +46,7 @@ const editable = computed(() => props.versionId !== null);
     <div
       class="flex h-8 shrink-0 items-center gap-1 border-t border-border px-1.5 text-2xs text-text-faint"
     >
-      <span class="truncate">Calligraph</span>
+      <span class="truncate">Calliope Studio</span>
       <div class="flex-1" />
       <ThemeToggle />
     </div>

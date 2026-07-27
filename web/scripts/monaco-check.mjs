@@ -1,7 +1,7 @@
 /**
  * The YAML editor, and the language worker behind it.
  *
- *   pixi run calligraph --no-browser --port 8791 example-model
+ *   pixi run calliope-studio --no-browser --port 8791 example-model
  *   npm run monaco-check -- http://127.0.0.1:8791
  *
  * For most of this project's life that worker answered *nothing*. Every request
@@ -63,8 +63,8 @@ await page.keyboard.type("\ntechs: not-a-mapping\n");
 await page.waitForTimeout(4000);
 check("a schema violation is marked", (await squiggles()) > 0);
 
-await page.screenshot({ path: "/tmp/calligraph-monaco.png" });
-console.log("screenshot: /tmp/calligraph-monaco.png");
+await page.screenshot({ path: "/tmp/calliope-studio-monaco.png" });
+console.log("screenshot: /tmp/calliope-studio-monaco.png");
 
 // Undo, so the file is left as it was found. The editor never saved it, but a
 // dirty tab would make the next check's "opening does not mark the tab dirty"

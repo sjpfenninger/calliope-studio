@@ -10,8 +10,8 @@ from pathlib import Path
 
 import pytest
 
-from calligraph.modeldef.paths import yaml_files
-from calligraph.modeldef.yaml_io import (
+from calliope_studio.modeldef.paths import yaml_files
+from calliope_studio.modeldef.yaml_io import (
     SectionNotFound,
     _round_trip_yaml,
     from_plain,

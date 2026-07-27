@@ -1,4 +1,4 @@
-/* Design tokens for the Calligraph UI — the primitive layer.
+/* Design tokens for the Calliope Studio UI — the primitive layer.
  *
  * Authored in oklch with the sRGB hex in a comment. This file is the only place
  * in the codebase where a literal colour is written; the shadcn/Tailwind semantic
@@ -93,7 +93,7 @@
   --cg-danger-on: oklch(100% 0 0); /* #ffffff */
 
   /* ── Ordinal chart ramp. NOT the technology palette — that is per-model data
-        and lives in src/calligraph/results/colors.py, arriving per series in
+        and lives in src/calliope_studio/results/colors.py, arriving per series in
         Arrow field metadata. This is for series with no technology identity
         (carriers, cost classes, a bar comparison). One hue family with stepped
         lightness, so it reads as a sequence and can never be mistaken for

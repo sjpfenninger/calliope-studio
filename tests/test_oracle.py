@@ -21,10 +21,10 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from calligraph.results.catalog import base_tech_members, build_catalog
-from calligraph.results.colors import tech_colors
-from calligraph.results.frames import build_table
-from calligraph.results.query import Query, reduce_array
+from calliope_studio.results.catalog import base_tech_members, build_catalog
+from calliope_studio.results.colors import tech_colors
+from calliope_studio.results.frames import build_table
+from calliope_studio.results.query import Query, reduce_array
 
 REPO = Path(__file__).parent.parent
 
@@ -54,7 +54,7 @@ pytestmark = pytest.mark.skipif(
 #: The name the vendored modules are imported under. They are copied rather than
 #: imported in place because `tests/oracle/` is not on the path as a package and
 #: their own imports name a package that no longer exists.
-ORACLE_PACKAGE = "calligraph_v02"
+ORACLE_PACKAGE = "calliope_studio_v02"
 
 #: The package the vendored sources import from. This is v0.2.0's own layout and
 #: is a property of the frozen files, so it does not follow any later rename.
@@ -86,7 +86,7 @@ def oracle(tmp_path_factory):
 @pytest.fixture(scope="session", params=_available_models())
 def both(request, oracle):
     """The same model, loaded by both implementations."""
-    from calligraph.results.store import ResultStore
+    from calliope_studio.results.store import ResultStore
 
     path = REPO / request.param
     store = ResultStore()

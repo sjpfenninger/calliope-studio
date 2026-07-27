@@ -14,9 +14,9 @@ import click
 import pytest
 from fastapi.testclient import TestClient
 
-import calligraph.cli as cli_module
-from calligraph.server import app as app_module
-from calligraph.server.app import WORKSPACE_ENV_VAR, create_app
+import calliope_studio.cli as cli_module
+from calliope_studio.server import app as app_module
+from calliope_studio.server.app import WORKSPACE_ENV_VAR, create_app
 
 
 class TestTargetIsOneDecision:
@@ -64,7 +64,7 @@ class TestTargetIsOneDecision:
     def test_opening_a_runs_results_file_recovers_the_whole_workspace(
         self, client, national_scale, storage
     ):
-        """`calligraph calligraph/runs/<id>/results.nc` used to be the most
+        """`calliope-studio calligraph/runs/<id>/results.nc` used to be the most
         crippled invocation: no workspace, so every editing route was unreachable.
         A `.nc` beside a `request.json` is a run's output, so both the run and its
         model can be recovered.
@@ -132,7 +132,7 @@ class TestWorkspaceResolution:
     def test_a_non_directory_workspace_does_not_crash_startup(
         self, national_scale, storage
     ):
-        # `calligraph results.nc` is a legitimate entry point; there is simply
+        # `calliope-studio results.nc` is a legitimate entry point; there is simply
         # no model folder to register.
         app = create_app(workspace=national_scale / "model.yaml", storage=storage)
         assert app.state.active_workspace is None
@@ -143,7 +143,7 @@ class TestWorkspaceResolution:
 @pytest.fixture
 def served(monkeypatch):
     """Captures what the CLI would serve, without serving it."""
-    import calligraph.cli as cli
+    import calliope_studio.cli as cli
 
     recorded: dict = {}
 
@@ -294,7 +294,7 @@ class TestPortSelection:
 
 
 class TestTargetValidation:
-    """What `calligraph <path>` accepts, and where it lands."""
+    """What `calliope-studio <path>` accepts, and where it lands."""
 
     def test_a_model_folder_opens_the_editor(self, national_scale):
         """Straight into the model that was asked for, not the recent list.
@@ -326,7 +326,7 @@ class TestTargetValidation:
 
     def test_the_cli_refuses_before_binding_a_port(self, tmp_path, monkeypatch):
         """Nothing should be started for a path that cannot be opened."""
-        import calligraph.cli as cli
+        import calliope_studio.cli as cli
 
         empty = tmp_path / "empty"
         empty.mkdir()

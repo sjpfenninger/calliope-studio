@@ -1,7 +1,7 @@
 /**
  * The results view, against a server opened on a solved model.
  *
- *   pixi run calligraph --no-browser --port 8792 path/to/results.nc
+ *   pixi run calliope-studio --no-browser --port 8792 path/to/results.nc
  *   npm run smoke -- http://127.0.0.1:8792
  *
  * Type-checking and unit tests cannot see the things that actually broke here:
@@ -111,7 +111,7 @@ check(
   Boolean(controlBackground) && !/^rgb\(255, 255, 255\)$/.test(controlBackground),
 );
 
-await page.screenshot({ path: "/tmp/calligraph-smoke.png", fullPage: true });
-console.log("screenshot: /tmp/calligraph-smoke.png");
+await page.screenshot({ path: "/tmp/calliope-studio-smoke.png", fullPage: true });
+console.log("screenshot: /tmp/calliope-studio-smoke.png");
 
 await finish(browser, consoleErrors);

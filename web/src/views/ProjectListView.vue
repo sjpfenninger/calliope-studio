@@ -153,8 +153,8 @@ async function forget(id: string) {
     >
       <p class="max-w-sm text-sm text-muted-foreground">
         No models yet. Open a folder containing a <code>model.yaml</code>, or start
-        Calligraph with one:
-        <code class="mt-1 block font-mono text-xs">calligraph path/to/model</code>
+        Calliope Studio with one:
+        <code class="mt-1 block font-mono text-xs">calliope-studio path/to/model</code>
       </p>
     </div>
 
@@ -162,7 +162,7 @@ async function forget(id: string) {
 
     <p class="mt-2 shrink-0 text-2xs text-text-faint">
       This list is kept in
-      <code class="font-mono">{{ registryPath ?? "the Calligraph state directory" }}</code
+      <code class="font-mono">{{ registryPath ?? "the Calliope Studio state directory" }}</code
       >. Removing a model here does not delete anything on disk.
     </p>
 

@@ -21,7 +21,7 @@ import { resolvedHex } from "../lib/cssColor";
  * fiddling for very little, and the stock token colours sit comfortably on these
  * surfaces.
  */
-export const MONACO_THEME = "calligraph";
+export const MONACO_THEME = "calliope-studio";
 
 /** Font size and line height, as numbers — Monaco measures text width in JS. */
 export const MONACO_FONT_SIZE = 12;

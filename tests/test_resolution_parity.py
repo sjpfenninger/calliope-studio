@@ -1,6 +1,6 @@
 """The structural reading against Calliope's own, on real models.
 
-Calligraph reads a model definition two ways. `modeldef` reads the *files*, which
+Calliope Studio reads a model definition two ways. `modeldef` reads the *files*, which
 has to keep working on a model that does not build, because that is what someone is
 editing. Anything that needs to know what the definition *means* asks Calliope,
 which is the only implementation of Calliope's rules that cannot drift from
@@ -25,15 +25,15 @@ from pathlib import Path
 
 import pytest
 
-from calligraph.modeldef import geo
-from calligraph.modeldef.data_tables import data_table_params
-from calligraph.modeldef.entities import (
+from calliope_studio.modeldef import geo
+from calliope_studio.modeldef.data_tables import data_table_params
+from calliope_studio.modeldef.entities import (
     assembled,
     harmonise_coordinates,
     resolved_techs,
     transmission_techs,
 )
-from calligraph.modeldef.yaml_io import read_section
+from calliope_studio.modeldef.yaml_io import read_section
 
 #: The repository's own example, which the stock ones do not resemble.
 NLD = Path(__file__).parent.parent / "examples" / "model_nld-NUTS3-v1"
@@ -289,7 +289,7 @@ class TestCoordinatePairs:
 
     def test_a_dragged_node_still_loads(self, national_scale):
         """End to end: write a mixed pair through the same path a save takes."""
-        from calligraph.modeldef.yaml_io import write_section
+        from calliope_studio.modeldef.yaml_io import write_section
 
         locations = national_scale / "model_config" / "locations.yaml"
         section = dict(read_section(locations, "nodes"))

@@ -12,7 +12,7 @@ import sys
 import zipfile
 from pathlib import Path
 
-REQUIRED = "calligraph/server/static/index.html"
+REQUIRED = "calliope_studio/server/static/index.html"
 
 #: A bundle with only an index page means the build produced no assets.
 MINIMUM_STATIC_FILES = 5
@@ -27,7 +27,8 @@ def check(wheel: Path) -> list[str]:
     if REQUIRED not in names:
         problems.append(f"{wheel.name}: no interface — {REQUIRED} is missing")
 
-    static = [name for name in names if name.startswith("calligraph/server/static/")]
+    prefix = "calliope_studio/server/static/"
+    static = [name for name in names if name.startswith(prefix)]
     if 0 < len(static) < MINIMUM_STATIC_FILES:
         problems.append(
             f"{wheel.name}: only {len(static)} bundled files, "

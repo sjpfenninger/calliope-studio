@@ -3,7 +3,7 @@ requires = ["setuptools>=64", "setuptools-scm>=8"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "calligraph"
+name = "calliope-studio"
 authors = [
   { name = "Stefan Pfenninger", email = "stefan@pfenninger.org" },
 ]
@@ -34,7 +34,7 @@ dependencies = [
 ]
 
 [project.scripts]
-calligraph = "calligraph.cli:main"
+calliope-studio = "calliope_studio.cli:main"
 
 [project.urls]
 website = "https://www.callio.pe/"
@@ -48,12 +48,12 @@ fallback_version = "0.1.0.dev0"
 
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["calligraph*"]
+include = ["calliope_studio*"]
 
 [tool.setuptools.package-data]
 # The Vue bundle is built from `web/` into here by `pixi run web-build`, so that
-# `calligraph` can serve the frontend from the same process as the API.
-calligraph = ["server/static/**"]
+# `calliope-studio` can serve the frontend from the same process as the API.
+calliope_studio = ["server/static/**"]
 
 [tool.setuptools]
 license-files = ["LICENSE"]
@@ -82,7 +82,7 @@ nodejs = ">=22"
 coin-or-cbc = "*"
 
 [tool.pixi.pypi-dependencies]
-calligraph = { path = ".", editable = true }
+calliope-studio = { path = ".", editable = true }
 
 [tool.pixi.environments]
 default = { features = ["dev"], solve-group = "default" }
@@ -134,7 +134,7 @@ web-typecheck = { cmd = "npx vue-tsc --noEmit", cwd = "web", depends-on = ["web-
 example = "test -d example-model || calliope new example-model --template national_scale"
 
 # API only, with reload. Pair with `web-dev` (Vite proxies /api to this).
-serve = { cmd = "uvicorn calligraph.server.app:app --reload --port 8000", env = { CALLIGRAPH_WORKSPACE = "example-model" }, depends-on = [
+serve = { cmd = "uvicorn calliope_studio.server.app:app --reload --port 8000", env = { CALLIOPE_STUDIO_WORKSPACE = "example-model" }, depends-on = [
   "example",
 ] }
 

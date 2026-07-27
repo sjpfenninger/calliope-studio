@@ -1,7 +1,7 @@
 /**
  * The run loop, end to end, against a running server on a real model.
  *
- *   pixi run calligraph --no-browser --port 8791 example-model
+ *   pixi run calliope-studio --no-browser --port 8791 example-model
  *   npm run run-lifecycle -- http://127.0.0.1:8791
  *
  * Click Run → the tab opens immediately on the log → lines stream → the run
@@ -83,7 +83,7 @@ check(
   (await testId("run-summary").locator("dt").count()) > 5,
 );
 
-await page.screenshot({ path: "/tmp/calligraph-run-lifecycle.png", fullPage: true });
-console.log("screenshot: /tmp/calligraph-run-lifecycle.png");
+await page.screenshot({ path: "/tmp/calliope-studio-run-lifecycle.png", fullPage: true });
+console.log("screenshot: /tmp/calliope-studio-run-lifecycle.png");
 
 await finish(browser, consoleErrors);

@@ -12,7 +12,7 @@ import time
 
 import pytest
 
-from calligraph.runs.manager import RunManager
+from calliope_studio.runs.manager import RunManager
 
 TERMINAL = {"success", "infeasible", "failed", "cancelled"}
 
@@ -132,7 +132,7 @@ class TestRunLifecycle:
         which opens the run's tab on charts that fail to load — a broken screen
         instead of the error message that was sitting in the outcome all along.
         """
-        from calligraph.runs import protocol, worker
+        from calliope_studio.runs import protocol, worker
 
         run_dir = tmp_path / "run"
         run_dir.mkdir()
@@ -159,7 +159,7 @@ class TestRunLifecycle:
         """
         import os
 
-        from calligraph.runs import protocol
+        from calliope_studio.runs import protocol
 
         run_id = "3fa85f64-5717-4562-b3fc-2c963f66afa6"
         run_dir = national_scale / "calligraph" / "runs" / run_id
@@ -480,7 +480,7 @@ class TestSolvingFromTheSnapshot:
         """
         from fastapi.testclient import TestClient
 
-        from calligraph.server.app import create_app
+        from calliope_studio.server.app import create_app
 
         app = create_app(workspace=urban_scale, storage=storage)
         with TestClient(app) as urban_client:

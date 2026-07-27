@@ -7,14 +7,14 @@ import pyarrow as pa
 import pytest
 from fastapi.testclient import TestClient
 
-from calligraph.server.app import create_app
+from calliope_studio.server.app import create_app
 
 ARROW_STREAM = "application/vnd.apache.arrow.stream"
 
 
 @pytest.fixture
 def results_client(solved_results, storage):
-    """A client opened directly on a solved model, as `calligraph results.nc`."""
+    """A client opened directly on a solved model, as `calliope-studio results.nc`."""
     app = create_app(workspace=solved_results, storage=storage)
     with TestClient(app) as client:
         client.handle = app.state.active_results

@@ -70,7 +70,7 @@ export const router = createRouter({
       ],
     },
 
-    // `calligraph results.nc` has no model definition to edit: the same shell,
+    // `calliope-studio results.nc` has no model definition to edit: the same shell,
     // with Model and Files unavailable and one run tab already open.
     {
       path: "/viewer",

@@ -86,7 +86,7 @@ jobs:
 
       - name: Start the server on it
         run: |
-          pixi run calligraph --no-browser --port 8791 example-model &
+          pixi run calliope-studio --no-browser --port 8791 example-model &
           npx --yes wait-on -t 120000 http://127.0.0.1:8791/api/health
 
       # The design tokens, and every renderer that reads them outside the DOM.
@@ -118,7 +118,7 @@ jobs:
       - name: Results view, on what that run produced
         run: |
           results=$(ls example-model/calligraph/runs/*/results.nc | head -1)
-          pixi run calligraph --no-browser --port 8792 "$results" &
+          pixi run calliope-studio --no-browser --port 8792 "$results" &
           npx --yes wait-on -t 120000 http://127.0.0.1:8792/api/health
           cd web && npm run smoke -- http://127.0.0.1:8792
 
@@ -127,7 +127,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: browser-screenshots
-          path: /tmp/calligraph-*.png
+          path: /tmp/calliope-studio-*.png
           if-no-files-found: ignore
 
   package:

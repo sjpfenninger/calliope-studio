@@ -7,8 +7,8 @@ so getting this wrong either hides links or mixes them in with everything else.
 
 import pytest
 
-from calligraph.modeldef import entities
-from calligraph.modeldef.imports import component_tree
+from calliope_studio.modeldef import entities
+from calliope_studio.modeldef.imports import component_tree
 
 
 class TestTransmissionDetection:

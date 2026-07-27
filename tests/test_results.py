@@ -7,16 +7,21 @@ import numpy as np
 import pyarrow as pa
 import pytest
 
-from calligraph.results import frames, geo, summaries
-from calligraph.results.catalog import (
+from calliope_studio.results import frames, geo, summaries
+from calliope_studio.results.catalog import (
     SYNTHETIC_VARIABLES,
     base_tech_members,
     build_catalog,
     get_array,
 )
-from calligraph.results.colors import DEFAULT_PALETTE, tech_colors
-from calligraph.results.query import Query, choose_index, filter_selectors, reduce_array
-from calligraph.results.store import ResultsNotFound, ResultStore, results_id
+from calliope_studio.results.colors import DEFAULT_PALETTE, tech_colors
+from calliope_studio.results.query import (
+    Query,
+    choose_index,
+    filter_selectors,
+    reduce_array,
+)
+from calliope_studio.results.store import ResultsNotFound, ResultStore, results_id
 
 
 def read_stream(table: pa.Table, batch_rows: int = 4096) -> pa.Table:
@@ -56,7 +61,7 @@ class TestStore:
         A solved model is roughly seventeen times its file size in memory, so the
         reverse-lookup endpoint cannot afford to load one to report a path.
         """
-        from calligraph.results import store as store_module
+        from calliope_studio.results import store as store_module
 
         monkeypatch.setattr(
             store_module,
@@ -97,7 +102,7 @@ class TestModelCacheBudget:
     @pytest.fixture
     def counting_loader(self, monkeypatch):
         """Replaces the real reader, so eviction is observable without the memory."""
-        from calligraph.results import store as store_module
+        from calliope_studio.results import store as store_module
 
         calls: list[str] = []
 
@@ -118,7 +123,7 @@ class TestModelCacheBudget:
         self, counting_loader, tmp_path, monkeypatch
     ):
         calls, store_module = counting_loader
-        monkeypatch.setenv("CALLIGRAPH_RESULTS_BUDGET_MB", "1")
+        monkeypatch.setenv("CALLIOPE_STUDIO_RESULTS_BUDGET_MB", "1")
 
         first = str(self._sized_file(tmp_path, "a.nc", 1))
         second = str(self._sized_file(tmp_path, "b.nc", 1))
@@ -131,7 +136,7 @@ class TestModelCacheBudget:
 
     def test_a_generous_budget_keeps_both(self, counting_loader, tmp_path, monkeypatch):
         calls, store_module = counting_loader
-        monkeypatch.setenv("CALLIGRAPH_RESULTS_BUDGET_MB", "4096")
+        monkeypatch.setenv("CALLIOPE_STUDIO_RESULTS_BUDGET_MB", "4096")
 
         first = str(self._sized_file(tmp_path, "a.nc", 1))
         second = str(self._sized_file(tmp_path, "b.nc", 1))
@@ -145,7 +150,7 @@ class TestModelCacheBudget:
     def test_one_entry_is_always_retained(self, counting_loader, tmp_path, monkeypatch):
         """A model bigger than the whole budget must still be openable."""
         calls, store_module = counting_loader
-        monkeypatch.setenv("CALLIGRAPH_RESULTS_BUDGET_MB", "1")
+        monkeypatch.setenv("CALLIOPE_STUDIO_RESULTS_BUDGET_MB", "1")
 
         huge = str(self._sized_file(tmp_path, "huge.nc", 2))
         store_module._load(huge)
@@ -162,7 +167,7 @@ class TestModelCacheBudget:
         process.
         """
         calls, store_module = counting_loader
-        monkeypatch.setenv("CALLIGRAPH_RESULTS_BUDGET_MB", "4096")
+        monkeypatch.setenv("CALLIOPE_STUDIO_RESULTS_BUDGET_MB", "4096")
 
         path = self._sized_file(tmp_path, "a.nc", 1)
         store = ResultStore()
@@ -430,7 +435,7 @@ class TestGeo:
 
     def test_shape_matches_the_definition_endpoint(self, results, national_scale):
         """One map component renders either, so both must agree on the shape."""
-        from calligraph.modeldef import geo as definition_geo
+        from calliope_studio.modeldef import geo as definition_geo
 
         assert set(geo.geojson(results.model)) == set(
             definition_geo.geojson(national_scale)

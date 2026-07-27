@@ -16,11 +16,11 @@ from pydantic import BaseModel, Field
 from calliope_studio.results import frames, geo, summaries
 from calliope_studio.results.catalog import (
     SYNTHETIC_VARIABLES,
-    base_tech_members,
     build_catalog,
     dimension_members,
 )
 from calliope_studio.results.colors import tech_colors
+from calliope_studio.results.links import link_orientation, transmission_links
 from calliope_studio.results.query import Query, reduce_array
 from calliope_studio.results.store import ResultHandle, ResultsNotFound, ResultStore
 from calliope_studio.runs import protocol
@@ -70,8 +70,13 @@ def resolve(handle: str, store: ResultStore = Depends(get_results)) -> ResultHan
 @router.get("/results/{handle}/catalog/")
 def catalog(results: ResultHandle = Depends(resolve)) -> dict:
     """What can be plotted, and the dimensions available to filter it by."""
-    transmission = base_tech_members(results.model, "transmission")
-    variables = build_catalog(results.dataset, transmission_techs=transmission)
+    dimensions = dimension_members(results.dataset)
+    # Ordered by the `techs` coordinate, so the sidebar's two technology sections
+    # partition one list and the selector it merges back into keeps that order.
+    links = transmission_links(results.model, order=dimensions.get("techs"))
+    variables = build_catalog(
+        results.dataset, transmission_techs=[link.tech for link in links]
+    )
     colors = tech_colors(results.model)
 
     timesteps = results.dataset.coords.get("timesteps")
@@ -85,8 +90,11 @@ def catalog(results: ResultHandle = Depends(resolve)) -> dict:
         "id": results.id,
         "name": results.name,
         "variables": variables.as_dict(),
-        "dimensions": dimension_members(results.dataset),
-        "transmission_techs": transmission,
+        "dimensions": dimensions,
+        # `dimensions.techs` deliberately still holds every technology: which of
+        # them are links is presentation, and the merged selector needs the whole
+        # list to re-order against.
+        "links": [link.as_dict() for link in links],
         "colors": colors,
         "time_extent": time_extent,
         "synthetic": {
@@ -130,7 +138,15 @@ def frame(
 @router.get("/results/{handle}/geo/")
 def geometry(results: ResultHandle = Depends(resolve)) -> dict:
     """Node and link geometry as GeoJSON, in longitude and latitude."""
-    return geo.geojson(results.model, colors=tech_colors(results.model))
+    return geo.geojson(
+        results.model,
+        colors=tech_colors(results.model),
+        # Without this the ends come out in coordinate order, which reverses 6 of
+        # `model_nld-NUTS3-v1`'s 41 links. The editor's map has always passed its
+        # own; this is the same answer, read from the model rather than the files,
+        # because a `.nc` opened from the command line has no workspace to read.
+        orientation=link_orientation(results.model),
+    )
 
 
 @router.get("/results/{handle}/summary/")

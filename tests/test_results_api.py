@@ -54,6 +54,19 @@ class TestCatalog:
         assert "techs" in body["dimensions"]
         assert body["time_extent"] and len(body["time_extent"]) == 2
 
+    def test_carries_links_with_their_endpoints(self, results_client):
+        body = results_client.get(
+            f"/api/results/{results_client.handle}/catalog/"
+        ).json()
+        assert body["links"]
+        assert "transmission_techs" not in body
+        for link in body["links"]:
+            assert set(link) == {"tech", "from", "to"}
+            # The sidebar splits `dimensions.techs` into two sections, so every
+            # link must still be in it or one of them silently loses members.
+            assert link["tech"] in body["dimensions"]["techs"]
+            assert link["from"] and link["to"]
+
     def test_names_synthetic_variables(self, results_client):
         body = results_client.get(
             f"/api/results/{results_client.handle}/catalog/"

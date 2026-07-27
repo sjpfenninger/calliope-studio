@@ -2,10 +2,12 @@
 
 import io
 import json
+from types import SimpleNamespace
 
 import numpy as np
 import pyarrow as pa
 import pytest
+import xarray as xr
 
 from calliope_studio.results import frames, geo, summaries
 from calliope_studio.results.catalog import (
@@ -15,6 +17,7 @@ from calliope_studio.results.catalog import (
     get_array,
 )
 from calliope_studio.results.colors import DEFAULT_PALETTE, tech_colors
+from calliope_studio.results.links import Link, link_orientation, transmission_links
 from calliope_studio.results.query import (
     Query,
     choose_index,
@@ -422,6 +425,28 @@ class TestGeo:
             assert feature["properties"]["node_from"]
             assert feature["properties"]["node_to"]
 
+    def test_links_are_drawn_the_way_they_were_declared(self, results):
+        """Coordinate order is arbitrary; `link_from` is not."""
+        oriented = link_orientation(results.model)
+        assert oriented, "the example model should declare its endpoints"
+        positions = {
+            feature["properties"]["node"]: feature["geometry"]["coordinates"]
+            for feature in geo.nodes_geojson(results.model)["features"]
+        }
+        for feature in geo.links_geojson(results.model, orientation=oriented)[
+            "features"
+        ]:
+            properties = feature["properties"]
+            assert oriented[properties["tech"]] == (
+                properties["node_from"],
+                properties["node_to"],
+            )
+            # And the line runs the same way as the properties say it does.
+            assert (
+                feature["geometry"]["coordinates"][0]
+                == positions[properties["node_from"]]
+            )
+
     def test_bounds_enclose_every_node_with_margin(self, results):
         (west, south), (east, north) = geo.bounds(results.model)
         for feature in geo.nodes_geojson(results.model)["features"]:
@@ -440,6 +465,125 @@ class TestGeo:
         assert set(geo.geojson(results.model)) == set(
             definition_geo.geojson(national_scale)
         )
+
+
+def stub_model(base_techs: dict, inputs=None, definition=None):
+    """A model just real enough for link resolution.
+
+    `inputs` and `definition` are `{tech: (from, to)}`; passing None for either
+    leaves that source absent entirely, which is the case that matters — the two
+    are absent in different real models.
+    """
+    names = list(base_techs)
+    variables = {
+        "base_tech": xr.DataArray(
+            list(base_techs.values()), dims="techs", coords={"techs": names}
+        )
+    }
+    if inputs is not None:
+        for position, key in enumerate(("link_from", "link_to")):
+            variables[key] = xr.DataArray(
+                [inputs.get(name, ("", ""))[position] for name in names],
+                dims="techs",
+                coords={"techs": names},
+            )
+
+    model = SimpleNamespace(inputs=xr.Dataset(variables))
+    if definition is not None:
+        model.definition = SimpleNamespace(
+            techs=SimpleNamespace(
+                root={
+                    name: (
+                        SimpleNamespace(
+                            link_from=definition[name][0], link_to=definition[name][1]
+                        )
+                        if name in definition
+                        # Absent, not None, on a tech that never declared them.
+                        else SimpleNamespace()
+                    )
+                    for name in names
+                }
+            )
+        )
+    return model
+
+
+class TestLinks:
+    def test_endpoints_come_from_the_definition(self, results):
+        """The path `inputs` cannot cover.
+
+        `national_scale` declares its links in YAML, and `_links_to_node_format`
+        consumes that during preprocessing — so `inputs.link_from` does not exist
+        and `model.definition` is the only remaining record.
+        """
+        assert "link_from" not in results.model.inputs
+        links = transmission_links(results.model)
+        assert links, "the example model should have transmission techs"
+        assert all(link.node_from and link.node_to for link in links)
+        by_tech = {link.tech: (link.node_from, link.node_to) for link in links}
+        assert by_tech["region1_to_region2"] == ("region1", "region2")
+
+    def test_every_transmission_tech_is_listed(self, results):
+        assert [link.tech for link in transmission_links(results.model)] == sorted(
+            base_tech_members(results.model, "transmission")
+        )
+
+    def test_order_follows_the_caller(self, results):
+        members = base_tech_members(results.model, "transmission")
+        reversed_order = list(reversed(members))
+        links = transmission_links(results.model, order=reversed_order)
+        assert [link.tech for link in links] == reversed_order
+
+    def test_unranked_techs_go_last(self):
+        model = stub_model(
+            {"a_to_b": "transmission", "b_to_c": "transmission"},
+            definition={"a_to_b": ("a", "b"), "b_to_c": ("b", "c")},
+        )
+        links = transmission_links(model, order=["b_to_c"])
+        assert [link.tech for link in links] == ["b_to_c", "a_to_b"]
+
+    def test_no_transmission_means_no_links(self):
+        model = stub_model({"pv": "supply"}, definition={})
+        assert transmission_links(model) == []
+
+    def test_a_model_without_base_tech_is_not_an_error(self):
+        assert transmission_links(SimpleNamespace(inputs=xr.Dataset())) == []
+
+    def test_inputs_win_over_the_definition(self):
+        """A data table is the model as it was actually built."""
+        model = stub_model(
+            {"a_to_b": "transmission"},
+            inputs={"a_to_b": ("a", "b")},
+            definition={"a_to_b": ("b", "a")},
+        )
+        assert link_orientation(model) == {"a_to_b": ("a", "b")}
+
+    def test_blank_endpoints_count_as_absent(self):
+        """Non-link techs carry `link_from` as an empty string once tabular."""
+        model = stub_model(
+            {"pv": "supply", "a_to_b": "transmission"}, inputs={"a_to_b": ("a", "b")}
+        )
+        assert link_orientation(model) == {"a_to_b": ("a", "b")}
+
+    def test_a_link_with_unknown_ends_is_still_a_link(self):
+        model = stub_model({"a_to_b": "transmission"}, definition={})
+        assert transmission_links(model) == [Link("a_to_b", None, None)]
+
+    def test_a_broken_definition_costs_labels_not_the_catalogue(self):
+        model = stub_model({"a_to_b": "transmission"})
+        model.definition = SimpleNamespace()  # Calliope changed shape under us
+        assert transmission_links(model) == [Link("a_to_b", None, None)]
+
+    def test_label_falls_back_to_the_raw_name(self):
+        assert Link("a_to_b", "a", "b").label == "a → b"
+        assert Link("a_to_b").label == "a_to_b"
+
+    def test_as_dict_is_the_wire_shape(self):
+        assert Link("a_to_b", "a", "b").as_dict() == {
+            "tech": "a_to_b",
+            "from": "a",
+            "to": "b",
+        }
 
 
 class TestSummaries:

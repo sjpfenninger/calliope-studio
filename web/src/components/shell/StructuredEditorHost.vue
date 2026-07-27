@@ -37,6 +37,7 @@ const entryName = () => (props.tab.kind === "entry" ? props.tab.entryName : null
       :versionId="versionId"
       :filePath="tab.filePath"
       :tabId="tab.id"
+      :entryName="entryName()"
     />
     <TechsEditor
       v-else-if="tab.section === 'techs'"

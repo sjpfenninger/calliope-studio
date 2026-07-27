@@ -6,9 +6,13 @@ export type ThemeMode = "light" | "dark";
 
 const THEME_KEY = "calligraph.theme";
 const SPLITTER_KEY = "calligraph.splitter.sizes";
+const DATA_TABLE_SPLIT_KEY = "calligraph.dataTable.split";
 
 /** Explorer | editor | side panel. Replaced by a 2-panel shell later. */
 const DEFAULT_SPLITTER = [20, 55, 25];
+
+/** Config above, CSV grid below. The grid gets the larger half. */
+const DEFAULT_DATA_TABLE_SPLIT = [40, 60];
 
 const DARK_QUERY = "(prefers-color-scheme: dark)";
 
@@ -114,6 +118,32 @@ export const useUiStore = defineStore("ui", () => {
     localStorage.setItem(SPLITTER_KEY, JSON.stringify(sizes));
   }
 
+  /**
+   * How a single data table divides its configuration from its CSV.
+   *
+   * Here for the same reason as `nodesView`: as a local ref it would reset on
+   * every tab switch, which is the one thing a splitter must not do.
+   */
+  const dataTableSplit = ref<number[]>(readDataTableSplit());
+
+  function readDataTableSplit(): number[] {
+    try {
+      const stored = localStorage.getItem(DATA_TABLE_SPLIT_KEY);
+      if (!stored) return [...DEFAULT_DATA_TABLE_SPLIT];
+      const parsed = JSON.parse(stored) as unknown;
+      return Array.isArray(parsed) && parsed.length === DEFAULT_DATA_TABLE_SPLIT.length
+        ? (parsed as number[])
+        : [...DEFAULT_DATA_TABLE_SPLIT];
+    } catch {
+      return [...DEFAULT_DATA_TABLE_SPLIT];
+    }
+  }
+
+  function setDataTableSplit(sizes: number[]) {
+    dataTableSplit.value = sizes;
+    localStorage.setItem(DATA_TABLE_SPLIT_KEY, JSON.stringify(sizes));
+  }
+
   // ── Nodes editor view ────────────────────────────────────────────────────
 
   /**
@@ -138,6 +168,8 @@ export const useUiStore = defineStore("ui", () => {
     cycleTheme,
     splitterSizes,
     setSplitterSizes,
+    dataTableSplit,
+    setDataTableSplit,
     nodesView,
     toggleNodesView,
   };

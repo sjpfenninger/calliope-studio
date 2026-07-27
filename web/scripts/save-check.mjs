@@ -58,6 +58,16 @@ const read = async (path) =>
 
 const { browser, page, testId, consoleErrors } = await open();
 
+// A save that has nothing to write must not write. Watched rather than inferred
+// from the file, because `serialize_csv` round-trips most files unchanged and a
+// spurious PUT would otherwise pass unnoticed until it met one that it does not.
+const csvWrites = [];
+page.on("request", (request) => {
+  if (request.method() === "PUT" && request.url().includes("/csv/")) {
+    csvWrites.push(request.url());
+  }
+});
+
 console.log(`No-op save at ${BASE}`);
 await page.goto(`${BASE}${payload.landing}`, { waitUntil: "networkidle" });
 await testId("model-tree").waitFor({ timeout: 20000 });
@@ -102,6 +112,70 @@ for (const [section, file] of SECTIONS) {
     JSON.stringify(parse(before)) === JSON.stringify(parse(after)),
   );
 }
+
+// ---------------------------------------------------------------------------
+// One data table: only that table, and its CSV, saved together.
+// ---------------------------------------------------------------------------
+
+const TABLE = "time_varying_parameters";
+const TABLE_CSV = "data_tables/time_varying_params.csv";
+
+const yamlBefore = await read("model.yaml");
+const csvBefore = await read(TABLE_CSV);
+
+const dataTables = page.getByRole("treeitem", { name: /^data tables$/i }).first();
+await dataTables.click();
+await page.waitForTimeout(1000);
+
+const entry = page.getByRole("treeitem", { name: new RegExp(`^${TABLE}$`) }).first();
+if ((await entry.count()) === 0) {
+  await dataTables.press("ArrowRight");
+  await page.waitForTimeout(500);
+}
+await entry.click();
+await page.waitForTimeout(1000);
+
+// The grid has to have arrived before Save, or "no CSV write" is trivially true.
+await testId("csv-grid").waitFor({ timeout: 20000 });
+await page.waitForTimeout(1500);
+
+check(
+  `${TABLE}: only the clicked table is shown`,
+  (await page.locator('[data-testid="dt-entry"]').count()) === 1,
+);
+check(
+  `${TABLE}: opening does not mark the tab dirty`,
+  (await page.locator('[data-testid^="tab-"][data-active] .rounded-full').count()) === 0,
+);
+
+await testId("save").click();
+await page.waitForTimeout(1500);
+
+const yamlAfter = await read("model.yaml");
+const csvAfter = await read(TABLE_CSV);
+
+const lost = comments(yamlBefore).filter(
+  (comment) => !comments(yamlAfter).includes(comment),
+);
+check(`${TABLE}: every comment in model.yaml survives`, lost.length === 0, lost[0]);
+check(
+  `${TABLE}: model.yaml line count is unchanged`,
+  yamlBefore.split("\n").length === yamlAfter.split("\n").length,
+);
+check(
+  `${TABLE}: model.yaml parsed content is unchanged`,
+  JSON.stringify(parse(yamlBefore)) === JSON.stringify(parse(yamlAfter)),
+);
+// Byte identity here, unlike the YAML: the claim is that no request was made at
+// all. It is also what catches the grid collapsing the three identically-named
+// "Heat output…" columns of this file into one and writing the last back over
+// all of them.
+check(`${TABLE}: the CSV is byte-identical`, csvBefore === csvAfter);
+check(
+  `${TABLE}: an unedited grid issues no CSV write`,
+  csvWrites.length === 0,
+  csvWrites[0],
+);
 
 check("no console errors throughout", consoleErrors.length === 0);
 

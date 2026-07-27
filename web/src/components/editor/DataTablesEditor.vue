@@ -1,8 +1,22 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from "vue";
+/**
+ * The `data_tables:` section, in two views.
+ *
+ *   - Section tab (entryName=null): every table in the file, configuration only.
+ *   - Entry tab (entryName="cost_parameters"): that table alone, with the CSV
+ *     its `data:` points at in an editable grid below it.
+ *
+ * A data table is a config block *and* a file, and until now the two were
+ * reachable only from opposite ends of the app — the config from the Model tree,
+ * the CSV from the Files tree, with nothing linking them. The single-table view
+ * is where they meet, so Save there writes both.
+ */
+import { computed, onMounted, onUnmounted, ref, toRef, watch } from "vue";
 import { Plus, Trash2 } from "lucide-vue-next";
 
 import client from "@/api/client";
+import CsvGrid from "./CsvGrid.vue";
+import DataTableFields from "./DataTableFields.vue";
 import EditorToolbar from "./EditorToolbar.vue";
 import {
   Accordion,
@@ -11,28 +25,33 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import {
-  DANGER_ICON_BUTTON,
-  FIELD,
-  FIELD_LABEL,
-  GHOST_BUTTON,
-} from "@/lib/formClasses";
+  ResizableHandle,
+  ResizablePanel,
+  ResizablePanelGroup,
+} from "@/components/ui/resizable";
+import { DANGER_ICON_BUTTON, GHOST_BUTTON } from "@/lib/formClasses";
 import { ICON_STROKE_WIDTH } from "@/lib/icons";
+import { resolveDataPath } from "@/lib/modelPaths";
+import { useCsvGrid } from "@/composables/useCsvGrid";
 import { useTabsStore } from "@/stores/tabs";
 import { useSchemaStore } from "@/stores/schema";
-import SchemaObjectEditor, { type FieldOverlay } from "./SchemaObjectEditor.vue";
+import { useUiStore } from "@/stores/ui";
 
 const props = defineProps<{
   versionId: string;
   filePath: string;
   tabId: string;
+  entryName?: string | null;
 }>();
 
 const tabsStore = useTabsStore();
 const schemaStore = useSchemaStore();
+const ui = useUiStore();
 
 const isLoading = ref(true);
 const isSaving = ref(false);
 const error = ref<string | null>(null);
+const saveError = ref<string | null>(null);
 
 // Each entry holds the table name (dict key) and the raw data object from YAML.
 // SchemaObjectEditor takes care of the comma-separated and key/value shapes.
@@ -44,36 +63,127 @@ interface DataTableEntry {
 const entries = ref<DataTableEntry[]>([]);
 
 // ---------------------------------------------------------------------------
-// Per-entry schema — the CalliopeDataTable schema from the store.
+// One vs all
 // ---------------------------------------------------------------------------
 
-const entrySchema = computed<Record<string, any>>(() => {
-  if (!schemaStore.isLoaded) return {};
-  const dtSchema = schemaStore.subschema("data_tables");
-  if (!dtSchema?.patternProperties) return {};
-  // The schema uses patternProperties; the first (and only) value is the entry schema.
-  return (Object.values(dtSchema.patternProperties)[0] as Record<string, any>) ?? {};
+/**
+ * The entries to show, each with its index into the full `entries` array.
+ *
+ * The index is carried rather than recomputed because every edit handler writes
+ * through it: on an entry tab a filtered `v-for` index is 0 for whichever table
+ * was clicked, so passing that would edit the *first* table in the file and save
+ * it. Filtering is display-only — the whole section is still what gets written.
+ */
+const visibleEntries = computed(() =>
+  entries.value
+    .map((entry, index) => ({ entry, index }))
+    .filter(({ entry }) => !props.entryName || entry.name === props.entryName)
+);
+
+const activeEntry = computed(() =>
+  props.entryName ? (visibleEntries.value[0]?.entry ?? null) : null
+);
+
+// ---------------------------------------------------------------------------
+// The table's CSV
+// ---------------------------------------------------------------------------
+
+const csv = useCsvGrid(toRef(props, "versionId"));
+const {
+  columnDefs,
+  rowData,
+  isLoading: csvLoading,
+  error: csvError,
+  isDirty: csvDirty,
+} = csv;
+
+/** Where `data:` points, workspace-relative, or null if there is nothing to open. */
+const csvPath = computed(() =>
+  activeEntry.value
+    ? resolveDataPath(props.filePath, activeEntry.value.data?.data)
+    : null
+);
+
+/** Why there is no grid, when a single table is shown but `data:` gives nothing. */
+const noCsvReason = computed<string | null>(() => {
+  if (!activeEntry.value || csvPath.value) return null;
+  const raw = activeEntry.value.data?.data;
+  if (raw === undefined || raw === null || raw === "") {
+    return "This table has no data: file.";
+  }
+  if (Array.isArray(raw)) {
+    return "data: names more than one file — Calliope expects a single path. Edit this table as raw YAML.";
+  }
+  return "data: points outside the model folder.";
 });
 
-// ---------------------------------------------------------------------------
-// Overlay — curated field selection + widget hints.
-// rows/columns: the schema says string | string[] | null, so one comma-joined field.
-// add_dims/select: the schema is a {key: val} mapping, so a list of key/value rows.
-// drop / rename_dims: hidden for now (uncommon).
-// ---------------------------------------------------------------------------
+/**
+ * A path change the grid has not followed yet, because it has unsaved edits.
+ *
+ * Reloading on a `data:` keystroke would throw away cell edits without asking,
+ * so a dirty grid stays put and offers the reload instead.
+ */
+const pendingPath = ref<string | null>(null);
 
-const dataTableOverlay: FieldOverlay = {
-  rows: { widget: "commaSeparated", label: "rows (comma-separated dims)" },
-  columns: { widget: "commaSeparated", label: "columns (comma-separated dims)" },
-  add_dims: { widget: "keyValue" },
-  select: { widget: "keyValue" },
-  drop: { hidden: true },
-  rename_dims: { hidden: true },
-};
+let reloadTimer: ReturnType<typeof setTimeout> | undefined;
+// What has been asked for, whether or not it arrived. Tracking the *request*
+// rather than `csv.loadedPath` matters for a path that 404s: that leaves
+// `loadedPath` null, and comparing against it would re-request on every
+// subsequent keystroke.
+let requested: string | null = null;
+let hasRequested = false;
+
+function request(path: string | null) {
+  clearTimeout(reloadTimer);
+  requested = path;
+  // `data:` is a text field and SchemaObjectEditor emits on every keystroke, so
+  // an undebounced watch is one request — and one 404 — per character typed.
+  // The first load is not typing, so it does not wait.
+  const delay = hasRequested ? 400 : 0;
+  hasRequested = true;
+  reloadTimer = setTimeout(() => csv.load(path), delay);
+}
+
+watch(
+  csvPath,
+  (next) => {
+    if (next === requested) {
+      pendingPath.value = null;
+      return;
+    }
+    if (csvDirty.value) {
+      // Reloading now would throw away cell edits without asking.
+      pendingPath.value = next;
+      return;
+    }
+    pendingPath.value = null;
+    request(next);
+  },
+  { flush: "post", immediate: true }
+);
+
+function reloadCsv() {
+  const next = pendingPath.value;
+  pendingPath.value = null;
+  csv.markSaved(); // discarding the edits is the point of the button
+  request(next);
+}
+
+function onCellValueChanged() {
+  csv.markEdited();
+  tabsStore.markDirty(props.tabId);
+}
 
 // ---------------------------------------------------------------------------
 // Load / save
 // ---------------------------------------------------------------------------
+
+const formDirty = ref(false);
+
+function touchForm() {
+  formDirty.value = true;
+  tabsStore.markDirty(props.tabId);
+}
 
 async function load() {
   isLoading.value = true;
@@ -87,9 +197,9 @@ async function load() {
       name,
       data: raw ?? {},
     }));
+    formDirty.value = false;
   } catch (e: any) {
-    error.value =
-      e?.response?.data?.detail ?? "Failed to load data_tables section.";
+    error.value = e?.response?.data?.detail ?? "Failed to load data_tables section.";
   } finally {
     isLoading.value = false;
   }
@@ -109,14 +219,38 @@ function buildPayload(): Record<string, any> {
   return result;
 }
 
+/**
+ * Writes the CSV first, then the YAML.
+ *
+ * `data:` is the pointer. If the CSV write fails after the YAML write landed,
+ * the model names a file whose edits were lost; the other way round leaves at
+ * worst an orphan CSV at a path the user just typed, which is visible and
+ * recoverable. Cell edits are the expensive thing, so they go first.
+ *
+ * Neither write happens unless that half is dirty. For the CSV that is a
+ * correctness requirement rather than an optimisation: `serialize_csv` rewrites
+ * the whole file through `csv.writer`, so a no-op rewrite can still change
+ * quoting and line endings.
+ */
 async function save() {
   isSaving.value = true;
+  saveError.value = null;
   try {
-    await client.put(
-      `/api/versions/${props.versionId}/yaml-section/${props.filePath}?section=data_tables`,
-      { data: buildPayload() }
-    );
+    if (csvDirty.value && csv.loadedPath.value) {
+      await tabsStore.saveCsvFile(csv.loadedPath.value, csv.columns, csv.toRows());
+      csv.markSaved();
+    }
+    if (formDirty.value) {
+      await client.put(
+        `/api/versions/${props.versionId}/yaml-section/${props.filePath}?section=data_tables`,
+        { data: buildPayload() }
+      );
+      formDirty.value = false;
+    }
     tabsStore.markClean(props.tabId);
+  } catch (e: any) {
+    // The tab stays dirty: something did not land.
+    saveError.value = e?.response?.data?.detail ?? "Save failed.";
   } finally {
     isSaving.value = false;
   }
@@ -128,21 +262,22 @@ async function save() {
 
 function addEntry() {
   entries.value.push({ name: "", data: {} });
-  tabsStore.markDirty(props.tabId);
+  touchForm();
 }
 
-function removeEntry(i: number) {
-  entries.value.splice(i, 1);
-  tabsStore.markDirty(props.tabId);
+function removeEntry(index: number) {
+  entries.value.splice(index, 1);
+  touchForm();
 }
 
-function onNameChange() {
-  tabsStore.markDirty(props.tabId);
+function onNameChange(index: number, name: string) {
+  entries.value[index].name = name;
+  touchForm();
 }
 
-function onEntryDataChange(i: number, data: Record<string, any>) {
-  entries.value[i].data = data;
-  tabsStore.markDirty(props.tabId);
+function onEntryDataChange(index: number, data: Record<string, any>) {
+  entries.value[index].data = data;
+  touchForm();
 }
 
 // ---------------------------------------------------------------------------
@@ -158,14 +293,27 @@ function onKeydown(e: KeyboardEvent) {
 
 onMounted(async () => {
   window.addEventListener("keydown", onKeydown);
+  // The CSV follows from `data:`, so the watch above picks it up once the
+  // section has loaded; nothing to kick off here.
   await Promise.all([load(), schemaStore.load()]);
+});
+
+// Without this, opening the overview and then a single table leaves two
+// listeners alive, and Cmd+S saves the destroyed component's stale `entries`
+// over the live one's.
+onUnmounted(() => {
+  window.removeEventListener("keydown", onKeydown);
+  clearTimeout(reloadTimer);
 });
 
 watch(() => props.filePath, load);
 </script>
 
 <template>
-  <div class="flex min-h-0 flex-1 flex-col">
+  <!-- h-full, unlike its sibling editors: the splitter below sizes its panels as
+       a fraction of this element, and `flex-1` inside the host's block-level
+       wrapper leaves it at content height, which would collapse the grid. -->
+  <div class="flex h-full min-h-0 flex-col">
     <p v-if="isLoading" class="p-6 text-center text-sm text-muted-foreground">
       Loading data_tables…
     </p>
@@ -173,25 +321,120 @@ watch(() => props.filePath, load);
 
     <template v-else>
       <EditorToolbar :saving="isSaving" @save="save">
-        <button type="button" :class="GHOST_BUTTON" @click="addEntry">
+        <button
+          v-if="!entryName"
+          type="button"
+          :class="GHOST_BUTTON"
+          @click="addEntry"
+        >
           <Plus class="size-3.5" :stroke-width="ICON_STROKE_WIDTH" />
           Add table
         </button>
+        <span v-if="saveError" class="text-2xs text-danger-text">{{ saveError }}</span>
       </EditorToolbar>
 
-      <div class="min-h-0 flex-1 overflow-auto">
-        <p v-if="!entries.length" class="p-6 text-center text-sm text-muted-foreground">
-          No data tables defined yet.
-        </p>
+      <p
+        v-if="!visibleEntries.length"
+        class="p-6 text-center text-sm text-muted-foreground"
+      >
+        {{
+          entryName
+            ? `No data table called "${entryName}".`
+            : "No data tables defined yet."
+        }}
+      </p>
 
+      <!-- One table: its configuration above, its CSV below. -->
+      <ResizablePanelGroup
+        v-else-if="activeEntry && csvPath"
+        direction="vertical"
+        class="min-h-0 flex-1"
+        @layout="ui.setDataTableSplit($event)"
+      >
+        <ResizablePanel :default-size="ui.dataTableSplit[0]" :min-size="20">
+          <div class="h-full overflow-auto px-2" data-testid="dt-entry">
+            <DataTableFields
+              :name="activeEntry.name"
+              :data="activeEntry.data"
+              :form-key="filePath + ':dt:' + visibleEntries[0].index"
+              @update:name="onNameChange(visibleEntries[0].index, $event)"
+              @update:data="onEntryDataChange(visibleEntries[0].index, $event)"
+            />
+          </div>
+        </ResizablePanel>
+
+        <ResizableHandle with-handle />
+
+        <ResizablePanel :default-size="ui.dataTableSplit[1]" :min-size="20">
+          <div class="flex h-full min-h-0 flex-col">
+            <div
+              class="flex h-6 shrink-0 items-center gap-2 border-b border-border px-2 font-mono text-2xs text-text-dim"
+            >
+              <span class="truncate">{{ csvPath }}</span>
+            </div>
+
+            <p
+              v-if="pendingPath"
+              class="flex shrink-0 items-center gap-2 border-b border-border px-2 py-1 text-2xs text-text-dim"
+            >
+              <span class="truncate">
+                data: now points at <span class="font-mono">{{ pendingPath }}</span
+                >.
+              </span>
+              <button type="button" :class="GHOST_BUTTON" @click="reloadCsv">
+                Reload grid
+              </button>
+              <span class="text-text-faint">discards unsaved cell edits</span>
+            </p>
+
+            <p
+              v-if="csvLoading"
+              class="p-6 text-center text-sm text-muted-foreground"
+            >
+              Loading…
+            </p>
+            <p v-else-if="csvError" class="p-6 text-center text-sm text-danger-text">
+              {{ csvError }}
+            </p>
+            <CsvGrid
+              v-else
+              :column-defs="columnDefs"
+              :row-data="rowData"
+              @cell-value-changed="onCellValueChanged"
+            />
+          </div>
+        </ResizablePanel>
+      </ResizablePanelGroup>
+
+      <!-- One table, but nothing openable at its `data:`. -->
+      <div v-else-if="activeEntry" class="min-h-0 flex-1 overflow-auto px-2">
+        <div data-testid="dt-entry">
+          <DataTableFields
+            :name="activeEntry.name"
+            :data="activeEntry.data"
+            :form-key="filePath + ':dt:' + visibleEntries[0].index"
+            @update:name="onNameChange(visibleEntries[0].index, $event)"
+            @update:data="onEntryDataChange(visibleEntries[0].index, $event)"
+          />
+        </div>
+        <p class="border-t border-border px-1 py-2 text-2xs text-text-dim">
+          {{ noCsvReason }}
+        </p>
+      </div>
+
+      <!-- Every table in the file. -->
+      <div v-else class="min-h-0 flex-1 overflow-auto">
         <Accordion
-          v-else
           type="multiple"
-          :default-value="entries.map((_, i) => String(i))"
+          :default-value="visibleEntries.map(({ index }) => String(index))"
           class="px-2"
         >
-          <AccordionItem v-for="(entry, i) in entries" :key="i" :value="String(i)">
-            <div class="flex items-center gap-1">
+          <AccordionItem
+            v-for="{ entry, index } in visibleEntries"
+            :key="index"
+            :value="String(index)"
+          >
+            <div class="flex items-center gap-1" data-testid="dt-entry">
               <AccordionTrigger
                 class="min-w-0 flex-1 items-center py-1.5 font-mono text-sm hover:no-underline"
               >
@@ -201,31 +444,19 @@ watch(() => props.filePath, load);
                 type="button"
                 title="Remove this table"
                 :class="DANGER_ICON_BUTTON"
-                @click.stop="removeEntry(i)"
+                @click.stop="removeEntry(index)"
               >
                 <Trash2 class="size-3.5" :stroke-width="ICON_STROKE_WIDTH" />
               </button>
             </div>
             <AccordionContent>
-              <div class="flex flex-col gap-2 pb-2">
-                <!-- name is the mapping key, not a schema property. -->
-                <div class="flex flex-col gap-1">
-                  <label :class="FIELD_LABEL">name</label>
-                  <input
-                    v-model="entry.name"
-                    type="text"
-                    :class="FIELD"
-                    @input="onNameChange"
-                  />
-                </div>
-                <SchemaObjectEditor
-                  :key="filePath + ':dt:' + i"
-                  :schema="entrySchema"
-                  :model-value="entry.data"
-                  :overlay="dataTableOverlay"
-                  @update:model-value="onEntryDataChange(i, $event)"
-                />
-              </div>
+              <DataTableFields
+                :name="entry.name"
+                :data="entry.data"
+                :form-key="filePath + ':dt:' + index"
+                @update:name="onNameChange(index, $event)"
+                @update:data="onEntryDataChange(index, $event)"
+              />
             </AccordionContent>
           </AccordionItem>
         </Accordion>

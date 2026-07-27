@@ -32,6 +32,18 @@ export interface ResultFrame {
   seriesDims: string[];
 }
 
+/**
+ * A transmission technology and the two nodes it joins.
+ *
+ * `from` and `to` are null when the model does not say which end is which — a
+ * link is still a link, it just goes by its own name.
+ */
+export interface Link {
+  tech: string;
+  from: string | null;
+  to: string | null;
+}
+
 export interface Catalog {
   id: string;
   name: string;
@@ -42,8 +54,9 @@ export interface Catalog {
     static_nodes: string[];
     static_links: string[];
   };
+  /** Every dimension's members, `techs` still including the links. */
   dimensions: Record<string, string[]>;
-  transmission_techs: string[];
+  links: Link[];
   colors: Record<string, string>;
   time_extent: [string, string] | null;
   synthetic: Record<string, string>;

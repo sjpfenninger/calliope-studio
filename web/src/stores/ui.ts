@@ -16,6 +16,7 @@ const THEME_KEY = `${KEY_PREFIX}theme`;
 const SPLITTER_KEY = `${KEY_PREFIX}splitter.sizes`;
 const DATA_TABLE_SPLIT_KEY = `${KEY_PREFIX}dataTable.split`;
 const MAP_SPLIT_KEY = `${KEY_PREFIX}map.split`;
+const RESULTS_SPLIT_KEY = `${KEY_PREFIX}results.split`;
 
 /** Explorer | editor | side panel. Replaced by a 2-panel shell later. */
 const DEFAULT_SPLITTER = [20, 55, 25];
@@ -25,6 +26,9 @@ const DEFAULT_DATA_TABLE_SPLIT = [40, 60];
 
 /** Map above, the selected entry's form below. */
 const DEFAULT_MAP_SPLIT = [72, 28];
+
+/** Map above, both charts below — about the 300px the map used to be fixed at. */
+const DEFAULT_RESULTS_SPLIT = [35, 65];
 
 const DARK_QUERY = "(prefers-color-scheme: dark)";
 
@@ -188,6 +192,36 @@ export const useUiStore = defineStore("ui", () => {
   }
 
   /**
+   * How the results view divides its map from its charts.
+   *
+   * The map was a fixed 300px, which on a model spanning a country is not enough to
+   * see it by. Length-checked on the way in like the others, and here that is not
+   * hypothetical: a model with no geography mounts a single panel, and the splitter
+   * emits a one-element layout for it. Persisting that would wipe the split the
+   * user set on a model that does have a map. The caller guards it too.
+   */
+  const resultsSplit = ref<number[]>(readResultsSplit());
+
+  function readResultsSplit(): number[] {
+    try {
+      const stored = localStorage.getItem(RESULTS_SPLIT_KEY);
+      if (!stored) return [...DEFAULT_RESULTS_SPLIT];
+      const parsed = JSON.parse(stored) as unknown;
+      return Array.isArray(parsed) && parsed.length === DEFAULT_RESULTS_SPLIT.length
+        ? (parsed as number[])
+        : [...DEFAULT_RESULTS_SPLIT];
+    } catch {
+      return [...DEFAULT_RESULTS_SPLIT];
+    }
+  }
+
+  function setResultsSplit(sizes: number[]) {
+    if (sizes.length !== DEFAULT_RESULTS_SPLIT.length) return;
+    resultsSplit.value = sizes;
+    localStorage.setItem(RESULTS_SPLIT_KEY, JSON.stringify(sizes));
+  }
+
+  /**
    * Whether `nodes` and `links` show their list or their map.
    *
    * Both **default to the map**, because both sections are geography and a
@@ -238,6 +272,8 @@ export const useUiStore = defineStore("ui", () => {
     setDataTableSplit,
     mapSplit,
     setMapSplit,
+    resultsSplit,
+    setResultsSplit,
     sectionView,
     setSectionView,
     toggleSectionView,

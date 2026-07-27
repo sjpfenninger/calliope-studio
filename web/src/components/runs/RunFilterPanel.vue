@@ -11,33 +11,36 @@
  * component was being moved anyway, and converting it twice would have been
  * pure waste.
  */
-import { computed, inject } from "vue";
+import { inject } from "vue";
 
 import { Checkbox } from "@/components/ui/checkbox";
 import { MultiSelect } from "@/components/ui/multi-select";
-import { RUN_SELECTION } from "@/stores/runSelection";
+import { RUN_SELECTION, type FilterSection } from "@/stores/runSelection";
 
 const store = inject(RUN_SELECTION)!;
 
 /**
- * Above this many members a dimension gets a searchable multi-select rather
+ * Above this many members a section gets a searchable multi-select rather
  * than a checkbox list: a hundred nodes as checkboxes is unusable.
  */
 const CHECKBOX_LIMIT = 8;
 
-const members = computed(() => store.catalog?.dimensions ?? {});
-
-function isShort(dimension: string) {
-  return (members.value[dimension]?.length ?? 0) <= CHECKBOX_LIMIT;
+/**
+ * The panel is generic over `store.sections` and knows nothing about what any of
+ * them mean — transmission is a section like any other, which is what keeps the
+ * knowledge of which technologies are links in one place in the store.
+ */
+function isChecked(section: FilterSection, member: string) {
+  return (store.selected[section.name] ?? []).includes(member);
 }
 
-function toggle(dimension: string, member: string, checked: boolean) {
-  const current = new Set(store.selected[dimension] ?? []);
+function toggle(section: FilterSection, member: string, checked: boolean) {
+  const current = new Set(store.selected[section.name] ?? []);
   if (checked) current.add(member);
   else current.delete(member);
   store.setSelected(
-    dimension,
-    (members.value[dimension] ?? []).filter((name) => current.has(name)),
+    section.name,
+    section.members.filter((name) => current.has(name)),
   );
 }
 </script>
@@ -48,74 +51,71 @@ function toggle(dimension: string, member: string, checked: boolean) {
     class="flex min-h-0 flex-col gap-3 overflow-y-auto border-r border-border bg-panel p-2"
   >
     <section
-      v-for="dimension in store.dimensions"
-      :key="dimension"
-      :data-testid="`filter-${dimension}`"
+      v-for="section in store.sections"
+      :key="section.name"
+      :data-testid="`filter-${section.name}`"
     >
       <header class="mb-1 flex h-5 items-center gap-1">
         <span
           class="text-2xs font-semibold uppercase tracking-wide text-text-faint"
         >
-          {{ dimension }}
+          {{ section.name }}
         </span>
         <div class="flex-1" />
         <button
           type="button"
           class="rounded-xs px-1 text-2xs text-text-faint hover:bg-hover hover:text-foreground"
-          @click="store.selectAll(dimension)"
+          @click="store.selectAll(section.name)"
         >
           All
         </button>
         <button
           type="button"
           class="rounded-xs px-1 text-2xs text-text-faint hover:bg-hover hover:text-foreground"
-          @click="store.selectNone(dimension)"
+          @click="store.selectNone(section.name)"
         >
           None
         </button>
       </header>
 
-      <div v-if="isShort(dimension)" class="flex flex-col">
+      <div
+        v-if="section.members.length <= CHECKBOX_LIMIT"
+        class="flex flex-col"
+      >
         <!-- The row is the click target, not the box: a `<label>` wrapping the
              box would not forward to it, because Reka renders a button rather
              than an input. The box itself is therefore inert. -->
+        <!-- The testid stays keyed on the raw member, never on its label, so it
+             holds no arrow and stays stable if the labelling changes. -->
         <div
-          v-for="member in members[dimension]"
+          v-for="member in section.members"
           :key="member"
           role="checkbox"
           tabindex="0"
-          :aria-checked="(store.selected[dimension] ?? []).includes(member)"
-          :data-testid="`filter-${dimension}-${member}`"
+          :aria-checked="isChecked(section, member)"
+          :data-testid="`filter-${section.name}-${member}`"
+          :title="member"
           class="flex h-6 cursor-pointer items-center gap-1.5 rounded-xs px-1 text-sm hover:bg-hover"
-          @click="
-            toggle(
-              dimension,
-              member,
-              !(store.selected[dimension] ?? []).includes(member),
-            )
-          "
+          @click="toggle(section, member, !isChecked(section, member))"
           @keydown.space.prevent="
-            toggle(
-              dimension,
-              member,
-              !(store.selected[dimension] ?? []).includes(member),
-            )
+            toggle(section, member, !isChecked(section, member))
           "
         >
           <Checkbox
             class="pointer-events-none size-3.5"
-            :model-value="(store.selected[dimension] ?? []).includes(member)"
+            :model-value="isChecked(section, member)"
           />
-          <span class="truncate">{{ member }}</span>
+          <span class="truncate">{{ section.labels[member] ?? member }}</span>
         </div>
       </div>
 
       <MultiSelect
         v-else
-        :model-value="store.selected[dimension] ?? []"
-        :options="members[dimension] ?? []"
-        :placeholder="`All ${dimension}`"
-        @update:model-value="(value) => store.setSelected(dimension, value)"
+        :model-value="store.selected[section.name] ?? []"
+        :options="section.members"
+        :labels="section.labels"
+        :placeholder="`No ${section.name} selected`"
+        @update:model-value="(value) => store.setSelected(section.name, value)"
       />
     </section>
   </aside>

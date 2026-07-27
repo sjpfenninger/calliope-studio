@@ -26,6 +26,14 @@ const { browser, page, testId, consoleErrors, frames } = await open({
 console.log(`Results view at ${BASE}`);
 await health(BASE);
 
+// The browser profile outlives a run, so a split dragged by the *last* one would
+// otherwise decide where this one starts from — and a drag that begins at the
+// minimum proves nothing.
+await page.goto(BASE, { waitUntil: "domcontentloaded" });
+await page.evaluate(() =>
+  localStorage.removeItem("calliope-studio.results.split"),
+);
+
 // `/results` resolves whatever the server was opened on and replaces itself with
 // a shell URL carrying a run tab.
 await page.goto(`${BASE}/results`, { waitUntil: "networkidle" });
@@ -64,6 +72,71 @@ if (await techRows.count()) {
 await page.waitForTimeout(2500);
 check("deselecting a technology re-queries", frames.length > beforeDeselect);
 
+// Transmission links get a section of their own: on a real model they outnumber
+// the technologies five to one, and an undivided list is unusable.
+if (await testId("filter-transmission").count()) {
+  const linkRows = page.locator('[data-testid^="filter-transmission-"]');
+  const beforeLink = frames.length;
+  if (await linkRows.count()) {
+    check(
+      "links are named by their endpoints",
+      (await linkRows.first().innerText()).includes("→"),
+    );
+    await linkRows.first().click();
+  } else {
+    const control = testId("filter-transmission").getByRole("combobox");
+    await control.click();
+    check(
+      "links are named by their endpoints",
+      (await page.getByRole("option").first().innerText()).includes("→"),
+    );
+    await page.getByRole("option").first().click();
+    await page.keyboard.press("Escape");
+  }
+  await page.waitForTimeout(2500);
+  check("deselecting a link re-queries", frames.length > beforeLink);
+
+  // The section is synthetic — the dataset has no `transmission` dimension — and
+  // `filter_selectors` drops keys it does not know *silently*. A leak would not
+  // raise anything; the `techs` filter would just quietly lose half its members.
+  check(
+    "the synthetic section never reaches the server",
+    frames.every(({ query }) => query?.selectors?.transmission === undefined),
+  );
+} else {
+  skip("the transmission section (this model has no links)");
+}
+
+// The map was a fixed 300px, which on a model spanning a country is not enough
+// to see it by.
+const mapBox = () => page.locator(".maplibregl-map").boundingBox();
+const beforeDrag = await mapBox();
+const handle = testId("results-split-handle");
+check("the map/charts border has a handle", (await handle.count()) === 1);
+
+const handleBox = await handle.boundingBox();
+await page.mouse.move(
+  handleBox.x + handleBox.width / 2,
+  handleBox.y + handleBox.height / 2,
+);
+await page.mouse.down();
+await page.mouse.move(handleBox.x + handleBox.width / 2, handleBox.y + 160, {
+  steps: 12,
+});
+await page.mouse.up();
+await page.waitForTimeout(800);
+
+const afterDrag = await mapBox();
+check("dragging the border resizes the map", afterDrag.height > beforeDrag.height + 60);
+check(
+  "the split is remembered",
+  (
+    await page.evaluate(() =>
+      JSON.parse(localStorage.getItem("calliope-studio.results.split") ?? "null"),
+    )
+  )?.length === 2,
+);
+
 // The sub-views of a run tab. Results has to survive a trip to the log, or
 // coming back would rebuild the map and refetch every frame.
 if (await testId("run-subtab-log").isEnabled()) {
@@ -92,6 +165,15 @@ const lightBg = await themeValue();
 await page.evaluate(() => localStorage.setItem("calliope-studio.theme", "dark"));
 await page.reload({ waitUntil: "networkidle" });
 await testId("run-results").waitFor({ timeout: 20000 });
+await page.waitForTimeout(2000);
+
+// The reload is here for the theme, so the persistence round trip comes free.
+const reloaded = await mapBox();
+check(
+  "the dragged split survives a reload",
+  Math.abs(reloaded.height - afterDrag.height) < 24,
+);
+
 check("the theme token actually changes", Boolean(lightBg) && lightBg !== (await themeValue()));
 check(
   "the root carries the dark attribute",

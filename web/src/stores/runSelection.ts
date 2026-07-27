@@ -1,7 +1,13 @@
 import { computed, ref, watch, type InjectionKey } from "vue";
 import { defineStore } from "pinia";
 
-import { fetchCatalog, fetchGeo, type Catalog, type ResultQuery } from "../api/results";
+import {
+  fetchCatalog,
+  fetchGeo,
+  type Catalog,
+  type Link,
+  type ResultQuery,
+} from "../api/results";
 import type { GeoPayload } from "../lib/mapGeo";
 
 /**
@@ -28,23 +34,27 @@ import type { GeoPayload } from "../lib/mapGeo";
  * tabs on the same results file *should* share filters, and a bare `.nc` opened
  * from the command line has a handle but no run.
  *
- * The behaviour below is v0.2.0's `AppState` cascade, and it is not obvious:
- * selecting technologies by base type folds into one combined list, and changing
- * which variables are on offer re-validates every variable already chosen rather
- * than leaving a selection pointing at something that no longer exists.
+ * Two behaviours here are v0.2.0's `AppState` cascade and are not obvious: the
+ * sidebar's two technology sections fold back into one `techs` selector before any
+ * query leaves the browser, and changing which variables are on offer re-validates
+ * every variable already chosen rather than leaving a selection pointing at
+ * something that no longer exists.
  */
 
-/** Order in which technology groups are offered, coarsest concept first. */
-export const BASE_TECHS = [
-  "supply",
-  "conversion",
-  "storage",
-  "demand",
-  "transmission",
-] as const;
+/**
+ * The sidebar section holding transmission links.
+ *
+ * Not a dimension of the dataset — it is a slice of `techs` given a section of its
+ * own, because on a real model the links outnumber the technologies five to one and
+ * drown them: `examples/model_nld-NUTS3-v1` has 41 of them against 10 of everything
+ * else. It must never reach the server as a selector key. `filter_selectors` drops
+ * keys it does not recognise *silently*, so the failure would not be an error but a
+ * `techs` filter quietly missing half its members.
+ */
+export const TRANSMISSION = "transmission";
 
-/** Dimensions shown first in the filter sidebar; the rest follow alphabetically. */
-const DIMENSION_ORDER = ["carriers", "nodes", "techs", "costs"];
+/** Sections shown first in the filter sidebar; the rest follow alphabetically. */
+const DIMENSION_ORDER = ["carriers", "nodes", "techs", TRANSMISSION, "costs"];
 
 export const RESOLUTIONS: Record<string, string | null> = {
   Monthly: "1ME",
@@ -64,6 +74,16 @@ const VARIABLE_DEFAULTS: Record<string, string> = {
 
 export type PlotType = "Bar" | "Line" | "Area" | "Duration";
 
+/** One section of the filter sidebar, which is all the panel needs to know. */
+export interface FilterSection {
+  /** The dimension it filters, and the suffix of its `data-testid`. */
+  name: string;
+  /** Its members, in catalogue order. */
+  members: string[];
+  /** Display text per member, where it differs from the member itself. */
+  labels: Record<string, string>;
+}
+
 function defineRunSelection(handle: string) {
   return defineStore(`runSelection:${handle}`, () => {
     const catalog = ref<Catalog | null>(null);
@@ -79,16 +99,66 @@ function defineRunSelection(handle: string) {
     const sumBy = ref<"nodes" | "techs">("nodes");
     const timeRange = ref<[string, string] | null>(null);
 
-    /** Dimensions in display order. */
+    const links = computed<Link[]>(() => catalog.value?.links ?? []);
+    const linkTechs = computed(() => links.value.map((link) => link.tech));
+
+    /**
+     * `from → to` per link technology.
+     *
+     * A label shared by two links — parallel links between the same pair — is left
+     * out rather than used: ECharts identifies a series by its `name`, so two
+     * series called `A → B` would collapse into one legend entry.
+     */
+    const techLabels = computed<Record<string, string>>(() => {
+      const seen = new Map<string, string[]>();
+      for (const link of links.value) {
+        if (!link.from || !link.to) continue;
+        const label = `${link.from} → ${link.to}`;
+        seen.set(label, [...(seen.get(label) ?? []), link.tech]);
+      }
+      const labels: Record<string, string> = {};
+      for (const [label, techs] of seen) {
+        if (techs.length === 1) labels[techs[0]] = label;
+      }
+      return labels;
+    });
+
+    /**
+     * The members one section offers, in catalogue order.
+     *
+     * The only place the technology split lives. `TRANSMISSION` is tested first
+     * because `catalog.dimensions.transmission` does not exist and never will.
+     */
+    function membersOf(dimension: string): string[] {
+      if (dimension === TRANSMISSION) return linkTechs.value;
+      const all = catalog.value?.dimensions[dimension] ?? [];
+      if (dimension === "techs" && linkTechs.value.length) {
+        const isLink = new Set(linkTechs.value);
+        return all.filter((tech) => !isLink.has(tech));
+      }
+      return all;
+    }
+
+    /** Sections in display order, empty ones dropped. */
     const dimensions = computed(() => {
       const names = Object.keys(catalog.value?.dimensions ?? {});
-      const leading = DIMENSION_ORDER.filter((name) => names.includes(name));
-      const rest = names.filter((name) => !leading.includes(name)).sort();
+      if (linkTechs.value.length) names.push(TRANSMISSION);
+      // One filter covers both edge cases: a model with no links has no
+      // transmission section, and one that is nothing but links has no techs
+      // section, rather than either showing an empty box with All/None in it.
+      const present = names.filter((name) => membersOf(name).length > 0);
+      const leading = DIMENSION_ORDER.filter((name) => present.includes(name));
+      const rest = present.filter((name) => !leading.includes(name)).sort();
       return [...leading, ...rest];
     });
 
-    /** Technologies grouped by base type, for the sidebar's grouped controls. */
-    const techsByBaseTech = ref<Record<string, string[]>>({});
+    const sections = computed<FilterSection[]>(() =>
+      dimensions.value.map((name) => ({
+        name,
+        members: membersOf(name),
+        labels: name === TRANSMISSION ? techLabels.value : {},
+      })),
+    );
 
     function pickVariable(options: string[], current: string | null, category: string) {
       if (current && options.includes(current)) return current;
@@ -129,12 +199,10 @@ function defineRunSelection(handle: string) {
         catalog.value = loaded;
 
         // Everything starts selected: a chart showing nothing on first open is
-        // worse than a busy one.
+        // worse than a busy one. Built from `dimensions`/`membersOf` rather than
+        // from the payload, so it cannot drift from what the sidebar offers.
         selected.value = Object.fromEntries(
-          Object.entries(loaded.dimensions).map(([name, members]) => [
-            name,
-            [...members],
-          ]),
+          dimensions.value.map((name) => [name, [...membersOf(name)]]),
         );
         revalidateVariables();
       } catch (caught) {
@@ -161,25 +229,38 @@ function defineRunSelection(handle: string) {
     }
 
     function selectAll(dimension: string) {
-      setSelected(dimension, [...(catalog.value?.dimensions[dimension] ?? [])]);
+      setSelected(dimension, [...membersOf(dimension)]);
     }
 
     function selectNone(dimension: string) {
       setSelected(dimension, []);
     }
 
-    /** Selects every technology of one base type, keeping the others as they are. */
-    function toggleBaseTech(baseTech: string, on: boolean) {
-      const members = techsByBaseTech.value[baseTech] ?? [];
-      const current = new Set(selected.value.techs ?? []);
-      members.forEach((tech) => (on ? current.add(tech) : current.delete(tech)));
-      // Preserve catalogue order rather than set-insertion order, so the legend
-      // does not reshuffle as the user toggles groups.
-      const ordered = (catalog.value?.dimensions.techs ?? []).filter((tech) =>
-        current.has(tech),
-      );
-      setSelected("techs", ordered);
-    }
+    /**
+     * `selected`, with the transmission section folded back into `techs`.
+     *
+     * What every query must use — see `TRANSMISSION` for what happens if one does
+     * not. Ordered by the catalogue's `techs` rather than by concatenation: an
+     * identical selection has to produce an identical query body, or toggling one
+     * link reorders the array and `useResultFrame`'s watcher refetches every chart
+     * for nothing.
+     *
+     * Empty stays empty. Selecting no links and no technologies means an empty
+     * chart, exactly as selecting no technologies does today; "empty means
+     * everything" is a rule that belongs to map selection alone.
+     */
+    const resolvedSelectors = computed<Record<string, string[]>>(() => {
+      const current = selected.value;
+      if (!(TRANSMISSION in current)) return current;
+      const { [TRANSMISSION]: chosenLinks, ...rest } = current;
+      const keep = new Set([...(rest.techs ?? []), ...chosenLinks]);
+      return {
+        ...rest,
+        techs: (catalog.value?.dimensions.techs ?? []).filter((tech) =>
+          keep.has(tech),
+        ),
+      };
+    });
 
     /** Nodes picked on the map, which narrow the charts further. */
     const mapNodes = ref<string[]>([]);
@@ -192,8 +273,8 @@ function defineRunSelection(handle: string) {
      * "nothing". v0.2.0 did this through a Bokeh server callback.
      */
     const effectiveSelectors = computed<Record<string, string[]>>(() => {
-      if (mapNodes.value.length === 0) return selected.value;
-      return { ...selected.value, nodes: mapNodes.value };
+      if (mapNodes.value.length === 0) return resolvedSelectors.value;
+      return { ...resolvedSelectors.value, nodes: mapNodes.value };
     });
 
     const timeseriesQuery = computed<ResultQuery | null>(() => {
@@ -221,12 +302,16 @@ function defineRunSelection(handle: string) {
      *
      * Indexed by node and summed over technologies, so a marker shows how much of
      * the chosen variable sits at that node.
+     *
+     * Deliberately ignores `mapNodes` — sizing the markers by the selection made on
+     * the markers is circular — but it still goes through `resolvedSelectors`,
+     * because the synthetic section must not reach the server from here either.
      */
     const mapQuery = computed<ResultQuery | null>(() => {
       if (!variableStatic.value) return null;
       return {
         variable: variableStatic.value,
-        selectors: selected.value,
+        selectors: resolvedSelectors.value,
         index: "nodes",
         sum_by: "techs",
       };
@@ -252,7 +337,12 @@ function defineRunSelection(handle: string) {
       error,
       selected,
       dimensions,
-      techsByBaseTech,
+      sections,
+      links,
+      linkTechs,
+      techLabels,
+      membersOf,
+      resolvedSelectors,
       variableTimeseries,
       variableStatic,
       resolution,
@@ -269,7 +359,6 @@ function defineRunSelection(handle: string) {
       setSelected,
       selectAll,
       selectNone,
-      toggleBaseTech,
     };
   });
 }

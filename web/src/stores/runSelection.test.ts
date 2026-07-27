@@ -28,7 +28,7 @@ function catalog(overrides: Partial<Catalog> = {}): Catalog {
       techs: ["ccgt", "battery"],
       carriers: ["power"],
     },
-    transmission_techs: [],
+    links: [],
     colors: {},
     time_extent: null,
     synthetic: {},
@@ -105,6 +105,156 @@ describe("useRunSelection", () => {
       nodes: ["region1", "region2"],
       techs: ["ccgt", "battery"],
       carriers: ["power"],
+    });
+  });
+
+  /**
+   * On `examples/model_nld-NUTS3-v1` 41 of 51 technologies are links, so an
+   * undivided `techs` list is unusable. The section is synthetic — the dataset has
+   * no `transmission` dimension — which is what most of this pins down.
+   */
+  describe("the transmission section", () => {
+    const linked = () =>
+      catalog({
+        dimensions: {
+          nodes: ["region1", "region2"],
+          techs: ["ccgt", "r1_to_r2", "battery", "r2_to_r3"],
+          carriers: ["power"],
+        },
+        links: [
+          { tech: "r1_to_r2", from: "r1", to: "r2" },
+          { tech: "r2_to_r3", from: "r2", to: "r3" },
+        ],
+      });
+
+    it("is absent from a model with no links", async () => {
+      const store = useRunSelection("h1");
+      await store.load();
+      expect(store.dimensions).not.toContain("transmission");
+    });
+
+    it("partitions the technologies", async () => {
+      catalogFor.mockResolvedValue(linked());
+      const store = useRunSelection("h1");
+      await store.load();
+
+      expect(store.dimensions).toContain("transmission");
+      expect(store.membersOf("techs")).toEqual(["ccgt", "battery"]);
+      expect(store.membersOf("transmission")).toEqual(["r1_to_r2", "r2_to_r3"]);
+    });
+
+    it("selects both sections in full on first load", async () => {
+      catalogFor.mockResolvedValue(linked());
+      const store = useRunSelection("h1");
+      await store.load();
+
+      expect(store.selected.techs).toEqual(["ccgt", "battery"]);
+      expect(store.selected.transmission).toEqual(["r1_to_r2", "r2_to_r3"]);
+    });
+
+    it("never sends the synthetic section to the server", async () => {
+      // `filter_selectors` drops keys it does not know *silently*, so a leak here
+      // is not an error but a `techs` filter quietly missing half its members.
+      catalogFor.mockResolvedValue(linked());
+      const store = useRunSelection("h1");
+      await store.load();
+
+      for (const query of [store.timeseriesQuery, store.staticQuery, store.mapQuery]) {
+        expect(query?.selectors?.transmission).toBeUndefined();
+      }
+    });
+
+    it("folds the two sections into one techs selector", async () => {
+      catalogFor.mockResolvedValue(linked());
+      const store = useRunSelection("h1");
+      await store.load();
+
+      // Catalogue order, not techs-then-links: an identical selection has to
+      // produce an identical query body or every chart refetches on a toggle.
+      expect(store.timeseriesQuery?.selectors?.techs).toEqual([
+        "ccgt",
+        "r1_to_r2",
+        "battery",
+        "r2_to_r3",
+      ]);
+    });
+
+    it("restores catalogue order after a toggle", async () => {
+      catalogFor.mockResolvedValue(linked());
+      const store = useRunSelection("h1");
+      await store.load();
+
+      store.setSelected("transmission", []);
+      store.setSelected("transmission", ["r2_to_r3", "r1_to_r2"]);
+      expect(store.resolvedSelectors.techs).toEqual([
+        "ccgt",
+        "r1_to_r2",
+        "battery",
+        "r2_to_r3",
+      ]);
+    });
+
+    it("leaves the technologies alone when the links are cleared", async () => {
+      catalogFor.mockResolvedValue(linked());
+      const store = useRunSelection("h1");
+      await store.load();
+
+      store.selectNone("transmission");
+      expect(store.resolvedSelectors.techs).toEqual(["ccgt", "battery"]);
+    });
+
+    it("selects all of a section without reaching past it", async () => {
+      catalogFor.mockResolvedValue(linked());
+      const store = useRunSelection("h1");
+      await store.load();
+
+      store.selectNone("techs");
+      store.selectAll("transmission");
+      expect(store.selected.techs).toEqual([]);
+      expect(store.selected.transmission).toEqual(["r1_to_r2", "r2_to_r3"]);
+    });
+
+    it("labels a link by its endpoints", async () => {
+      catalogFor.mockResolvedValue(linked());
+      const store = useRunSelection("h1");
+      await store.load();
+      expect(store.techLabels).toEqual({
+        r1_to_r2: "r1 → r2",
+        r2_to_r3: "r2 → r3",
+      });
+    });
+
+    it("leaves an ambiguous label off rather than duplicating it", async () => {
+      // ECharts identifies a series by its name, so two series called `r1 → r2`
+      // would collapse into one legend entry.
+      catalogFor.mockResolvedValue(
+        catalog({
+          dimensions: { techs: ["a", "b", "c"] },
+          links: [
+            { tech: "a", from: "r1", to: "r2" },
+            { tech: "b", from: "r1", to: "r2" },
+            { tech: "c", from: null, to: null },
+          ],
+        }),
+      );
+      const store = useRunSelection("h1");
+      await store.load();
+
+      expect(store.techLabels).toEqual({});
+      // All three are still offered, under their own names.
+      expect(store.membersOf("transmission")).toEqual(["a", "b", "c"]);
+    });
+
+    it("describes each section once, for the panel", async () => {
+      catalogFor.mockResolvedValue(linked());
+      const store = useRunSelection("h1");
+      await store.load();
+
+      const section = store.sections.find((entry) => entry.name === "transmission");
+      expect(section?.members).toEqual(["r1_to_r2", "r2_to_r3"]);
+      expect(section?.labels.r1_to_r2).toBe("r1 → r2");
+      // Labels belong to the section that has them, not to every section.
+      expect(store.sections.find((entry) => entry.name === "techs")?.labels).toEqual({});
     });
   });
 

@@ -185,6 +185,41 @@ describe("useUiStore", () => {
     });
   });
 
+  describe("the results view's split", () => {
+    it("gives the map about the height it used to be fixed at", () => {
+      stubMatchMedia(false);
+      expect(useUiStore().resultsSplit).toEqual([35, 65]);
+    });
+
+    it("round-trips through localStorage", () => {
+      stubMatchMedia(false);
+      useUiStore().setResultsSplit([60, 40]);
+
+      setActivePinia(createPinia());
+      expect(useUiStore().resultsSplit).toEqual([60, 40]);
+    });
+
+    it("refuses a one-panel layout", () => {
+      // A model with no geography mounts a single panel, and the splitter emits a
+      // one-element layout for it. Storing that would wipe the split the user set
+      // on a model that does have a map.
+      stubMatchMedia(false);
+      const ui = useUiStore();
+      ui.setResultsSplit([60, 40]);
+      ui.setResultsSplit([100]);
+
+      expect(ui.resultsSplit).toEqual([60, 40]);
+      setActivePinia(createPinia());
+      expect(useUiStore().resultsSplit).toEqual([60, 40]);
+    });
+
+    it("ignores corrupt stored geometry", () => {
+      localStorage.setItem("calliope-studio.results.split", "not json");
+      stubMatchMedia(false);
+      expect(useUiStore().resultsSplit).toEqual([35, 65]);
+    });
+  });
+
   describe("the geographic editors' view", () => {
     it("opens both nodes and links on the map", () => {
       // The whole point of the section: geography is edited on a map, and the

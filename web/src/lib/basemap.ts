@@ -72,8 +72,24 @@ const RASTER_ATTRIBUTION =
  */
 const FONT = ["Noto Sans Regular"];
 
-/** Latin transliteration where the tiles carry one, the local name otherwise. */
-const LABEL: unknown = ["coalesce", ["get", "name:latin"], ["get", "name"]];
+/**
+ * English, then a Latin transliteration, then whatever the place calls itself.
+ *
+ * Three steps because they are three different things and only the first is a
+ * translation: `name:en` is the English exonym where OpenStreetMap records one
+ * (Munich, Cologne, Vienna), `name:latin` only transliterates the local name
+ * into Latin script (München stays München, Москва becomes Moskva), and `name`
+ * is the local name in the local script. Latin has to stay in the chain — a
+ * great many places have no English name at all, and dropping to `name` for
+ * those would put Cyrillic, Greek and Han glyphs on the map, none of which the
+ * one font stack OpenFreeMap serves can draw.
+ */
+const LABEL: unknown = [
+  "coalesce",
+  ["get", "name:en"],
+  ["get", "name:latin"],
+  ["get", "name"],
+];
 
 /**
  * How hard to drain the raster fallback, per theme.

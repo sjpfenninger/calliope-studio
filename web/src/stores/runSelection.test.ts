@@ -151,13 +151,48 @@ describe("useRunSelection", () => {
       expect(store.membersOf("transmission")).toEqual(["r1_to_r2", "r2_to_r3"]);
     });
 
-    it("selects both sections in full on first load", async () => {
+    it("starts with the links off and everything else on", async () => {
+      // The links outnumber the technologies five to one on a real model, so a
+      // chart that opens showing all of them buries what the run was opened for.
       catalogFor.mockResolvedValue(linked());
       const store = useRunSelection("h1");
       await store.load();
 
       expect(store.selected.techs).toEqual(["ccgt", "battery"]);
-      expect(store.selected.transmission).toEqual(["r1_to_r2", "r2_to_r3"]);
+      expect(store.selected.transmission).toEqual([]);
+      expect(store.resolvedSelectors.techs).toEqual(["ccgt", "battery"]);
+    });
+
+    it("brings the links back in one click", async () => {
+      // Off by default only works because turning them on is a single button.
+      catalogFor.mockResolvedValue(linked());
+      const store = useRunSelection("h1");
+      await store.load();
+
+      store.selectAll("transmission");
+      expect(store.resolvedSelectors.techs).toEqual([
+        "ccgt",
+        "r1_to_r2",
+        "battery",
+        "r2_to_r3",
+      ]);
+    });
+
+    it("keeps the links when they are all the model has", async () => {
+      // Nothing else fills the `techs` dimension, so deselecting them would send
+      // an empty selector and open every chart and table blank.
+      catalogFor.mockResolvedValue(
+        catalog({
+          dimensions: { nodes: ["region1"], techs: ["r1_to_r2"], carriers: ["power"] },
+          links: [{ tech: "r1_to_r2", from: "r1", to: "r2" }],
+        }),
+      );
+      const store = useRunSelection("h1");
+      await store.load();
+
+      expect(store.dimensions).not.toContain("techs");
+      expect(store.selected.transmission).toEqual(["r1_to_r2"]);
+      expect(store.resolvedSelectors.techs).toEqual(["r1_to_r2"]);
     });
 
     it("never sends the synthetic section to the server", async () => {
@@ -182,6 +217,7 @@ describe("useRunSelection", () => {
       catalogFor.mockResolvedValue(linked());
       const store = useRunSelection("h1");
       await store.load();
+      store.selectAll("transmission");
 
       // Catalogue order, not techs-then-links: an identical selection has to
       // produce an identical query body or every chart refetches on a toggle.
@@ -213,6 +249,7 @@ describe("useRunSelection", () => {
       const store = useRunSelection("h1");
       await store.load();
 
+      store.selectAll("transmission");
       store.selectNone("transmission");
       expect(store.resolvedSelectors.techs).toEqual(["ccgt", "battery"]);
     });
@@ -386,7 +423,7 @@ describe("useRunSelection", () => {
       expect(store.dimensions).toEqual(["supply", "zeitgeist"]);
     });
 
-    it("selects every group in full on first load", async () => {
+    it("selects every group in full on first load, bar the links", async () => {
       catalogFor.mockResolvedValue(typed());
       const store = useRunSelection("h1");
       await store.load();
@@ -394,9 +431,13 @@ describe("useRunSelection", () => {
       expect(store.selected.supply).toEqual(["ccgt", "csp"]);
       expect(store.selected.storage).toEqual(["battery"]);
       expect(store.selected.demand).toEqual(["demand_power"]);
-      expect(store.resolvedSelectors.techs).toEqual(
-        store.catalog!.dimensions.techs,
-      );
+      expect(store.selected.transmission).toEqual([]);
+      expect(store.resolvedSelectors.techs).toEqual([
+        "ccgt",
+        "battery",
+        "demand_power",
+        "csp",
+      ]);
     });
 
     it("clears one type without reaching past it", async () => {
@@ -405,6 +446,8 @@ describe("useRunSelection", () => {
       catalogFor.mockResolvedValue(typed());
       const store = useRunSelection("h1");
       await store.load();
+      // With the links on, so that "past it" has somewhere to reach.
+      store.selectAll("transmission");
 
       store.selectNone("supply");
       expect(store.resolvedSelectors.techs).toEqual([

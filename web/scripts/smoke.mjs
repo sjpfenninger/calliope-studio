@@ -105,7 +105,8 @@ check(
 
 // Transmission links get a section of their own: on a real model they outnumber
 // the technologies five to one, and an undivided list is unusable. Theirs is the
-// one tech section whose members are labelled by their endpoints.
+// one tech section whose members are labelled by their endpoints, and the one
+// that starts de-selected — so this click turns a link *on*.
 if (await testId("filter-transmission").count()) {
   const linkRows = page.locator('[data-testid^="filter-transmission-"]');
   const beforeLink = frames.length;
@@ -126,7 +127,7 @@ if (await testId("filter-transmission").count()) {
     await page.keyboard.press("Escape");
   }
   await page.waitForTimeout(2500);
-  check("deselecting a link re-queries", frames.length > beforeLink);
+  check("toggling a link re-queries", frames.length > beforeLink);
 } else {
   skip("the transmission section (this model has no links)");
 }

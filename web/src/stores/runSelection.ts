@@ -294,6 +294,25 @@ function defineRunSelection(handle: string) {
       return catalog.value?.dimensions[section] ?? [];
     }
 
+    /**
+     * The members a section starts with, which is all of them bar one.
+     *
+     * `TRANSMISSION` starts empty: the links outnumber everything else five to one
+     * on a real model, and a first chart that is mostly transmission flows buries
+     * the generation the user opened the run to see. Its "All" button is one click
+     * away, which the other direction — hunting for the links among 41 checked
+     * boxes — is not.
+     *
+     * Unless they are all there is. A model that is nothing but links has no other
+     * section of the `techs` dimension, so deselecting them would send an empty
+     * `techs` selector and every chart and table would open blank — which is the
+     * one outcome worse than a busy chart.
+     */
+    function initialMembers(section: string): string[] {
+      if (section === TRANSMISSION && plainTechs.value.length) return [];
+      return membersOf(section);
+    }
+
     /** The dataset dimension a section filters — see `FilterSection.dimension`. */
     function dimensionOf(section: string): string {
       if (section === TRANSMISSION) return "techs";
@@ -432,11 +451,11 @@ function defineRunSelection(handle: string) {
         const loaded = await fetchCatalog(handle);
         catalog.value = loaded;
 
-        // Everything starts selected: a chart showing nothing on first open is
-        // worse than a busy one. Built from `dimensions`/`membersOf` rather than
-        // from the payload, so it cannot drift from what the sidebar offers.
+        // Everything starts selected bar the links — see `initialMembers`. Built
+        // from `dimensions`/`membersOf` rather than from the payload, so it cannot
+        // drift from what the sidebar offers.
         selected.value = Object.fromEntries(
-          dimensions.value.map((name) => [name, [...membersOf(name)]]),
+          dimensions.value.map((name) => [name, [...initialMembers(name)]]),
         );
         revalidateVariables();
       } catch (caught) {

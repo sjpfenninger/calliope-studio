@@ -90,6 +90,77 @@ class TestProjects:
         assert registry.endswith("workspaces.json")
 
 
+class TestNewModel:
+    """Creating a model, which used to mean leaving the app for a terminal."""
+
+    @pytest.fixture
+    def parent(self, tmp_path):
+        """An empty folder to create models in.
+
+        Its own directory rather than `tmp_path`, which already holds the test
+        client's state directory and model fixtures — "nothing was written" is
+        only checkable somewhere nothing else writes.
+        """
+        directory = tmp_path / "somewhere"
+        directory.mkdir()
+        return directory
+
+    def test_templates_are_read_from_calliope(self, client):
+        body = client.get("/api/model-templates/").json()
+        assert {"national_scale", "urban_scale"} <= set(body["templates"])
+        assert body["default"] in body["templates"]
+
+    def test_creating_a_model_registers_it(self, client, parent):
+        response = client.post(
+            "/api/projects/new/", json={"parent": str(parent), "name": "my-model"}
+        )
+        assert response.status_code == 201
+        created = response.json()
+        assert created["name"] == "my-model"
+        assert (parent / "my-model" / "model.yaml").is_file()
+        assert created["id"] in [p["id"] for p in client.get("/api/projects/").json()]
+
+    def test_the_template_chooses_what_is_copied(self, client, parent):
+        client.post(
+            "/api/projects/new/",
+            json={"parent": str(parent), "name": "urban", "template": "urban_scale"},
+        )
+        # `additional_math.yaml` is urban_scale's; national_scale has no such file.
+        assert (parent / "urban" / "additional_math.yaml").is_file()
+
+    def test_creating_over_an_existing_folder_is_refused(self, client, parent):
+        (parent / "taken").mkdir()
+        response = client.post(
+            "/api/projects/new/", json={"parent": str(parent), "name": "taken"}
+        )
+        assert response.status_code == 409
+        # Refusing rather than merging is the point: a mistyped name must not
+        # scatter a template over a model that is already there.
+        assert list((parent / "taken").iterdir()) == []
+
+    @pytest.mark.parametrize("name", ["", "  ", "..", "../escape", "a/b", ".hidden"])
+    def test_a_name_must_be_a_visible_folder_name(self, client, parent, name):
+        response = client.post(
+            "/api/projects/new/", json={"parent": str(parent), "name": name}
+        )
+        assert response.status_code == 400
+        assert list(parent.iterdir()) == []
+
+    def test_an_unknown_template_is_rejected(self, client, parent):
+        response = client.post(
+            "/api/projects/new/",
+            json={"parent": str(parent), "name": "m", "template": "nope"},
+        )
+        assert response.status_code == 400
+        assert list(parent.iterdir()) == []
+
+    def test_a_missing_parent_is_rejected(self, client, parent):
+        response = client.post(
+            "/api/projects/new/", json={"parent": str(parent / "nowhere"), "name": "m"}
+        )
+        assert response.status_code == 400
+
+
 class TestFiles:
     def test_file_tree_lists_the_model(self, client, ws):
         entries = client.get(f"/api/versions/{ws}/files/").json()

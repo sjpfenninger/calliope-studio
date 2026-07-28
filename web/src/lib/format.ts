@@ -106,6 +106,26 @@ export function formatRelativeTime(iso: string | null, now: number = Date.now())
   });
 }
 
+/**
+ * A path shortened from its *head*, keeping the last few segments.
+ *
+ * Because `truncate` clips the wrong end. Two models under the same tree —
+ * `/Users/me/Code/work/grid-a` and `/Users/me/Code/work/grid-b` — both render as
+ * `/Users/me/Code/wor…` in a 288px dropdown, which is a path column that
+ * distinguishes nothing, and distinguishing is the only reason it is there.
+ *
+ * Segment-counting rather than measuring text: it needs no layout pass, gives
+ * the same answer every render, and is testable. `truncate` stays on the element
+ * as the backstop for a single very long segment, and the full path goes in the
+ * `title`.
+ */
+export function shortenPath(path: string | null | undefined, keep: number = 3): string {
+  if (!path) return "—";
+  const segments = path.split("/").filter(Boolean);
+  if (segments.length <= keep) return path;
+  return `…/${segments.slice(-keep).join("/")}`;
+}
+
 /** A full timestamp, for the `title` of anything showing a relative one. */
 export function formatTimestamp(iso: string | null): string {
   if (!iso) return "—";

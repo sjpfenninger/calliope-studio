@@ -110,6 +110,11 @@ jobs:
         working-directory: web
         run: npm run map-edit -- http://127.0.0.1:8791
 
+      # The picker's entries are not clipped, and a model can be created.
+      - name: Model picker
+        working-directory: web
+        run: npm run model-picker -- http://127.0.0.1:8791
+
       # Really solves, with CBC, and drives the run tab from log to charts.
       - name: Run lifecycle
         working-directory: web

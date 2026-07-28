@@ -11,49 +11,42 @@
  * "Removed" means removed from this list. The folder, the model and its runs are
  * the user's own files, and until now the only way an entry could leave was for
  * the folder to be deleted from disk.
+ *
+ * A row is two lines and sized by them, not pinned to a control height: the name
+ * and the path together are 32px of text, which is exactly what an `h-8` row
+ * gave them, so the two lines sat on each other and on the row's hairline.
  */
 import { computed, onMounted, ref } from "vue";
 import Panel from "@/components/app/Panel.vue";
 import StateMessage from "@/components/app/StateMessage.vue";
-import { PRIMARY_BUTTON } from "@/lib/formClasses";
+import { PRIMARY_BUTTON, SECONDARY_BUTTON } from "@/lib/formClasses";
 import { cn } from "@/lib/utils";
 import { useRouter } from "vue-router";
-import { FolderOpen, FolderPlus, X } from "@lucide/vue";
+import { FolderOpen, FolderPlus, FolderSearch, X } from "@lucide/vue";
 
 import client from "@/api/client";
-import OpenModelDialog from "@/components/workspace/OpenModelDialog.vue";
+import ModelDialogs from "@/components/workspace/ModelDialogs.vue";
 import { formatRelativeTime, formatTimestamp } from "@/lib/format";
 
-import { useProjectStore, type Project } from "@/stores/project";
+import { useProjectStore } from "@/stores/project";
 
 const router = useRouter();
 const projectStore = useProjectStore();
 
-const models = ref<Project[]>([]);
 const isLoading = ref(true);
-const error = ref<string | null>(null);
 const registryPath = ref<string | null>(null);
 const currentId = ref<string | null>(null);
-const browsing = ref(false);
+const dialog = ref<"open" | "new" | null>(null);
 
+const models = computed(() => projectStore.models);
 const hasModels = computed(() => models.value.length > 0);
-
-async function load() {
-  try {
-    models.value = (await client.get<Project[]>("/api/projects/")).data;
-    error.value = null;
-  } catch {
-    error.value = "The list of models could not be read.";
-  } finally {
-    isLoading.value = false;
-  }
-}
 
 onMounted(async () => {
   // Leaving the shell means no model is current any more; the switcher in the
   // sidebar reads this.
   projectStore.clearProject();
-  await load();
+  await projectStore.loadModels();
+  isLoading.value = false;
   try {
     const health = (await client.get("/api/health")).data;
     registryPath.value = health.registry_path ?? null;
@@ -68,11 +61,6 @@ function open(id: string) {
   // needs a version too.
   router.push({ name: "project", params: { projectId: id } });
 }
-
-async function forget(id: string) {
-  await client.delete(`/api/projects/${id}/`);
-  models.value = models.value.filter((model) => model.id !== id);
-}
 </script>
 
 <template>
@@ -83,16 +71,27 @@ async function forget(id: string) {
       <button
         type="button"
         data-testid="open-model"
+        :class="cn(SECONDARY_BUTTON, 'h-7 px-2.5')"
+        @click="dialog = 'open'"
+      >
+        <FolderSearch class="size-3.5" />
+        Open model…
+      </button>
+      <button
+        type="button"
+        data-testid="new-model"
         :class="cn(PRIMARY_BUTTON, 'h-7 px-2.5')"
-        @click="browsing = true"
+        @click="dialog = 'new'"
       >
         <FolderPlus class="size-3.5" />
-        Open model…
+        New model…
       </button>
     </header>
 
     <StateMessage v-if="isLoading" variant="inline" loading>Reading the model list…</StateMessage>
-    <StateMessage v-else-if="error" variant="inline" tone="danger">{{ error }}</StateMessage>
+    <StateMessage v-else-if="projectStore.modelsError" variant="inline" tone="danger">
+      {{ projectStore.modelsError }}
+    </StateMessage>
 
     <!-- The empty state lives *inside* this box rather than replacing it, so the
          list does not vanish when there is nothing in it yet. -->
@@ -104,7 +103,7 @@ async function forget(id: string) {
       <div
         v-for="model in models"
         :key="model.id"
-        class="group flex h-8 items-center gap-2 border-b border-border-subtle px-2 last:border-b-0 hover:bg-hover"
+        class="group flex min-h-8 items-center gap-2 border-b border-border-subtle px-2 py-1.5 last:border-b-0 hover:bg-hover"
         data-testid="recent-model"
       >
         <FolderOpen
@@ -145,7 +144,7 @@ async function forget(id: string) {
           data-testid="forget-model"
           title="Remove from this list (nothing is deleted)"
           class="grid size-5 shrink-0 place-items-center rounded-xs text-text-faint opacity-0 group-hover:opacity-100 hover:bg-active hover:text-foreground focus-visible:opacity-100"
-          @click="forget(model.id)"
+          @click="projectStore.forgetModel(model.id)"
         >
           <X class="size-3.5" />
         </button>
@@ -153,8 +152,7 @@ async function forget(id: string) {
 
       <StateMessage v-if="!hasModels" variant="block" title="No models yet">
         Open a folder containing a <code class="font-mono">model.yaml</code>, or
-        start Calliope Studio with one:
-        <code class="mt-1 block font-mono text-xs">calliope-studio path/to/model</code>
+        start a new one from a Calliope example with <strong>New model…</strong>
       </StateMessage>
     </Panel>
 
@@ -166,6 +164,6 @@ async function forget(id: string) {
       >. Removing a model here does not delete anything on disk.
     </p>
 
-    <OpenModelDialog v-model:open="browsing" @opened="open" />
+    <ModelDialogs v-model:open="dialog" @opened="open" />
   </div>
 </template>

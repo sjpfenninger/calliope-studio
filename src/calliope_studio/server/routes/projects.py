@@ -9,6 +9,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 
+from calliope_studio.modeldef import scaffold
 from calliope_studio.modeldef.imports import find_model_yaml
 from calliope_studio.server.deps import get_storage, get_workspace
 from calliope_studio.server.storage import LocalStorage, Workspace
@@ -42,8 +43,8 @@ def open_project(
 ) -> dict:
     """Opens a folder as a workspace.
 
-    Creating a project means pointing at a model folder that already exists;
-    scaffolding a new model is `calliope new`, not this.
+    Opening means pointing at a model folder that already exists; scaffolding a
+    new one is `POST /projects/new/`, which does what `calliope new` does.
     """
     path = Path(body.path).expanduser()
     if not path.is_dir():
@@ -60,6 +61,52 @@ def open_project(
             ),
         )
     return storage.open(path).as_dict()
+
+
+@router.get("/model-templates/")
+def list_model_templates() -> dict:
+    """Lists the built-in examples a new model can be started from.
+
+    Read from Calliope's own `example_models` directory rather than hard-coded,
+    so this says whatever the installed Calliope actually ships.
+    """
+    return {
+        "templates": scaffold.available_templates(),
+        "default": scaffold.DEFAULT_TEMPLATE,
+    }
+
+
+class NewWorkspace(BaseModel):
+    """Request to create a model and open it."""
+
+    parent: str
+    name: str
+    template: str = scaffold.DEFAULT_TEMPLATE
+
+
+@router.post("/projects/new/", status_code=status.HTTP_201_CREATED)
+def create_project(
+    body: NewWorkspace, storage: LocalStorage = Depends(get_storage)
+) -> dict:
+    """Creates a model from a template and registers it as a workspace.
+
+    This is `calliope new` followed by opening the result, which is what the
+    user means by "new model": until this existed, the only way to get one was
+    to leave the app, run the CLI, and come back to point at the folder.
+    """
+    try:
+        target = scaffold.create_model(
+            Path(body.parent).expanduser(), body.name, body.template
+        )
+    except FileExistsError as error:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(error)
+        ) from error
+    except (NotADirectoryError, ValueError) as error:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(error)
+        ) from error
+    return storage.open(target).as_dict()
 
 
 @router.get("/projects/{id}/")

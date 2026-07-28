@@ -6,7 +6,30 @@ import {
   formatDuration,
   formatObjective,
   formatRelativeTime,
+  shortenPath,
 } from "./format";
+
+describe("shortenPath", () => {
+  it("keeps the end, which is the part that distinguishes two models", () => {
+    expect(shortenPath("/Users/me/Code/work/grid-a")).toBe("…/Code/work/grid-a");
+    expect(shortenPath("/Users/me/Code/work/grid-b")).toBe("…/Code/work/grid-b");
+  });
+
+  it("leaves a path that already fits alone", () => {
+    expect(shortenPath("/Users/me/models")).toBe("/Users/me/models");
+    expect(shortenPath("/models")).toBe("/models");
+  });
+
+  it("takes how many segments to keep", () => {
+    expect(shortenPath("/a/b/c/d/e", 2)).toBe("…/d/e");
+  });
+
+  it("survives a trailing slash and nothing at all", () => {
+    expect(shortenPath("/a/b/c/d/")).toBe("…/b/c/d");
+    expect(shortenPath(null)).toBe("—");
+    expect(shortenPath("")).toBe("—");
+  });
+});
 
 describe("formatCompact", () => {
   it("keeps a legend's end labels to a few characters", () => {

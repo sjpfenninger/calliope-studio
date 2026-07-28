@@ -8,6 +8,7 @@
     "build": "vue-tsc && vite build",
     "preview": "vite preview",
     "map-edit": "node scripts/map-edit.mjs",
+    "model-picker": "node scripts/model-picker.mjs",
     "monaco-check": "node scripts/monaco-check.mjs",
     "run-lifecycle": "node scripts/run-lifecycle.mjs",
     "save-check": "node scripts/save-check.mjs",

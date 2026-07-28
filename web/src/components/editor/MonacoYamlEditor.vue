@@ -15,8 +15,8 @@ import { stringify as yamlStringify, parse as yamlParse } from "yaml";
 import client from "../../api/client";
 import {
   applyMonacoTheme,
-  MONACO_FONT_SIZE,
-  MONACO_LINE_HEIGHT,
+  monacoFontSize,
+  monacoLineHeight,
   MONACO_THEME,
 } from "../../editor/monacoTheme";
 import { fileTabId } from "../../lib/tabId";
@@ -187,8 +187,8 @@ onMounted(() => {
   editor = monaco.editor.create(containerRef.value, {
     model: null,
     theme: MONACO_THEME,
-    fontSize: MONACO_FONT_SIZE,
-    lineHeight: MONACO_LINE_HEIGHT,
+    fontSize: monacoFontSize(),
+    lineHeight: monacoLineHeight(),
     lineNumbers: "on",
     minimap: { enabled: false },
     scrollBeyondLastLine: false,

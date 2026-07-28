@@ -53,6 +53,14 @@ export interface Catalog {
     static: string[];
     static_nodes: string[];
     static_links: string[];
+    /**
+     * Each variable's dimensions, synthetic ones included.
+     *
+     * What lets a control offer only the aggregations a variable actually has —
+     * "Sum techs" on a variable with no `techs` dimension silently does nothing,
+     * which reads as a broken control rather than an inapplicable one.
+     */
+    dims: Record<string, string[]>;
   };
   /** Every dimension's members, `techs` still including the links. */
   dimensions: Record<string, string[]>;

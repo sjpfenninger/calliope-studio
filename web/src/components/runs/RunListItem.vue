@@ -11,7 +11,11 @@
  * belongs with the list, not with sixty copies of it.
  */
 import { computed, nextTick, ref } from "vue";
-import { MoreHorizontal, Pencil, Square, Trash2 } from "lucide-vue-next";
+import InfoTip from "@/components/app/InfoTip.vue";
+import Metric from "@/components/app/Metric.vue";
+import { FIELD } from "@/lib/formClasses";
+import { cn } from "@/lib/utils";
+import { MoreHorizontal, Pencil, Square, Trash2 } from "@lucide/vue";
 
 import RunStatusPill from "./RunStatusPill.vue";
 import {
@@ -21,7 +25,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { ICON_STROKE_WIDTH } from "@/lib/icons";
+
 import {
   formatBytes,
   formatDuration,
@@ -86,7 +90,7 @@ function commitRename() {
         v-model="draft"
         type="text"
         data-testid="run-rename"
-        class="h-5 min-w-0 flex-1 rounded-xs border border-input bg-surface px-1 text-sm outline-none focus-visible:border-ring"
+        :class="cn(FIELD, 'h-5 flex-1 px-1')"
         @keydown.enter.prevent="commitRename"
         @keydown.esc.prevent="renaming = false"
         @blur="commitRename"
@@ -110,16 +114,16 @@ function commitRename() {
             data-testid="run-menu"
             class="grid size-5 shrink-0 place-items-center rounded-xs text-text-faint opacity-0 group-hover:opacity-100 hover:bg-hover hover:text-foreground focus-visible:opacity-100 data-[state=open]:opacity-100"
           >
-            <MoreHorizontal class="size-3.5" :stroke-width="ICON_STROKE_WIDTH" />
+            <MoreHorizontal class="size-3.5" />
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" class="min-w-40">
           <DropdownMenuItem @select="startRename">
-            <Pencil :stroke-width="ICON_STROKE_WIDTH" />
+            <Pencil />
             Rename
           </DropdownMenuItem>
           <DropdownMenuItem v-if="running" @select="emit('cancel')">
-            <Square :stroke-width="ICON_STROKE_WIDTH" />
+            <Square />
             Cancel run
           </DropdownMenuItem>
           <DropdownMenuSeparator />
@@ -129,33 +133,45 @@ function commitRename() {
             :disabled="running"
             @select="emit('remove')"
           >
-            <Trash2 :stroke-width="ICON_STROKE_WIDTH" />
+            <Trash2 />
             Delete
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
     </div>
 
-    <div class="flex items-center gap-1.5 text-2xs text-text-faint">
-      <span :title="formatTimestamp(run.created_at)">
-        {{ formatRelativeTime(run.created_at) }}
-      </span>
-      <span v-if="run.scenario" class="truncate" :title="`Scenario: ${run.scenario}`">
-        · {{ run.scenario }}
-      </span>
-      <span v-if="run.duration_seconds != null" class="tabular-nums">
-        · {{ formatDuration(run.duration_seconds) }}
-      </span>
-      <span
+    <!-- Labelled, not run-on: these numbers used to be four unlabelled figures
+         with a native `title` as the only clue what they were, which is a missing
+         label rather than a tooltip problem. -->
+    <div class="flex items-center gap-2 text-text-faint">
+      <InfoTip :label="formatTimestamp(run.created_at)">
+        <span class="shrink-0 text-2xs">{{ formatRelativeTime(run.created_at) }}</span>
+      </InfoTip>
+      <Metric
+        v-if="run.scenario"
+        layout="inline"
+        label="scenario"
+        :value="run.scenario"
+        class="min-w-0 shrink"
+      />
+      <Metric
+        v-if="run.duration_seconds != null"
+        layout="inline"
+        label="took"
+        :value="formatDuration(run.duration_seconds)"
+      />
+      <Metric
         v-if="run.objective != null"
-        class="truncate tabular-nums"
-        title="Objective value"
-      >
-        · {{ formatObjective(run.objective) }}
-      </span>
-      <span class="ml-auto shrink-0 tabular-nums" title="Size on disk">
-        {{ formatBytes(run.size_bytes) }}
-      </span>
+        layout="inline"
+        label="obj"
+        :value="formatObjective(run.objective)"
+      />
+      <Metric
+        layout="inline"
+        label="size"
+        :value="formatBytes(run.size_bytes)"
+        class="ml-auto shrink-0"
+      />
     </div>
   </div>
 </template>

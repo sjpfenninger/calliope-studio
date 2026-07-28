@@ -28,6 +28,21 @@ function isSet(value: any): boolean {
   return value !== null && value !== undefined && value !== "";
 }
 
+/**
+ * What the DOM's string means as a parameter value.
+ *
+ * A number where it reads as one, the trimmed text otherwise, and null for
+ * empty — which is what drops the key. Here rather than inside a form, because
+ * two controls now take a raw parameter value and a second copy of "is this a
+ * number" is how `.inf` came to be deleted from people's files once already.
+ */
+export function parseScalar(raw: string): string | number | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  const asNumber = Number(trimmed);
+  return isNaN(asNumber) ? trimmed : asNumber;
+}
+
 function paramsToObject(params: Param[]): Record<string, any> {
   const result: Record<string, any> = {};
   for (const { key, value } of params) {
@@ -189,4 +204,20 @@ export function nodeToRaw(entry: NodeEntry): Record<string, any> {
   if (Object.keys(techs).length) result.techs = techs;
 
   return result;
+}
+
+/**
+ * A stable key for one entry in an editor's list.
+ *
+ * The five structured editors each spelled this out three times — in
+ * `:default-value`, `:key` and `:value` — which is fifteen copies of an
+ * expression that has to agree everywhere or an accordion row desyncs from the
+ * data underneath it. An unnamed entry falls back to its position, which is the
+ * best available answer while someone is still typing the name.
+ */
+export function entryKey(
+  entry: { name?: string },
+  all: readonly { name?: string }[],
+): string {
+  return entry.name || String(all.indexOf(entry as never));
 }

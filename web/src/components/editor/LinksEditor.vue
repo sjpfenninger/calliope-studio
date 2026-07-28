@@ -18,9 +18,10 @@
  * form is already on the map.
  */
 import { ref, computed, onMounted, onUnmounted, watch } from "vue";
+import StateMessage from "@/components/app/StateMessage.vue";
 // `Map` is aliased: unaliased it shadows the global `Map` constructor, which is
 // used below and fails in a way that points at the wrong line entirely.
-import { List, Map as MapIcon, Plus, Trash2, X } from "lucide-vue-next";
+import { List, Map as MapIcon, Plus, Trash2, X } from "@lucide/vue";
 
 import client from "@/api/client";
 import EditorMapPane from "./EditorMapPane.vue";
@@ -32,8 +33,13 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
-import { DANGER_ICON_BUTTON, FIELD, GHOST_BUTTON } from "@/lib/formClasses";
-import { ICON_STROKE_WIDTH } from "@/lib/icons";
+import {
+  DANGER_ICON_BUTTON,
+  FIELD,
+  FIELD_LABEL,
+  GHOST_BUTTON,
+} from "@/lib/formClasses";
+
 import { cn } from "@/lib/utils";
 import { useModelGeo } from "@/composables/useModelGeo";
 import { useTabsStore } from "@/stores/tabs";
@@ -48,7 +54,12 @@ import {
   nodesFromFeatures,
   type MapLink,
 } from "@/lib/mapGeo";
-import { linkToRaw, rawToLink, type LinkEntry } from "@/lib/entries";
+import {
+  entryKey,
+  linkToRaw,
+  rawToLink,
+  type LinkEntry,
+} from "@/lib/entries";
 
 const props = defineProps<{
   versionId: string;
@@ -368,15 +379,15 @@ watch(showMap, (visible) => {
 
 <template>
   <div class="flex min-h-0 flex-1 flex-col">
-    <p v-if="isLoading" class="p-6 text-center text-sm text-muted-foreground">
+    <StateMessage v-if="isLoading" variant="block" loading>
       Loading transmission technologies…
-    </p>
-    <p v-else-if="error" class="p-6 text-center text-sm text-danger-text">{{ error }}</p>
+    </StateMessage>
+    <StateMessage v-else-if="error" variant="block" tone="danger">{{ error }}</StateMessage>
 
     <template v-else>
       <EditorToolbar :saving="isSaving" @save="save">
         <button v-if="!entryName" type="button" :class="GHOST_BUTTON" @click="addEntry">
-          <Plus class="size-3.5" :stroke-width="ICON_STROKE_WIDTH" />
+          <Plus class="size-3.5" />
           Add link
         </button>
         <button
@@ -389,7 +400,6 @@ watch(showMap, (visible) => {
           <component
             :is="showMap ? List : MapIcon"
             class="size-3.5"
-            :stroke-width="ICON_STROKE_WIDTH"
           />
           {{ showMap ? "List" : "Map" }}
         </button>
@@ -412,7 +422,7 @@ watch(showMap, (visible) => {
         </template>
 
         <template #toolbar>
-          <label class="font-mono text-xs text-text-dim" for="new-link-template">
+          <label :class="FIELD_LABEL" for="new-link-template">
             new links use
           </label>
           <select
@@ -443,7 +453,7 @@ watch(showMap, (visible) => {
               :class="DANGER_ICON_BUTTON"
               @click="pendingFrom = null"
             >
-              <X class="size-3.5" :stroke-width="2" />
+              <X class="size-3.5" />
             </button>
           </span>
           <span v-else class="text-xs text-text-faint">
@@ -461,7 +471,7 @@ watch(showMap, (visible) => {
                 :class="DANGER_ICON_BUTTON"
                 @click="removeEntry(activeEntry)"
               >
-                <Trash2 class="size-3.5" :stroke-width="ICON_STROKE_WIDTH" />
+                <Trash2 class="size-3.5" />
               </button>
             </div>
             <LinkFields
@@ -493,27 +503,24 @@ watch(showMap, (visible) => {
       </EditorMapPane>
 
       <div v-else class="min-h-0 flex-1 overflow-auto">
-        <p
-          v-if="!visibleEntries.length"
-          class="p-6 text-center text-sm text-muted-foreground"
-        >
+        <StateMessage v-if="!visibleEntries.length" variant="block">
           {{
             entryName
               ? `No link called "${entryName}".`
               : "No transmission technologies in this file."
           }}
-        </p>
+        </StateMessage>
 
         <Accordion
           v-else
           type="multiple"
-          :default-value="visibleEntries.map((e) => e.name || String(entries.indexOf(e)))"
+          :default-value="visibleEntries.map((e) => entryKey(e, entries))"
           class="px-2"
         >
           <AccordionItem
             v-for="entry in visibleEntries"
-            :key="entry.name || String(entries.indexOf(entry))"
-            :value="entry.name || String(entries.indexOf(entry))"
+            :key="entryKey(entry, entries)"
+            :value="entryKey(entry, entries)"
           >
             <div class="flex items-center gap-1.5">
               <AccordionTrigger
@@ -533,7 +540,7 @@ watch(showMap, (visible) => {
                 :class="DANGER_ICON_BUTTON"
                 @click.stop="removeEntry(entry)"
               >
-                <Trash2 class="size-3.5" :stroke-width="ICON_STROKE_WIDTH" />
+                <Trash2 class="size-3.5" />
               </button>
             </div>
 

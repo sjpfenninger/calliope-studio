@@ -11,7 +11,8 @@
  * columns is all an import graph needs, and it has no cycles by construction.
  */
 import { ref, computed, watch } from "vue";
-import { RefreshCw } from "lucide-vue-next";
+import StateMessage from "@/components/app/StateMessage.vue";
+import { RefreshCw } from "@lucide/vue";
 import { VueFlow, type Node, type Edge, Position } from "@vue-flow/core";
 
 import client from "@/api/client";
@@ -23,7 +24,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { ICON_BUTTON } from "@/lib/formClasses";
-import { ICON_STROKE_WIDTH } from "@/lib/icons";
+
 import { useTabsStore } from "@/stores/tabs";
 import { useUiStore } from "@/stores/ui";
 
@@ -199,7 +200,6 @@ function onNodeClick(event: { node: Node }) {
             <RefreshCw
               class="size-3.5"
               :class="isLoading ? 'animate-spin' : ''"
-              :stroke-width="ICON_STROKE_WIDTH"
             />
           </button>
         </div>
@@ -209,24 +209,15 @@ function onNodeClick(event: { node: Node }) {
       </DialogHeader>
 
       <div class="min-h-0 flex-1 rounded-sm border border-border bg-surface">
-        <p
-          v-if="isLoading"
-          class="grid h-full place-items-center text-sm text-muted-foreground"
-        >
+        <StateMessage v-if="isLoading" variant="fill" loading>
           Loading…
-        </p>
-        <p
-          v-else-if="error"
-          class="grid h-full place-items-center text-sm text-danger-text"
-        >
+        </StateMessage>
+        <StateMessage v-else-if="error" variant="fill" tone="danger">
           {{ error }}
-        </p>
-        <p
-          v-else-if="!flowGraph.nodes.length"
-          class="grid h-full place-items-center text-sm text-muted-foreground"
-        >
+        </StateMessage>
+        <StateMessage v-else-if="!flowGraph.nodes.length" variant="fill">
           No import relationships found.
-        </p>
+        </StateMessage>
         <VueFlow
           v-else
           :nodes="flowGraph.nodes"

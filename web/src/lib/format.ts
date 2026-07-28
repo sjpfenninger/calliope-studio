@@ -56,6 +56,28 @@ export function formatObjective(value: number | null | undefined): string {
   return value.toLocaleString(undefined, { maximumFractionDigits: 3 });
 }
 
+/**
+ * A magnitude in as few characters as it can honestly be written.
+ *
+ * For the ends of a legend scale, which get about four characters between two
+ * swatches. `Intl`'s compact notation does the unit suffixes — 12300 becomes
+ * "12K" — and is locale-aware, which hand-rolled thresholds are not.
+ *
+ * Compact notation has no suffixes going the other way, though, so a solver's
+ * numerical dust comes out as "0.0000000131" and pushes the other end of the
+ * scale off the legend. Below a thousandth it goes exponential instead, which is
+ * both shorter and a clearer way of saying "essentially nothing".
+ */
+export function formatCompact(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return "—";
+  const magnitude = Math.abs(value);
+  if (magnitude !== 0 && magnitude < 1e-3) return value.toExponential(1);
+  return value.toLocaleString(undefined, {
+    notation: "compact",
+    maximumSignificantDigits: 3,
+  });
+}
+
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 const DAY = 24 * HOUR;

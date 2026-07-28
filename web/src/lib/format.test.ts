@@ -2,10 +2,32 @@ import { describe, expect, it } from "vitest";
 
 import {
   formatBytes,
+  formatCompact,
   formatDuration,
   formatObjective,
   formatRelativeTime,
 } from "./format";
+
+describe("formatCompact", () => {
+  it("keeps a legend's end labels to a few characters", () => {
+    expect(formatCompact(0)).toBe("0");
+    expect(formatCompact(1234)).toMatch(/^1\.23K$/);
+    expect(formatCompact(12_300_000)).toMatch(/^12\.3M$/);
+    expect(formatCompact(-4500)).toMatch(/^-4\.5K$/);
+  });
+
+  it("goes exponential for a solver's numerical dust", () => {
+    // Compact notation has no suffixes below 1, so this came out as
+    // "0.0000000131" and pushed the other end of the legend off the panel.
+    expect(formatCompact(1.31e-8)).toBe("1.3e-8");
+    expect(formatCompact(0.5)).toBe("0.5");
+  });
+
+  it("says so when there is no number", () => {
+    expect(formatCompact(null)).toBe("—");
+    expect(formatCompact(Number.NaN)).toBe("—");
+  });
+});
 
 /**
  * The run history is a dense two-line list, and every number in it is read at a

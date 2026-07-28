@@ -9,24 +9,25 @@
  * version. The map's add-link flow sets a template — that is what makes a new
  * link a usable technology rather than a bare `base_tech: transmission` — so it
  * has to be visible and changeable afterwards.
+ *
+ * Which template, and what it supplies, used to be a sentence at the bottom
+ * naming only `base_tech`. It is now on the fields themselves, like every other
+ * editor: a link inheriting `flow_cap_max` and `cost_flow_cap` from
+ * `power_lines` says so where those values would go.
  */
-import { Plus, X } from "lucide-vue-next";
+import { computed } from "vue";
 
-import ScalarOrDataVar from "./ScalarOrDataVar.vue";
+import ParamRows from "./ParamRows.vue";
+import FieldRow from "@/components/app/FieldRow.vue";
 import { Switch } from "@/components/ui/switch";
-import {
-  DANGER_ICON_BUTTON,
-  FIELD,
-  FIELD_LABEL,
-  GHOST_BUTTON,
-} from "@/lib/formClasses";
-import { ICON_STROKE_WIDTH } from "@/lib/icons";
-import { cn } from "@/lib/utils";
+import { FIELD } from "@/lib/formClasses";
+
 import type { LinkEntry } from "@/lib/entries";
+import { collectInherited, linkSetsKey } from "@/lib/inherited";
 
 const props = defineProps<{
   entry: LinkEntry;
-  /** Every template in the model, for the inherited note. */
+  /** Every template in the model, for showing what this link inherits. */
   templates: Record<string, Record<string, any>>;
 }>();
 
@@ -43,26 +44,29 @@ function onChange() {
   emit("change");
 }
 
-function inheritedFrom(key: string): any {
-  if (!props.entry.template) return undefined;
-  return props.templates[props.entry.template]?.[key];
-}
+/**
+ * Keys the form has a field for. `base_tech` is in the list without being a
+ * field: being a link *is* its `base_tech`, so a ghost row offering to set it
+ * would invite someone to break the link.
+ */
+const PROMOTED = ["template", "active", "link_from", "link_to", "base_tech"];
 
-function addParam() {
-  props.entry.params.push({ key: "", value: null });
-  onChange();
-}
+const inherited = computed(() =>
+  collectInherited(
+    props.entry.template,
+    props.entry.template ? props.templates[props.entry.template] : undefined,
+    undefined,
+  ),
+);
 
-function removeParam(index: number) {
-  props.entry.params.splice(index, 1);
-  onChange();
+function sets(key: string): boolean {
+  return linkSetsKey(props.entry, key);
 }
 </script>
 
 <template>
   <div class="flex flex-col gap-2 pb-2">
-    <div class="flex flex-col gap-1">
-      <label :class="FIELD_LABEL">name</label>
+    <FieldRow label="name" width="short">
       <input
         v-model="entry.name"
         type="text"
@@ -70,40 +74,54 @@ function removeParam(index: number) {
         :class="FIELD"
         @input="onChange"
       />
-    </div>
+    </FieldRow>
 
     <!-- The endpoints, which are what make this a link. Free text with
          suggestions rather than a closed list: a link may name a node defined in
          a file this editor has not loaded. -->
-    <div class="flex gap-2">
-      <div class="flex min-w-0 flex-1 flex-col gap-1">
-        <label :class="FIELD_LABEL">link_from</label>
-        <input
-          v-model="entry.linkFrom"
-          type="text"
-          list="link-node-names"
-          placeholder="node"
-          data-testid="link-from"
-          :class="FIELD"
-          @change="onChange"
-        />
-      </div>
-      <div class="flex min-w-0 flex-1 flex-col gap-1">
-        <label :class="FIELD_LABEL">link_to</label>
-        <input
-          v-model="entry.linkTo"
-          type="text"
-          list="link-node-names"
-          placeholder="node"
-          data-testid="link-to"
-          :class="FIELD"
-          @change="onChange"
-        />
-      </div>
-    </div>
+    <FieldRow
+      label="link_from"
+      width="short"
+      :inherited="inherited.link_from ?? null"
+      :is-set="sets('link_from')"
+      @revert="
+        entry.linkFrom = '';
+        onChange();
+      "
+    >
+      <input
+        v-model="entry.linkFrom"
+        type="text"
+        list="link-node-names"
+        placeholder="node"
+        data-testid="link-from"
+        :class="FIELD"
+        @change="onChange"
+      />
+    </FieldRow>
 
-    <div class="flex flex-col gap-1">
-      <label :class="FIELD_LABEL">template</label>
+    <FieldRow
+      label="link_to"
+      width="short"
+      :inherited="inherited.link_to ?? null"
+      :is-set="sets('link_to')"
+      @revert="
+        entry.linkTo = '';
+        onChange();
+      "
+    >
+      <input
+        v-model="entry.linkTo"
+        type="text"
+        list="link-node-names"
+        placeholder="node"
+        data-testid="link-to"
+        :class="FIELD"
+        @change="onChange"
+      />
+    </FieldRow>
+
+    <FieldRow label="template" width="short">
       <input
         :value="entry.template ?? ''"
         type="text"
@@ -116,54 +134,26 @@ function removeParam(index: number) {
           onChange();
         "
       />
-    </div>
+    </FieldRow>
 
-    <div class="flex items-center justify-between gap-2">
-      <label :class="FIELD_LABEL">active</label>
+    <FieldRow
+      label="active"
+      width="auto"
+      :inherited="inherited.active ?? null"
+      :is-set="sets('active')"
+      @revert="
+        entry.active = true;
+        onChange();
+      "
+    >
       <Switch v-model="entry.active" @update:model-value="onChange" />
-    </div>
+    </FieldRow>
 
-    <p v-if="entry.template" class="text-2xs text-text-faint">
-      Inherits from <code class="font-mono">{{ entry.template }}</code>
-      <span v-if="inheritedFrom('base_tech')">
-        (base_tech: {{ inheritedFrom("base_tech") }})
-      </span>
-    </p>
-
-    <div v-if="entry.params.length" class="flex flex-col gap-1">
-      <div
-        v-for="(param, index) in entry.params"
-        :key="index"
-        class="flex items-start gap-1"
-      >
-        <input
-          v-model="param.key"
-          type="text"
-          placeholder="parameter"
-          :class="cn(FIELD, 'w-36 shrink-0')"
-          @input="onChange"
-        />
-        <ScalarOrDataVar
-          :model-value="param.value"
-          @update:model-value="
-            param.value = $event;
-            onChange();
-          "
-        />
-        <button
-          type="button"
-          title="Remove this parameter"
-          :class="DANGER_ICON_BUTTON"
-          @click="removeParam(index)"
-        >
-          <X class="size-3.5" :stroke-width="2" />
-        </button>
-      </div>
-    </div>
-
-    <button type="button" :class="cn(GHOST_BUTTON, 'self-start')" @click="addParam">
-      <Plus class="size-3.5" :stroke-width="ICON_STROKE_WIDTH" />
-      Add parameter
-    </button>
+    <ParamRows
+      :params="entry.params"
+      :inherited="inherited"
+      :promoted="PROMOTED"
+      @change="onChange"
+    />
   </div>
 </template>

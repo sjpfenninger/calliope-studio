@@ -60,13 +60,24 @@ export function buildTheme() {
     backgroundColor: "transparent",
     textStyle: { color: text, fontFamily, fontSize },
     title: { textStyle: { color: text, fontFamily, fontSize } },
-    legend: { textStyle: { color: muted, fontFamily, fontSize } },
+    // 8px marks rather than ECharts' default 25x14 bars, which at this density
+    // read as a second chart sitting under the first.
+    legend: {
+      textStyle: { color: muted, fontFamily, fontSize },
+      icon: "roundRect",
+      itemWidth: 8,
+      itemHeight: 8,
+      itemGap: 12,
+    },
     tooltip: {
       backgroundColor: surface,
       borderColor: divider,
       borderWidth: 1,
       textStyle: { color: text, fontFamily, fontSize },
-      extraCssText: "box-shadow: none; border-radius: 4px;",
+      // A tooltip floats, so by the token file's own elevation rule it carries
+      // shadow-2 — it was the only floating surface in the app without one, and
+      // the radius was a hardcoded 4px beside a token that already says 4px.
+      extraCssText: `border-radius: ${cssVar("--cg-radius", "4px")}; box-shadow: ${cssVar("--cg-shadow-2", "none")};`,
     },
     // The zoom slider is the usual thing left looking light in a dark theme,
     // because it is chrome rather than data.
@@ -84,7 +95,7 @@ export function buildTheme() {
           lineStyle: { color: muted },
           areaStyle: { color: muted },
         },
-        textStyle: { color: muted, fontFamily, fontSize: 10 },
+        textStyle: { color: muted, fontFamily, fontSize: cssVarPx("--text-2xs", 10) },
       },
     ],
     categoryAxis: axis,

@@ -11,7 +11,8 @@
  * app to use either.
  */
 import { computed } from "vue";
-import { Moon, MonitorCog, Sun } from "lucide-vue-next";
+import { ICON_BUTTON_SM } from "@/lib/formClasses";
+import { Moon, MonitorCog, Sun } from "@lucide/vue";
 
 import { useUiStore } from "../../stores/ui";
 
@@ -37,9 +38,9 @@ const label = computed(
     data-testid="theme-toggle"
     :title="label"
     :aria-label="label"
-    class="grid size-7 shrink-0 place-items-center rounded-sm text-text-dim transition-colors hover:bg-hover hover:text-foreground"
+    :class="ICON_BUTTON_SM"
     @click="ui.cycleTheme()"
   >
-    <component :is="icon" class="size-4" :stroke-width="1.75" />
+    <component :is="icon" class="size-3.5" />
   </button>
 </template>

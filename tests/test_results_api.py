@@ -46,6 +46,15 @@ class TestCatalog:
         assert "flow_cap" in variables["static"]
         assert variables["static_links"]
 
+    def test_reports_each_variables_dimensions(self, results_client):
+        body = results_client.get(
+            f"/api/results/{results_client.handle}/catalog/"
+        ).json()
+        dims = body["variables"]["dims"]
+        assert "nodes" in dims["flow_cap"]
+        assert "techs" in dims["flow_cap"]
+        assert "timesteps" in dims["flow*"]
+
     def test_carries_colours_and_dimensions(self, results_client):
         body = results_client.get(
             f"/api/results/{results_client.handle}/catalog/"

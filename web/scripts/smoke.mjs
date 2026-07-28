@@ -30,9 +30,10 @@ await health(BASE);
 // otherwise decide where this one starts from — and a drag that begins at the
 // minimum proves nothing.
 await page.goto(BASE, { waitUntil: "domcontentloaded" });
-await page.evaluate(() =>
-  localStorage.removeItem("calliope-studio.results.split"),
-);
+await page.evaluate(() => {
+  localStorage.removeItem("calliope-studio.results.split");
+  localStorage.removeItem("calliope-studio.results.collapsed");
+});
 
 // `/results` resolves whatever the server was opened on and replaces itself with
 // a shell URL carrying a run tab.
@@ -128,13 +129,159 @@ await page.waitForTimeout(800);
 
 const afterDrag = await mapBox();
 check("dragging the border resizes the map", afterDrag.height > beforeDrag.height + 60);
+
+const storedSplit = () =>
+  page.evaluate(() =>
+    JSON.parse(localStorage.getItem("calliope-studio.results.split") ?? "null"),
+  );
 check(
-  "the split is remembered",
-  (
-    await page.evaluate(() =>
-      JSON.parse(localStorage.getItem("calliope-studio.results.split") ?? "null"),
-    )
-  )?.length === 2,
+  "the split is remembered, keyed by panel count",
+  (await storedSplit())?.["3"]?.length === 3,
+);
+
+// The two charts used to share one panel and a scrollbar, so the splitter could
+// only say how much room the *map* got.
+const chartsHandle = testId("results-charts-handle");
+check("the two charts have a border of their own", (await chartsHandle.count()) === 1);
+
+// ── Collapsing a figure ────────────────────────────────────────────────────
+//
+// Only the chevron and title are the target: the headers are dense with variable
+// pickers, and a whole-strip target folds the figure away on a near miss.
+/**
+ * A figure's card height and the height of its own title bar.
+ *
+ * Measured rather than compared against a constant: the chart headers wrap onto a
+ * second row at a narrow window, so what "collapsed" means in pixels is a
+ * property of the header in front of you. A collapsed card is its title bar plus
+ * the card's two hairlines, and nothing else.
+ */
+const figureBox = (figure) =>
+  page.evaluate((name) => {
+    const section = document
+      .querySelector(`[data-testid="collapse-${name}"]`)
+      .closest("section");
+    const strip = section.firstElementChild;
+    return {
+      section: section.getBoundingClientRect().height,
+      strip: strip.getBoundingClientRect().height,
+      stripVisible:
+        strip.getBoundingClientRect().bottom <=
+        section.getBoundingClientRect().bottom + 0.5,
+    };
+  }, figure);
+
+const expandedBox = await figureBox("static");
+await testId("collapse-static").click();
+await page.waitForTimeout(600);
+const collapsedBox = await figureBox("static");
+check(
+  "collapsing leaves just the title bar",
+  collapsedBox.section < expandedBox.section - 60 &&
+    Math.abs(collapsedBox.section - (collapsedBox.strip + 2)) <= 1,
+  `${Math.round(expandedBox.section)} → ${Math.round(collapsedBox.section)}, strip ${Math.round(collapsedBox.strip)}`,
+);
+check(
+  "the collapsed title bar is still whole, so its controls still work",
+  collapsedBox.stripVisible,
+);
+// The neighbour, not the map: a splitter hands a collapsing panel's space to the
+// panel next to it, and the totals chart's neighbour is the time series.
+check(
+  "the figure next to it takes the room",
+  (await figureBox("timeseries")).section > expandedBox.section,
+);
+
+// Two at once: collapsing one hands its space to a neighbour, and the splitter
+// will hand it to a neighbour that is *itself* collapsed unless it is pinned.
+await testId("collapse-timeseries").click();
+await page.waitForTimeout(900);
+const bothShut = {
+  timeseries: await figureBox("timeseries"),
+  static: await figureBox("static"),
+};
+check(
+  "both charts can be collapsed at once",
+  Math.abs(bothShut.timeseries.section - (bothShut.timeseries.strip + 2)) <= 1 &&
+    Math.abs(bothShut.static.section - (bothShut.static.strip + 2)) <= 1,
+  `time series ${Math.round(bothShut.timeseries.section)}, totals ${Math.round(bothShut.static.section)}`,
+);
+check(
+  "the last open figure refuses to collapse",
+  (await testId("collapse-map").getAttribute("aria-disabled")) === "true",
+);
+check(
+  "all three title bars are the same height",
+  Math.abs((await figureBox("map")).strip - bothShut.static.strip) <= 1,
+  `map ${Math.round((await figureBox("map")).strip)}, totals ${Math.round(bothShut.static.strip)}`,
+);
+
+await testId("collapse-timeseries").click();
+await page.waitForTimeout(600);
+
+await page.reload({ waitUntil: "networkidle" });
+await testId("run-results").waitFor({ timeout: 20000 });
+await page.waitForTimeout(3000);
+const reloadedBox = await figureBox("static");
+check(
+  "a collapsed figure stays collapsed across a reload",
+  Math.abs(reloadedBox.section - (reloadedBox.strip + 2)) <= 1,
+);
+
+await testId("collapse-static").click();
+await page.waitForTimeout(600);
+check("expanding brings it back", (await figureBox("static")).section > 60);
+
+// ── The map's encoding channels ────────────────────────────────────────────
+const pickChannel = async (channel, option) => {
+  await testId(`map-${channel}-variable`).click();
+  await page.getByRole("option", { name: option, exact: true }).click();
+  await page.waitForTimeout(2500);
+};
+
+const nodeQueries = () => frames.filter(({ query }) => query?.index === "nodes");
+check("the map asks for a nodes-indexed frame", nodeQueries().length > 0);
+
+const colorOption = await testId("map-size-variable").innerText();
+await pickChannel("color", colorOption.trim());
+check(
+  "the colour channel issues a second nodes-indexed query",
+  nodeQueries().filter(({ query }) => query?.sum_by === "techs").length >= 2,
+);
+check("the legend appears", (await testId("map-legend").count()) === 1);
+
+await pickChannel("pie", colorOption.trim());
+check(
+  "a pie keeps the technologies apart",
+  nodeQueries().some(({ query }) => query?.sum_by === undefined),
+);
+check(
+  "a pie takes over the colour channel",
+  await testId("map-color-variable").isDisabled(),
+);
+check("pies are drawn as markers", (await page.locator(".maplibregl-marker").count()) > 0);
+
+await pickChannel("pie", "No pie");
+await pickChannel("color", "No colour");
+await pickChannel("size", "No size");
+check(
+  "every channel off leaves the nodes alone",
+  (await page.locator(".maplibregl-marker").count()) === 0 &&
+    (await testId("map-legend").count()) === 0,
+);
+await pickChannel("size", colorOption.trim());
+
+// ── Aggregating the totals chart ───────────────────────────────────────────
+//
+// Summing the nodes away is what turns this into model-wide totals by
+// technology, which had no answer here at all.
+const sumBefore = frames.length;
+await testId("static-sum-by").getByText("Sum nodes", { exact: true }).click();
+await page.waitForTimeout(2500);
+check(
+  "the totals chart can sum the nodes away",
+  frames.length > sumBefore &&
+    frames.some(({ query }) => query?.sum_by === "nodes" && !query?.resample),
 );
 
 // The sub-views of a run tab. Results has to survive a trip to the log, or
@@ -162,6 +309,9 @@ const themeValue = () =>
     getComputedStyle(document.documentElement).getPropertyValue("--cg-bg").trim(),
   );
 const lightBg = await themeValue();
+// Measured here rather than reusing the post-drag height: collapsing and
+// re-expanding a figure in between moved the map, so that baseline is stale.
+const beforeTheme = await mapBox();
 await page.evaluate(() => localStorage.setItem("calliope-studio.theme", "dark"));
 await page.reload({ waitUntil: "networkidle" });
 await testId("run-results").waitFor({ timeout: 20000 });
@@ -171,7 +321,8 @@ await page.waitForTimeout(2000);
 const reloaded = await mapBox();
 check(
   "the dragged split survives a reload",
-  Math.abs(reloaded.height - afterDrag.height) < 24,
+  Math.abs(reloaded.height - beforeTheme.height) < 24,
+  `${beforeTheme.height} → ${reloaded.height}`,
 );
 
 check("the theme token actually changes", Boolean(lightBg) && lightBg !== (await themeValue()));
@@ -191,6 +342,34 @@ const controlBackground = await page.evaluate(() => {
 check(
   "the map's controls follow the theme",
   Boolean(controlBackground) && !/^rgb\(255, 255, 255\)$/.test(controlBackground),
+);
+
+// The basemap itself, not just the chrome around it. It is a vector style built
+// from the `--cg-map-*` tokens, so dark mode is a real style rather than the
+// dimmed raster it used to be — and if the tokens ever stop resolving, MapLibre
+// silently falls back to the hard-coded light values in `lib/basemap.ts` and the
+// map goes on looking finished while being wrong.
+const basemap = await page.evaluate(() => {
+  const map = window.__cgMap;
+  return {
+    land: map?.getPaintProperty("land", "background-color") ?? null,
+    labels: map?.getPaintProperty("place-city", "text-color") ?? null,
+    raster: map?.getLayoutProperty("osm", "visibility") ?? null,
+  };
+});
+const luminance = (colour) => {
+  const [red, green, blue] = (colour ?? "").match(/\d+/g)?.map(Number) ?? [255, 255, 255];
+  return (0.2126 * red + 0.7152 * green + 0.0722 * blue) / 255;
+};
+check(
+  "the basemap is a real dark style, not a dimmed light one",
+  luminance(basemap.land) < 0.25 && luminance(basemap.labels) > 0.35,
+  `land ${basemap.land}, labels ${basemap.labels}`,
+);
+check(
+  "the vector tiles loaded, so the raster fallback stayed down",
+  basemap.raster === "none",
+  String(basemap.raster),
 );
 
 await page.screenshot({ path: "/tmp/calliope-studio-smoke.png", fullPage: true });

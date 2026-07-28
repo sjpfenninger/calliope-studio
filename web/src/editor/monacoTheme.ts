@@ -1,6 +1,6 @@
 import * as monaco from "monaco-editor";
 
-import { resolvedHex } from "../lib/cssColor";
+import { cssVarPx, resolvedHex } from "../lib/cssColor";
 
 /**
  * A Monaco theme built from the CSS design tokens.
@@ -23,14 +23,20 @@ import { resolvedHex } from "../lib/cssColor";
  */
 export const MONACO_THEME = "calliope-studio";
 
-/** Font size and line height, as numbers — Monaco measures text width in JS. */
-export const MONACO_FONT_SIZE = 12;
-export const MONACO_LINE_HEIGHT = 18;
+/**
+ * Font size and line height, as numbers — Monaco measures text width in JS and
+ * so cannot be handed a CSS variable.
+ *
+ * Functions rather than constants: a module-level read can run before the
+ * stylesheet has landed, and would then bake in the fallback for the session.
+ */
+export const monacoFontSize = () => cssVarPx("--cg-font-size-sm", 12);
+export const monacoLineHeight = () => cssVarPx("--cg-code-line-height", 18);
 
 /** (Re)defines the theme from the current tokens, and applies it. */
 export function applyMonacoTheme(mode: "light" | "dark"): void {
   const hex = resolvedHex;
-  const transparent = "#00000000";
+  const transparent = "#00000000"; // design-check: allow colour
 
   monaco.editor.defineTheme(MONACO_THEME, {
     base: mode === "dark" ? "vs-dark" : "vs",

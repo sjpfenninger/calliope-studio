@@ -12,6 +12,7 @@
  * pure waste.
  */
 import { inject } from "vue";
+import { SECTION_HEADING } from "@/lib/formClasses";
 
 import { Checkbox } from "@/components/ui/checkbox";
 import { MultiSelect } from "@/components/ui/multi-select";
@@ -57,7 +58,7 @@ function toggle(section: FilterSection, member: string, checked: boolean) {
     >
       <header class="mb-1 flex h-5 items-center gap-1">
         <span
-          class="text-2xs font-semibold uppercase tracking-wide text-text-faint"
+          :class="SECTION_HEADING"
         >
           {{ section.name }}
         </span>

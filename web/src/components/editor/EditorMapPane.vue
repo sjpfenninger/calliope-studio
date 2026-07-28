@@ -8,7 +8,8 @@
  * entirely and says so: a map of *some* of the nodes is a misleading picture of
  * the model, and the fix is in the list, so that is where the button goes.
  */
-import { List } from "lucide-vue-next";
+import { List } from "@lucide/vue";
+import PanelHeader from "@/components/app/PanelHeader.vue";
 
 import ModelMap from "../map/ModelMap.vue";
 import {
@@ -17,7 +18,7 @@ import {
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
 import { GHOST_BUTTON } from "@/lib/formClasses";
-import { ICON_STROKE_WIDTH } from "@/lib/icons";
+
 import { cn } from "@/lib/utils";
 import type { GeoPayload } from "@/lib/mapGeo";
 import { useUiStore } from "@/stores/ui";
@@ -66,12 +67,9 @@ function namesShown(): string {
 
 <template>
   <div class="flex min-h-0 flex-1 flex-col" data-testid="editor-map">
-    <div
-      v-if="$slots.toolbar"
-      class="flex h-8 shrink-0 items-center gap-2 border-b border-border bg-panel px-2"
-    >
+    <PanelHeader v-if="$slots.toolbar">
       <slot name="toolbar" />
-    </div>
+    </PanelHeader>
 
     <ResizablePanelGroup
       direction="vertical"
@@ -120,7 +118,7 @@ function namesShown(): string {
                 :class="cn(GHOST_BUTTON, 'mt-1')"
                 @click="emit('showList')"
               >
-                <List class="size-3.5" :stroke-width="ICON_STROKE_WIDTH" />
+                <List class="size-3.5" />
                 Show list
               </button>
             </template>

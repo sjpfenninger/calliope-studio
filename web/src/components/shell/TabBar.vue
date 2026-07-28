@@ -6,21 +6,39 @@
  * dirty dots, overflow scrolling and middle-click-to-close do not fit a
  * `TabsList`, and its roving tabindex fights all of them.
  *
- * 32px tall with a 2px underline that sits *inside* the strip's bottom border,
- * so the active tab appears to break through it.
+ * 32px tall. The active tab is the *same surface as the editor below it*, with
+ * the strip's bottom hairline erased beneath it by a 1px bridge, so the two read
+ * as one continuous sheet and the inactive tabs sit back on the strip. Its label
+ * and icon are accent-coloured; there is no underline. All of that comes from
+ * components/app/segmented.ts, which is the point — this is the one hand-rolled
+ * strip in the app, and importing the classes is what stops it drifting.
  *
  * It scrolls with no scrollbar: the global one is 10px, a third of the strip's
  * height, drawn straight across the tabs. The wheel and the auto-reveal below
  * are what replace it.
  */
 import { ref, watch } from "vue";
-import { BarChart3 } from "lucide-vue-next";
-import { X } from "lucide-vue-next";
+import { BarChart3 } from "@lucide/vue";
+import { X } from "@lucide/vue";
 
-import { fileIcon, ICON_STROKE_WIDTH, sectionIcon } from "@/lib/icons";
+import {
+  SEGMENT_BASE,
+  SEGMENT_NAV_ACTIVE,
+  SEGMENT_NAV_SEAM,
+} from "@/components/app/segmented";
+import { fileIcon, ICON_STROKE_WIDTH_TIGHT, sectionIcon } from "@/lib/icons";
+import { cn } from "@/lib/utils";
 import { useTabsStore, type TabEntry } from "@/stores/tabs";
 
 const tabs = useTabsStore();
+
+/** The shared segment shape, plus the few things only a document tab needs. */
+const TAB_CLASS = cn(
+  SEGMENT_BASE,
+  SEGMENT_NAV_ACTIVE,
+  SEGMENT_NAV_SEAM.surface,
+  "border-r border-border-subtle px-3 data-[preview]:italic hover:bg-hover",
+);
 
 const strip = ref<HTMLElement | null>(null);
 
@@ -76,6 +94,11 @@ function onAuxClick(id: string, event: MouseEvent) {
 </script>
 
 <template>
+  <!-- design-check: allow strip — the one hand-rolled strip. Close buttons,
+       dirty dots, preview italics, middle-click and overflow auto-reveal do not
+       fit PanelHeader's slot, but the active-state classes below are imported
+       from segmented.ts so the one selection rule still cannot drift.
+       design-check: allow strip -->
   <div
     v-if="tabs.ordered.length"
     ref="strip"
@@ -91,7 +114,7 @@ function onAuxClick(id: string, event: MouseEvent) {
       :data-active="tab.id === tabs.activeId || undefined"
       :data-preview="tab.id === tabs.previewId || undefined"
       :title="tab.kind === 'entry' ? `${tab.entryName} · ${tab.section}` : tab.title"
-      class="group relative inline-flex shrink-0 select-none items-center gap-1.5 whitespace-nowrap border-r border-border-subtle px-3 text-sm text-muted-foreground transition-colors data-[preview]:italic hover:bg-hover hover:text-foreground data-[active]:bg-surface data-[active]:text-foreground data-[active]:after:absolute data-[active]:after:inset-x-0 data-[active]:after:-bottom-px data-[active]:after:h-0.5 data-[active]:after:bg-primary"
+      :class="TAB_CLASS"
       @click="tabs.activate(tab.id)"
       @dblclick="tabs.promote(tab.id)"
       @auxclick="onAuxClick(tab.id, $event)"
@@ -99,7 +122,6 @@ function onAuxClick(id: string, event: MouseEvent) {
       <component
         :is="iconFor(tab)"
         class="size-3.5 shrink-0"
-        :stroke-width="ICON_STROKE_WIDTH"
       />
       <span class="max-w-40 truncate">{{ label(tab) }}</span>
       <span
@@ -111,6 +133,7 @@ function onAuxClick(id: string, event: MouseEvent) {
            not change width and the row does not shuffle under the cursor. -->
       <span
         v-if="tab.isDirty"
+        data-testid="tab-dirty"
         class="size-1.5 shrink-0 rounded-full bg-primary group-hover:hidden"
         title="Unsaved changes"
       />
@@ -121,7 +144,7 @@ function onAuxClick(id: string, event: MouseEvent) {
         aria-label="Close tab"
         @click="close(tab.id, $event)"
       >
-        <X class="size-3" :stroke-width="2.5" />
+        <X class="size-3" :stroke-width="ICON_STROKE_WIDTH_TIGHT" />
       </span>
     </button>
   </div>

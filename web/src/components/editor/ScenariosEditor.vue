@@ -15,19 +15,21 @@
  *   run time, with a message that does not say which scenario was at fault.
  */
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
-import { ChevronDown, ChevronUp, Plus, TriangleAlert, Trash2, X } from "lucide-vue-next";
+import StateMessage from "@/components/app/StateMessage.vue";
+import { entryKey } from "@/lib/entries";
+import { ChevronDown, ChevronUp, Plus, TriangleAlert, Trash2, X } from "@lucide/vue";
 
 import client from "@/api/client";
 import EditorToolbar from "./EditorToolbar.vue";
 import { MultiSelect } from "@/components/ui/multi-select";
+import FieldRow from "@/components/app/FieldRow.vue";
 import {
   DANGER_ICON_BUTTON,
   FIELD,
-  FIELD_LABEL,
   GHOST_BUTTON,
   ICON_BUTTON,
 } from "@/lib/formClasses";
-import { ICON_STROKE_WIDTH } from "@/lib/icons";
+import { ICON_STROKE_WIDTH_TIGHT } from "@/lib/icons";
 import { cn } from "@/lib/utils";
 import { useComponentTreeStore } from "@/stores/componentTree";
 import { useTabsStore } from "@/stores/tabs";
@@ -179,63 +181,59 @@ watch(() => props.filePath, load);
 
 <template>
   <div class="flex min-h-0 flex-1 flex-col" data-testid="scenarios-editor">
-    <p v-if="isLoading" class="p-6 text-center text-sm text-muted-foreground">
+    <StateMessage v-if="isLoading" variant="block" loading>
       Loading scenarios…
-    </p>
-    <p v-else-if="error" class="p-6 text-center text-sm text-danger-text">{{ error }}</p>
+    </StateMessage>
+    <StateMessage v-else-if="error" variant="block" tone="danger">{{ error }}</StateMessage>
 
     <template v-else>
       <EditorToolbar :saving="isSaving" @save="save">
         <button v-if="!entryName" type="button" :class="GHOST_BUTTON" @click="addEntry">
-          <Plus class="size-3.5" :stroke-width="ICON_STROKE_WIDTH" />
+          <Plus class="size-3.5" />
           Add scenario
         </button>
       </EditorToolbar>
 
       <div class="min-h-0 flex-1 overflow-auto p-2">
-        <p
-          v-if="!visibleEntries.length"
-          class="p-6 text-center text-sm text-muted-foreground"
-        >
+        <StateMessage v-if="!visibleEntries.length" variant="block">
           {{
             entryName
               ? `No scenario called "${entryName}".`
               : "No scenarios defined yet."
           }}
-        </p>
+        </StateMessage>
 
         <section
           v-for="entry in visibleEntries"
-          :key="entry.name || String(entries.indexOf(entry))"
+          :key="entryKey(entry, entries)"
           class="mb-2 flex flex-col gap-1.5 rounded-sm border border-border p-2"
           data-testid="scenario"
         >
-          <div class="flex items-end gap-1.5">
-            <div class="flex min-w-0 flex-1 flex-col gap-1">
-              <label :class="FIELD_LABEL">name</label>
-              <input
-                v-model="entry.name"
-                type="text"
-                :class="FIELD"
-                @input="onChange"
-              />
-            </div>
-            <MultiSelect
-              :model-value="entry.overrides"
-              :options="knownOverrides"
-              placeholder="Add overrides…"
-              class="w-56"
-              @update:model-value="(value) => setOverrides(entry, value)"
+          <FieldRow label="name" width="short">
+            <input
+              v-model="entry.name"
+              type="text"
+              :class="FIELD"
+              @input="onChange"
             />
-            <button
-              type="button"
-              title="Remove this scenario"
-              :class="DANGER_ICON_BUTTON"
-              @click="removeEntry(entry)"
-            >
-              <Trash2 class="size-3.5" :stroke-width="ICON_STROKE_WIDTH" />
-            </button>
-          </div>
+            <template #action>
+              <MultiSelect
+                :model-value="entry.overrides"
+                :options="knownOverrides"
+                placeholder="Add overrides…"
+                class="w-56"
+                @update:model-value="(value) => setOverrides(entry, value)"
+              />
+              <button
+                type="button"
+                title="Remove this scenario"
+                :class="DANGER_ICON_BUTTON"
+                @click="removeEntry(entry)"
+              >
+                <Trash2 class="size-3.5" />
+              </button>
+            </template>
+          </FieldRow>
 
           <!-- In order, because later overrides win. -->
           <ol class="flex flex-col">
@@ -254,7 +252,7 @@ watch(() => props.filePath, load);
                 class="inline-flex shrink-0 items-center gap-1 rounded-xs bg-warning-soft px-1 text-2xs text-warning-text"
                 title="No override of this name is defined anywhere in the model"
               >
-                <TriangleAlert class="size-3" :stroke-width="ICON_STROKE_WIDTH" />
+                <TriangleAlert class="size-3" />
                 unknown
               </span>
 
@@ -265,7 +263,7 @@ watch(() => props.filePath, load);
                 :disabled="index === 0"
                 @click="move(entry, index, -1)"
               >
-                <ChevronUp class="size-3" :stroke-width="2" />
+                <ChevronUp class="size-3" :stroke-width="ICON_STROKE_WIDTH_TIGHT" />
               </button>
               <button
                 type="button"
@@ -274,7 +272,7 @@ watch(() => props.filePath, load);
                 :disabled="index === entry.overrides.length - 1"
                 @click="move(entry, index, 1)"
               >
-                <ChevronDown class="size-3" :stroke-width="2" />
+                <ChevronDown class="size-3" :stroke-width="ICON_STROKE_WIDTH_TIGHT" />
               </button>
               <button
                 type="button"
@@ -282,7 +280,7 @@ watch(() => props.filePath, load);
                 :class="cn(DANGER_ICON_BUTTON, 'size-5')"
                 @click="drop(entry, index)"
               >
-                <X class="size-3" :stroke-width="2" />
+                <X class="size-3" :stroke-width="ICON_STROKE_WIDTH_TIGHT" />
               </button>
             </li>
           </ol>

@@ -12,12 +12,13 @@
  * save writes them back untouched rather than dropping them.
  */
 import { ref, computed, onMounted, onUnmounted, watch } from "vue";
-import { Plus, Trash2, X } from "lucide-vue-next";
+import StateMessage from "@/components/app/StateMessage.vue";
+import FieldRow from "@/components/app/FieldRow.vue";
+import { Plus, Trash2 } from "@lucide/vue";
 
 import client from "@/api/client";
 import EditorToolbar from "./EditorToolbar.vue";
-import InheritedFields from "./InheritedFields.vue";
-import ScalarOrDataVar from "./ScalarOrDataVar.vue";
+import ParamRows from "./ParamRows.vue";
 import {
   Accordion,
   AccordionContent,
@@ -25,24 +26,20 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import { Switch } from "@/components/ui/switch";
-import {
-  DANGER_ICON_BUTTON,
-  FIELD,
-  FIELD_LABEL,
-  GHOST_BUTTON,
-} from "@/lib/formClasses";
-import { ICON_STROKE_WIDTH } from "@/lib/icons";
-import {
-  describeParams,
-  paramSources,
-  type DataTableParam,
-} from "@/lib/dataTableParams";
-import { cn } from "@/lib/utils";
+import { DANGER_ICON_BUTTON, FIELD, GHOST_BUTTON } from "@/lib/formClasses";
+
+import { type DataTableParam } from "@/lib/dataTableParams";
+import { collectInherited, techSetsKey } from "@/lib/inherited";
 import { useTabsStore } from "@/stores/tabs";
 import { useSectionDataStore } from "@/stores/sectionData";
 import { useTemplatesStore } from "@/stores/templates";
 import { isTransmission, mergeIntoSection, type RawTech } from "@/lib/techs";
-import { rawToTech, techToRaw, type TechEntry } from "@/lib/entries";
+import {
+  entryKey,
+  rawToTech,
+  techToRaw,
+  type TechEntry,
+} from "@/lib/entries";
 
 const props = defineProps<{
   versionId: string;
@@ -133,18 +130,8 @@ async function loadDataTableParams() {
   }
 }
 
-function isTechFieldOverridden(entry: TechEntry, key: string): boolean {
-  if (key === "template") return false;
-  if (key === "base_tech") return entry.base_tech !== null;
-  if (key === "active") return entry.active === false;
-  return entry.extraParams.some((p) => p.key === key);
-}
-
-function formatTemplateValue(v: any): string {
-  if (v === null || v === undefined) return "";
-  if (typeof v === "object") return JSON.stringify(v);
-  return String(v);
-}
+/** Keys the form has a field for, so they get no ghost parameter row. */
+const PROMOTED = ["template", "active", "base_tech"];
 
 function ownedHere(name: string): boolean {
   return !isTransmission(originalSection.value[name] ?? null, templatesData.value);
@@ -189,35 +176,22 @@ function removeEntry(entry: TechEntry) {
   tabsStore.markDirty(props.tabId);
 }
 
-function addParam(entry: TechEntry) {
-  entry.extraParams.push({ key: "", value: null });
-  tabsStore.markDirty(props.tabId);
-}
-
-function removeParam(entry: TechEntry, j: number) {
-  entry.extraParams.splice(j, 1);
-  tabsStore.markDirty(props.tabId);
-}
-
 function onChange() {
   tabsStore.markDirty(props.tabId);
 }
 
-/** Template fields, as displayable strings. */
-function templateFields(name: string | null): Record<string, string> {
-  const raw = (name && templatesData.value[name]) || {};
-  return Object.fromEntries(
-    Object.entries(raw).map(([key, value]) => [key, formatTemplateValue(value)]),
+/**
+ * What this technology gets from its template and from the data tables.
+ *
+ * Per entry rather than per editor: the accordion shows every technology in the
+ * file, and each inherits from a different template.
+ */
+function inheritedFor(entry: TechEntry) {
+  return collectInherited(
+    entry.template,
+    entry.template ? templatesData.value[entry.template] : undefined,
+    dataTableParams.value[entry.name],
   );
-}
-
-/** Data-table values for one technology, and which table each came from. */
-function dataTableFields(name: string): Record<string, string> {
-  return describeParams(dataTableParams.value[name]);
-}
-
-function dataTableSources(name: string): Record<string, string> {
-  return paramSources(dataTableParams.value[name]);
 }
 
 function onKeydown(e: KeyboardEvent) {
@@ -241,37 +215,34 @@ watch(() => props.filePath, load);
 
 <template>
   <div class="flex min-h-0 flex-1 flex-col">
-    <p v-if="isLoading" class="p-6 text-center text-sm text-muted-foreground">
+    <StateMessage v-if="isLoading" variant="block" loading>
       Loading techs…
-    </p>
-    <p v-else-if="error" class="p-6 text-center text-sm text-danger-text">{{ error }}</p>
+    </StateMessage>
+    <StateMessage v-else-if="error" variant="block" tone="danger">{{ error }}</StateMessage>
 
     <template v-else>
       <EditorToolbar :saving="isSaving" @save="save">
         <button v-if="!entryName" type="button" :class="GHOST_BUTTON" @click="addEntry">
-          <Plus class="size-3.5" :stroke-width="ICON_STROKE_WIDTH" />
+          <Plus class="size-3.5" />
           Add tech
         </button>
       </EditorToolbar>
 
       <div class="min-h-0 flex-1 overflow-auto">
-        <p
-          v-if="!visibleEntries.length"
-          class="p-6 text-center text-sm text-muted-foreground"
-        >
+        <StateMessage v-if="!visibleEntries.length" variant="block">
           {{ entryName ? `No tech called "${entryName}".` : "No techs defined yet." }}
-        </p>
+        </StateMessage>
 
         <Accordion
           v-else
           type="multiple"
-          :default-value="visibleEntries.map((e) => e.name || String(entries.indexOf(e)))"
+          :default-value="visibleEntries.map((e) => entryKey(e, entries))"
           class="px-2"
         >
           <AccordionItem
             v-for="entry in visibleEntries"
-            :key="entry.name || String(entries.indexOf(entry))"
-            :value="entry.name || String(entries.indexOf(entry))"
+            :key="entryKey(entry, entries)"
+            :value="entryKey(entry, entries)"
           >
             <div class="flex items-center gap-1.5">
               <AccordionTrigger
@@ -291,25 +262,23 @@ watch(() => props.filePath, load);
                 :class="DANGER_ICON_BUTTON"
                 @click.stop="removeEntry(entry)"
               >
-                <Trash2 class="size-3.5" :stroke-width="ICON_STROKE_WIDTH" />
+                <Trash2 class="size-3.5" />
               </button>
             </div>
 
             <AccordionContent>
               <div class="flex flex-col gap-2 pb-2">
                 <!-- name is the mapping key, not a parameter. -->
-                <div class="flex flex-col gap-1">
-                  <label :class="FIELD_LABEL">name</label>
+                <FieldRow label="name" width="short">
                   <input
                     v-model="entry.name"
                     type="text"
                     :class="FIELD"
                     @input="onChange"
                   />
-                </div>
+                </FieldRow>
 
-                <div class="flex flex-col gap-1">
-                  <label :class="FIELD_LABEL">template</label>
+                <FieldRow label="template" width="short">
                   <input
                     :value="entry.template ?? ''"
                     type="text"
@@ -321,10 +290,18 @@ watch(() => props.filePath, load);
                       onChange();
                     "
                   />
-                </div>
+                </FieldRow>
 
-                <div class="flex flex-col gap-1">
-                  <label :class="FIELD_LABEL">base_tech</label>
+                <FieldRow
+                  label="base_tech"
+                  width="short"
+                  :inherited="inheritedFor(entry).base_tech ?? null"
+                  :is-set="techSetsKey(entry, 'base_tech')"
+                  @revert="
+                    entry.base_tech = null;
+                    onChange();
+                  "
+                >
                   <select
                     :value="entry.base_tech ?? ''"
                     :class="FIELD"
@@ -341,67 +318,26 @@ watch(() => props.filePath, load);
                       {{ option }}
                     </option>
                   </select>
-                </div>
+                </FieldRow>
 
-                <div class="flex items-center justify-between gap-2">
-                  <label :class="FIELD_LABEL">active</label>
-                  <Switch v-model="entry.active" @update:model-value="onChange" />
-                </div>
-
-                <div v-if="entry.extraParams.length" class="flex flex-col gap-1">
-                  <div
-                    v-for="(param, j) in entry.extraParams"
-                    :key="j"
-                    class="flex items-start gap-1"
-                  >
-                    <input
-                      v-model="param.key"
-                      type="text"
-                      placeholder="parameter"
-                      :class="cn(FIELD, 'w-36 shrink-0')"
-                      @input="onChange"
-                    />
-                    <ScalarOrDataVar
-                      :model-value="param.value"
-                      @update:model-value="
-                        param.value = $event;
-                        onChange();
-                      "
-                    />
-                    <button
-                      type="button"
-                      title="Remove this parameter"
-                      :class="DANGER_ICON_BUTTON"
-                      @click="removeParam(entry, j)"
-                    >
-                      <X class="size-3.5" :stroke-width="2" />
-                    </button>
-                  </div>
-                </div>
-
-                <button
-                  type="button"
-                  :class="cn(GHOST_BUTTON, 'self-start')"
-                  @click="addParam(entry)"
+                <FieldRow
+                  label="active"
+                  width="auto"
+                  :inherited="inheritedFor(entry).active ?? null"
+                  :is-set="techSetsKey(entry, 'active')"
+                  @revert="
+                    entry.active = true;
+                    onChange();
+                  "
                 >
-                  <Plus class="size-3.5" :stroke-width="ICON_STROKE_WIDTH" />
-                  Add parameter
-                </button>
+                  <Switch v-model="entry.active" @update:model-value="onChange" />
+                </FieldRow>
 
-                <InheritedFields
-                  v-if="entry.template"
-                  :label="`From: ${entry.template}`"
-                  :fields="templateFields(entry.template)"
-                  :is-overridden="(key) => isTechFieldOverridden(entry, key)"
-                  empty-text="Template definition not available."
-                />
-
-                <InheritedFields
-                  v-if="Object.keys(dataTableParams[entry.name] ?? {}).length"
-                  label="From data tables"
-                  :fields="dataTableFields(entry.name)"
-                  :sources="dataTableSources(entry.name)"
-                  :is-overridden="(key) => isTechFieldOverridden(entry, key)"
+                <ParamRows
+                  :params="entry.extraParams"
+                  :inherited="inheritedFor(entry)"
+                  :promoted="PROMOTED"
+                  @change="onChange"
                 />
               </div>
             </AccordionContent>

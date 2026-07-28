@@ -22,6 +22,12 @@ function catalog(overrides: Partial<Catalog> = {}): Catalog {
       static: ["flow_cap", "cost"],
       static_nodes: ["flow_cap"],
       static_links: ["flow_cap"],
+      dims: {
+        flow_cap: ["nodes", "techs", "carriers"],
+        cost: ["nodes", "techs", "costs"],
+        "flow*": ["nodes", "techs", "carriers", "timesteps"],
+        storage: ["nodes", "techs", "timesteps"],
+      },
     },
     dimensions: {
       nodes: ["region1", "region2"],
@@ -159,7 +165,13 @@ describe("useRunSelection", () => {
       const store = useRunSelection("h1");
       await store.load();
 
-      for (const query of [store.timeseriesQuery, store.staticQuery, store.mapQuery]) {
+      store.mapVariables.pie = "flow_cap";
+      for (const query of [
+        store.timeseriesQuery,
+        store.staticQuery,
+        store.mapSizeQuery,
+        store.mapPieQuery,
+      ]) {
         expect(query?.selectors?.transmission).toBeUndefined();
       }
     });
@@ -281,6 +293,10 @@ describe("useRunSelection", () => {
             static: ["flow_cap"],
             static_nodes: [],
             static_links: [],
+            dims: {
+              flow_cap: ["nodes", "techs", "carriers"],
+              storage: ["nodes", "techs", "timesteps"],
+            },
           },
         }),
       );
@@ -312,7 +328,136 @@ describe("useRunSelection", () => {
       const store = useRunSelection("h1");
       await store.load();
       store.mapNodes = ["region2"];
-      expect(store.mapQuery?.selectors?.nodes).toEqual(["region1", "region2"]);
+      expect(store.mapSizeQuery?.selectors?.nodes).toEqual(["region1", "region2"]);
+    });
+  });
+
+  describe("map channels", () => {
+    it("opens on size only, over the variables carrying node data", async () => {
+      const store = useRunSelection("h1");
+      await store.load();
+      expect(store.mapVariables).toEqual({
+        size: "flow_cap",
+        color: null,
+        pie: null,
+      });
+      expect(store.mapColorQuery).toBeNull();
+      expect(store.mapPieQuery).toBeNull();
+    });
+
+    it("keeps technologies apart for a pie and sums them away otherwise", async () => {
+      // The wedges *are* the technologies, so summing them out would leave one
+      // slice and nothing to see.
+      const store = useRunSelection("h1");
+      await store.load();
+      store.mapVariables.pie = "flow_cap";
+
+      expect(store.mapSizeQuery?.sum_by).toBe("techs");
+      expect(store.mapPieQuery?.sum_by).toBeUndefined();
+      expect(store.mapPieQuery?.index).toBe("nodes");
+    });
+
+    it("gives the colour channel up to a pie", async () => {
+      // A wedge is coloured by its technology, so a donut has already spent the
+      // colour channel; a magnitude on top of it would be invisible.
+      const store = useRunSelection("h1");
+      await store.load();
+      store.mapVariables.color = "flow_cap";
+      expect(store.mapColorQuery?.variable).toBe("flow_cap");
+
+      store.mapVariables.pie = "flow_cap";
+      expect(store.mapColorQuery).toBeNull();
+    });
+
+    it("switches a channel off rather than re-pointing it", async () => {
+      const store = useRunSelection("h1");
+      await store.load();
+      store.mapVariables.color = "flow_cap";
+
+      catalogFor.mockResolvedValue(
+        catalog({
+          variables: {
+            all: ["cost"],
+            timeseries: ["storage"],
+            static: ["cost"],
+            static_nodes: ["cost"],
+            static_links: [],
+            dims: { cost: ["nodes", "techs"], storage: ["nodes", "timesteps"] },
+          },
+        }),
+      );
+      await store.load(true);
+
+      // Size must land somewhere — a map with no markers is not a map — but
+      // substituting a variable onto an opt-in channel would put a picture on
+      // the map that nobody asked for.
+      expect(store.mapVariables.size).toBe("cost");
+      expect(store.mapVariables.color).toBeNull();
+    });
+  });
+
+  describe("static aggregation", () => {
+    it("sends no sum_by by default", async () => {
+      // Byte-identical to the body this chart has always sent, so mounting it
+      // does not refetch.
+      const store = useRunSelection("h1");
+      await store.load();
+      expect(store.staticQuery).toEqual({
+        variable: "flow_cap",
+        selectors: store.effectiveSelectors,
+      });
+    });
+
+    it("sums a dimension when asked", async () => {
+      const store = useRunSelection("h1");
+      await store.load();
+      store.staticSumBy = "nodes";
+      expect(store.staticQuery?.sum_by).toBe("nodes");
+    });
+
+    it("only offers what the variable has", async () => {
+      const store = useRunSelection("h1");
+      await store.load();
+      expect(store.staticSumOptions).toEqual(["none", "nodes", "techs"]);
+
+      catalogFor.mockResolvedValue(
+        catalog({
+          variables: {
+            all: ["flow_cap"],
+            timeseries: ["storage"],
+            static: ["flow_cap"],
+            static_nodes: ["flow_cap"],
+            static_links: [],
+            dims: { flow_cap: ["techs"], storage: ["nodes", "timesteps"] },
+          },
+        }),
+      );
+      await store.load(true);
+      expect(store.staticSumOptions).toEqual(["none", "techs"]);
+    });
+
+    it("ignores a sum the variable cannot do", async () => {
+      // Switching variable must not leave the query asking for a dimension that
+      // is not there — the server drops it silently, so the control would look
+      // set while doing nothing.
+      const store = useRunSelection("h1");
+      await store.load();
+      store.staticSumBy = "nodes";
+
+      catalogFor.mockResolvedValue(
+        catalog({
+          variables: {
+            all: ["flow_cap"],
+            timeseries: ["storage"],
+            static: ["flow_cap"],
+            static_nodes: [],
+            static_links: [],
+            dims: { flow_cap: ["techs"], storage: ["nodes", "timesteps"] },
+          },
+        }),
+      );
+      await store.load(true);
+      expect(store.staticQuery?.sum_by).toBeUndefined();
     });
   });
 

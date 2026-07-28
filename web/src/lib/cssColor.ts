@@ -164,6 +164,7 @@ export function resolvedColor(name: string, fallback: string): string {
   const [red, green, blue, alpha] = rgba;
   // The space after each comma matters: Monaco's parser requires it, and both
   // other consumers accept it.
+  // design-check: allow colour — constructing an output format, not naming a colour.
   return alpha >= 1
     ? `rgb(${red}, ${green}, ${blue})`
     : `rgba(${red}, ${green}, ${blue}, ${alpha})`;

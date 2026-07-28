@@ -74,6 +74,18 @@ const VARIABLE_DEFAULTS: Record<string, string> = {
 
 export type PlotType = "Bar" | "Line" | "Area" | "Duration";
 
+/**
+ * How a chart aggregates, including not at all.
+ *
+ * `"none"` rather than `null` so it can be a toggle-group value — a toggle group
+ * has no way to express "no option", and `keepOne` exists precisely to stop the
+ * control ever landing there.
+ */
+export type SumBy = "none" | "nodes" | "techs";
+
+/** How the map encodes a variable. Each channel picks its own. */
+export type MapChannel = "size" | "color" | "pie";
+
 /** One section of the filter sidebar, which is all the panel needs to know. */
 export interface FilterSection {
   /** The dimension it filters, and the suffix of its `data-testid`. */
@@ -98,6 +110,24 @@ function defineRunSelection(handle: string) {
     const plotType = ref<PlotType>("Bar");
     const sumBy = ref<"nodes" | "techs">("nodes");
     const timeRange = ref<[string, string] | null>(null);
+
+    /**
+     * How the static chart aggregates.
+     *
+     * Defaults to `"none"`, which is the query this chart always sent — every
+     * dimension left standing and the server picking the largest as the index.
+     * Summing nodes away is what turns it into model-wide totals by technology,
+     * which is one of the first questions anyone asks of a solved model and had
+     * no answer here at all.
+     */
+    const staticSumBy = ref<SumBy>("none");
+
+    /** The variable on each of the map's three encoding channels, or none. */
+    const mapVariables = ref<Record<MapChannel, string | null>>({
+      size: null,
+      color: null,
+      pie: null,
+    });
 
     const links = computed<Link[]>(() => catalog.value?.links ?? []);
     const linkTechs = computed(() => links.value.map((link) => link.tech));
@@ -181,6 +211,34 @@ function defineRunSelection(handle: string) {
         variableStatic.value,
         "static",
       );
+
+      // The map only offers variables that carry node data, which the catalogue
+      // has always computed and nothing used. A channel pointing at something the
+      // model no longer has is switched off rather than re-pointed: colour and
+      // pie are opt-in, and silently substituting another variable would put a
+      // picture on the map that the user never asked for. Size is the exception,
+      // because a map with no markers is not a map.
+      mapVariables.value = {
+        size: pickVariable(variables.static_nodes, mapVariables.value.size, "static_nodes"),
+        color: keepVariable(variables.static_nodes, mapVariables.value.color),
+        pie: keepVariable(variables.static_nodes, mapVariables.value.pie),
+      };
+    }
+
+    /** Keeps a channel's variable only if it is still offered. */
+    function keepVariable(options: string[], current: string | null) {
+      return current && options.includes(current) ? current : null;
+    }
+
+    /** A variable's dimensions, empty when the catalogue does not know it. */
+    function dimsOf(variable: string | null): string[] {
+      if (!variable) return [];
+      return catalog.value?.variables.dims?.[variable] ?? [];
+    }
+
+    /** Whether a chart can be asked to sum a dimension the variable has. */
+    function canSum(variable: string | null, dimension: string): boolean {
+      return dimsOf(variable).includes(dimension);
     }
 
     /**
@@ -217,8 +275,22 @@ function defineRunSelection(handle: string) {
       } catch {
         // A model without coordinates is perfectly normal; the map says so itself.
         geo.value = null;
+      } finally {
+        geoResolved.value = true;
       }
     }
+
+    /**
+     * Whether the geography question has been answered, either way.
+     *
+     * Not "has geography" — this flips false→true exactly once and never back,
+     * which is what the results view needs before it can lay its panels out. A
+     * splitter reads each panel's `defaultSize` when the panel *registers*, so a
+     * map panel that appears a moment later registers into a layout computed
+     * without it, and the stored split is silently replaced by a redistribution.
+     * Waiting for one answer costs a beat; guessing costs the user's layout.
+     */
+    const geoResolved = ref(false);
 
     const hasGeography = computed(
       () => (geo.value?.nodes.features.length ?? 0) > 0,
@@ -289,33 +361,65 @@ function defineRunSelection(handle: string) {
       };
     });
 
+    /** Which sum-by options the static chart's variable can actually offer. */
+    const staticSumOptions = computed<SumBy[]>(() =>
+      (["none", "nodes", "techs"] as SumBy[]).filter(
+        (option) => option === "none" || canSum(variableStatic.value, option),
+      ),
+    );
+
     const staticQuery = computed<ResultQuery | null>(() => {
       if (!variableStatic.value) return null;
+      const sum = staticSumOptions.value.includes(staticSumBy.value)
+        ? staticSumBy.value
+        : "none";
       return {
         variable: variableStatic.value,
         selectors: effectiveSelectors.value,
+        // Omitted rather than sent as null when there is nothing to sum, so the
+        // body is byte-identical to the one this chart has always sent and
+        // `useResultFrame`'s deep watch does not refetch on mount.
+        ...(sum === "none" ? {} : { sum_by: sum }),
       };
     });
 
     /**
-     * Per-node totals for the map's marker sizes.
+     * One query per map channel, or null for a channel that is switched off.
      *
-     * Indexed by node and summed over technologies, so a marker shows how much of
-     * the chosen variable sits at that node.
+     * Each is indexed by node and summed over technologies, so a marker shows how
+     * much of its variable sits at that node — except the pie, which needs the
+     * technologies kept apart because they are what the wedges are.
      *
-     * Deliberately ignores `mapNodes` — sizing the markers by the selection made on
-     * the markers is circular — but it still goes through `resolvedSelectors`,
-     * because the synthetic section must not reach the server from here either.
+     * All three deliberately ignore `mapNodes` — encoding the markers by the
+     * selection made on the markers is circular — but still go through
+     * `resolvedSelectors`, because the synthetic transmission section must not
+     * reach the server from here either.
      */
-    const mapQuery = computed<ResultQuery | null>(() => {
-      if (!variableStatic.value) return null;
+    function mapQueryFor(channel: MapChannel): ResultQuery | null {
+      const variable = mapVariables.value[channel];
+      if (!variable) return null;
       return {
-        variable: variableStatic.value,
+        variable,
         selectors: resolvedSelectors.value,
         index: "nodes",
-        sum_by: "techs",
+        ...(channel === "pie" ? {} : { sum_by: "techs" }),
       };
-    });
+    }
+
+    const mapSizeQuery = computed(() => mapQueryFor("size"));
+    const mapPieQuery = computed(() => mapQueryFor("pie"));
+
+    /**
+     * The colour channel, which a pie switches off.
+     *
+     * A wedge is coloured by its technology, so a donut has already spent the
+     * colour channel on identity; asking for a magnitude on top of it would be a
+     * second, invisible encoding. The picker is disabled in the same state, so
+     * this only guards against the two being set in either order.
+     */
+    const mapColorQuery = computed(() =>
+      mapVariables.value.pie ? null : mapQueryFor("color"),
+    );
 
     /** Which chart type the timeseries pane should draw. */
     const timeseriesKind = computed<"bar" | "line" | "area">(() => {
@@ -332,6 +436,7 @@ function defineRunSelection(handle: string) {
       handle,
       catalog,
       geo,
+      geoResolved,
       hasGeography,
       isLoading,
       error,
@@ -348,12 +453,17 @@ function defineRunSelection(handle: string) {
       resolution,
       plotType,
       sumBy,
+      staticSumBy,
+      staticSumOptions,
+      mapVariables,
       timeRange,
       mapNodes,
       effectiveSelectors,
       timeseriesQuery,
       staticQuery,
-      mapQuery,
+      mapSizeQuery,
+      mapColorQuery,
+      mapPieQuery,
       timeseriesKind,
       load,
       setSelected,

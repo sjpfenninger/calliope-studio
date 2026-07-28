@@ -96,7 +96,7 @@ for (const [section, file] of SECTIONS) {
   // changes on the way out of a file nobody edited.
   check(
     `${section}: opening does not mark the tab dirty`,
-    (await page.locator('[data-testid^="tab-"][data-active] .rounded-full').count()) ===
+    (await page.locator('[data-testid^="tab-"][data-active] [data-testid="tab-dirty"]').count()) ===
       0,
   );
 
@@ -110,7 +110,7 @@ for (const [section, file] of SECTIONS) {
     );
     check(
       `${section}: switching view does not mark the tab dirty`,
-      (await page.locator('[data-testid^="tab-"][data-active] .rounded-full').count()) ===
+      (await page.locator('[data-testid^="tab-"][data-active] [data-testid="tab-dirty"]').count()) ===
         0,
     );
   }
@@ -170,7 +170,7 @@ check(
 );
 check(
   `${TABLE}: opening does not mark the tab dirty`,
-  (await page.locator('[data-testid^="tab-"][data-active] .rounded-full').count()) === 0,
+  (await page.locator('[data-testid^="tab-"][data-active] [data-testid="tab-dirty"]').count()) === 0,
 );
 
 await testId("save").click();

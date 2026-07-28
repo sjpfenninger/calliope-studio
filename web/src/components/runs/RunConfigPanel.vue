@@ -18,14 +18,19 @@
  * highlighting is not worth that.
  */
 import { computed, ref, watch } from "vue";
-import { FileWarning } from "lucide-vue-next";
+import Segmented from "@/components/app/Segmented.vue";
+import PanelHeader from "@/components/app/PanelHeader.vue";
+import StateMessage from "@/components/app/StateMessage.vue";
+import { SECTION_HEADING } from "@/lib/formClasses";
+import { cn } from "@/lib/utils";
+import { FileWarning } from "@lucide/vue";
 
 import { Tree } from "@/components/ui/tree";
 import client from "@/api/client";
 import { fetchSummary } from "@/api/results";
 import { buildFileTree, type FileEntry, type FileTreeNode } from "@/lib/fileTree";
 import { formatBytes } from "@/lib/format";
-import { fileIcon, ICON_STROKE_WIDTH } from "@/lib/icons";
+import { fileIcon } from "@/lib/icons";
 
 const props = defineProps<{ runId: string; handle: string | null }>();
 
@@ -119,28 +124,26 @@ const SECTIONS: Array<{ key: keyof Summary; label: string }> = [
   { key: "build_config", label: "config.build" },
   { key: "solve_config", label: "config.solve" },
 ];
+
+/** The two views, as segments. */
+const viewSegments = computed(() => [
+  { value: "written" as View, label: "As written", testid: "config-view-written" },
+  {
+    value: "solved" as View,
+    label: "As solved",
+    disabled: !props.handle,
+    tip: props.handle ? undefined : "This run has no solved model to read",
+    testid: "config-view-solved",
+  },
+]);
 </script>
 
 <template>
   <div class="flex min-h-0 flex-1 flex-col" data-testid="run-config">
-    <div
-      class="flex h-7 shrink-0 items-center gap-1 border-b border-border bg-panel px-2"
-    >
-      <button
-        v-for="option in [
-          { id: 'written' as View, label: 'As written' },
-          { id: 'solved' as View, label: 'As solved' },
-        ]"
-        :key="option.id"
-        type="button"
-        :data-testid="`config-view-${option.id}`"
-        :data-active="view === option.id || undefined"
-        :disabled="option.id === 'solved' && !handle"
-        class="h-5 rounded-xs px-1.5 text-2xs text-text-faint hover:bg-hover hover:text-foreground disabled:opacity-40 data-[active]:bg-active data-[active]:text-foreground"
-        @click="view = option.id"
-      >
-        {{ option.label }}
-      </button>
+    <PanelHeader size="sm">
+      <!-- These swap the whole body below, so under the one selection rule they
+           navigate: an accent bar, not the `bg-active` fill they used to carry. -->
+      <Segmented v-model="view" :items="viewSegments" mode="nav" seam="none" size="sm" />
 
       <div class="flex-1" />
 
@@ -154,20 +157,17 @@ const SECTIONS: Array<{ key: keyof Summary; label: string }> = [
           external.map((entry) => `${entry.reference} — ${entry.reason}`).join('\n')
         "
       >
-        <FileWarning class="size-3" :stroke-width="ICON_STROKE_WIDTH" />
+        <FileWarning class="size-3" />
         {{ external.length }} file(s) outside the model folder
       </span>
       <span v-else-if="manifest?.solve_from" class="text-2xs text-text-faint">
         solved from the {{ manifest.solve_from }}
       </span>
-    </div>
+    </PanelHeader>
 
-    <p
-      v-if="manifest && !manifest.available"
-      class="p-3 text-sm text-muted-foreground"
-    >
+    <StateMessage v-if="manifest && !manifest.available" variant="inline">
       {{ manifest.reason }}
-    </p>
+    </StateMessage>
 
     <div v-else-if="view === 'written'" class="flex min-h-0 flex-1">
       <Tree
@@ -238,7 +238,7 @@ const SECTIONS: Array<{ key: keyof Summary; label: string }> = [
 
       <template v-else>
         <section v-for="section in SECTIONS" :key="section.key" class="mb-3">
-          <h3 class="mb-1 text-2xs font-semibold uppercase tracking-wide text-text-faint">
+          <h3 :class="cn(SECTION_HEADING, 'mb-1')">
             {{ section.label }}
           </h3>
           <dl class="rounded-sm border border-border">

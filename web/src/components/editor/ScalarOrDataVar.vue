@@ -11,9 +11,10 @@
  * `flow_cap_max: 100` next to a `cost_flow_cap` indexed over cost classes.
  */
 import { ref } from "vue";
-import { MinusCircle, Table2 } from "lucide-vue-next";
+import { MinusCircle, Table2 } from "@lucide/vue";
 
-import { ICON_STROKE_WIDTH } from "@/lib/icons";
+import { FIELD, ICON_BUTTON } from "@/lib/formClasses";
+import { parseScalar } from "@/lib/entries";
 
 const props = defineProps<{
   modelValue: any;
@@ -67,13 +68,6 @@ function parseCommaSep(s: string): string | string[] | null {
   return parts;
 }
 
-function parseScalar(s: string): string | number | null {
-  const trimmed = s.trim();
-  if (!trimmed) return null;
-  const n = Number(trimmed);
-  return isNaN(n) ? trimmed : n;
-}
-
 function emitScalar() {
   emit("update:modelValue", parseScalar(scalarText.value));
 }
@@ -105,11 +99,9 @@ function toggleMode() {
   }
 }
 
-const FIELD =
-  "h-6 w-full min-w-0 rounded-xs border border-input bg-surface px-1.5 text-sm outline-none focus-visible:border-ring";
-const TOGGLE =
-  "grid size-6 shrink-0 place-items-center rounded-xs text-text-faint hover:bg-hover hover:text-foreground";
-const SUB_LABEL = "w-10 shrink-0 text-right font-mono text-2xs text-text-faint";
+// Mono at the mono step. At `text-2xs` these three read as a footnote in a
+// different typeface than the key they sit under.
+const SUB_LABEL = "w-10 shrink-0 text-right font-mono text-xs text-text-faint";
 </script>
 
 <template>
@@ -118,11 +110,11 @@ const SUB_LABEL = "w-10 shrink-0 text-right font-mono text-2xs text-text-faint";
       <input v-model="scalarText" type="text" :class="FIELD" @change="emitScalar" />
       <button
         type="button"
-        :class="TOGGLE"
+        :class="ICON_BUTTON"
         title="Switch to indexed form"
         @click="toggleMode"
       >
-        <Table2 class="size-3.5" :stroke-width="ICON_STROKE_WIDTH" />
+        <Table2 class="size-3.5" />
       </button>
     </template>
 
@@ -161,11 +153,11 @@ const SUB_LABEL = "w-10 shrink-0 text-right font-mono text-2xs text-text-faint";
       </div>
       <button
         type="button"
-        :class="TOGGLE"
+        :class="ICON_BUTTON"
         title="Switch to scalar form"
         @click="toggleMode"
       >
-        <MinusCircle class="size-3.5" :stroke-width="ICON_STROKE_WIDTH" />
+        <MinusCircle class="size-3.5" />
       </button>
     </template>
   </div>

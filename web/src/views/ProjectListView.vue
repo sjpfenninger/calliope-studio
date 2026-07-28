@@ -13,13 +13,17 @@
  * the folder to be deleted from disk.
  */
 import { computed, onMounted, ref } from "vue";
+import Panel from "@/components/app/Panel.vue";
+import StateMessage from "@/components/app/StateMessage.vue";
+import { PRIMARY_BUTTON } from "@/lib/formClasses";
+import { cn } from "@/lib/utils";
 import { useRouter } from "vue-router";
-import { FolderOpen, FolderPlus, X } from "lucide-vue-next";
+import { FolderOpen, FolderPlus, X } from "@lucide/vue";
 
 import client from "@/api/client";
 import OpenModelDialog from "@/components/workspace/OpenModelDialog.vue";
 import { formatRelativeTime, formatTimestamp } from "@/lib/format";
-import { ICON_STROKE_WIDTH } from "@/lib/icons";
+
 import { useProjectStore, type Project } from "@/stores/project";
 
 const router = useRouter();
@@ -79,31 +83,32 @@ async function forget(id: string) {
       <button
         type="button"
         data-testid="open-model"
-        class="inline-flex h-7 items-center gap-1.5 rounded-sm bg-primary px-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+        :class="cn(PRIMARY_BUTTON, 'h-7 px-2.5')"
         @click="browsing = true"
       >
-        <FolderPlus class="size-3.5" :stroke-width="ICON_STROKE_WIDTH" />
+        <FolderPlus class="size-3.5" />
         Open model…
       </button>
     </header>
 
-    <p v-if="isLoading" class="text-sm text-muted-foreground">Loading…</p>
-    <p v-else-if="error" class="text-sm text-danger-text">{{ error }}</p>
+    <StateMessage v-if="isLoading" variant="inline" loading>Reading the model list…</StateMessage>
+    <StateMessage v-else-if="error" variant="inline" tone="danger">{{ error }}</StateMessage>
 
-    <div
-      v-else-if="hasModels"
+    <!-- The empty state lives *inside* this box rather than replacing it, so the
+         list does not vanish when there is nothing in it yet. -->
+    <Panel
+      v-else
       data-testid="recent-models"
-      class="min-h-0 overflow-y-auto rounded-sm border border-border"
+      class="min-h-0 overflow-y-auto"
     >
       <div
         v-for="model in models"
         :key="model.id"
-        class="group flex h-11 items-center gap-2 border-b border-border-subtle px-2 last:border-b-0 hover:bg-hover"
+        class="group flex h-8 items-center gap-2 border-b border-border-subtle px-2 last:border-b-0 hover:bg-hover"
         data-testid="recent-model"
       >
         <FolderOpen
           class="size-3.5 shrink-0 text-text-faint"
-          :stroke-width="ICON_STROKE_WIDTH"
         />
 
         <button
@@ -123,7 +128,7 @@ async function forget(id: string) {
           </span>
           <!-- The full path, not the folder name: two models called `model` in
                different places are otherwise indistinguishable. -->
-          <span class="block truncate font-mono text-2xs text-text-faint">
+          <span class="block truncate font-mono text-xs text-text-faint">
             {{ model.description }}
           </span>
         </button>
@@ -142,21 +147,16 @@ async function forget(id: string) {
           class="grid size-5 shrink-0 place-items-center rounded-xs text-text-faint opacity-0 group-hover:opacity-100 hover:bg-active hover:text-foreground focus-visible:opacity-100"
           @click="forget(model.id)"
         >
-          <X class="size-3.5" :stroke-width="2" />
+          <X class="size-3.5" />
         </button>
       </div>
-    </div>
 
-    <div
-      v-else
-      class="grid place-items-center rounded-sm border border-dashed border-border py-16 text-center"
-    >
-      <p class="max-w-sm text-sm text-muted-foreground">
-        No models yet. Open a folder containing a <code>model.yaml</code>, or start
-        Calliope Studio with one:
+      <StateMessage v-if="!hasModels" variant="block" title="No models yet">
+        Open a folder containing a <code class="font-mono">model.yaml</code>, or
+        start Calliope Studio with one:
         <code class="mt-1 block font-mono text-xs">calliope-studio path/to/model</code>
-      </p>
-    </div>
+      </StateMessage>
+    </Panel>
 
     <div class="flex-1" />
 

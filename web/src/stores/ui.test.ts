@@ -186,37 +186,96 @@ describe("useUiStore", () => {
   });
 
   describe("the results view's split", () => {
-    it("gives the map about the height it used to be fixed at", () => {
+    it("gives each panel count its own default", () => {
       stubMatchMedia(false);
-      expect(useUiStore().resultsSplit).toEqual([35, 65]);
+      const ui = useUiStore();
+      expect(ui.resultsSplitFor(3)).toEqual([34, 40, 26]);
+      expect(ui.resultsSplitFor(2)).toEqual([58, 42]);
     });
 
     it("round-trips through localStorage", () => {
       stubMatchMedia(false);
-      useUiStore().setResultsSplit([60, 40]);
+      useUiStore().setResultsSplit([50, 30, 20]);
 
       setActivePinia(createPinia());
-      expect(useUiStore().resultsSplit).toEqual([60, 40]);
+      expect(useUiStore().resultsSplitFor(3)).toEqual([50, 30, 20]);
+    });
+
+    it("keeps the two- and three-panel layouts apart", () => {
+      // A model with no geography mounts two panels and one with geography
+      // mounts three. Storing them in one place means opening a map-less model
+      // silently rewrites the split the user set on a model that has a map.
+      stubMatchMedia(false);
+      const ui = useUiStore();
+      ui.setResultsSplit([50, 30, 20]);
+      ui.setResultsSplit([70, 30]);
+
+      expect(ui.resultsSplitFor(3)).toEqual([50, 30, 20]);
+      expect(ui.resultsSplitFor(2)).toEqual([70, 30]);
     });
 
     it("refuses a one-panel layout", () => {
-      // A model with no geography mounts a single panel, and the splitter emits a
-      // one-element layout for it. Storing that would wipe the split the user set
-      // on a model that does have a map.
       stubMatchMedia(false);
       const ui = useUiStore();
-      ui.setResultsSplit([60, 40]);
       ui.setResultsSplit([100]);
+      expect(ui.resultsSplitFor(1)).toEqual([]);
+    });
 
-      expect(ui.resultsSplit).toEqual([60, 40]);
-      setActivePinia(createPinia());
-      expect(useUiStore().resultsSplit).toEqual([60, 40]);
+    it("drops an entry whose length contradicts its key", () => {
+      localStorage.setItem(
+        "calliope-studio.results.split",
+        JSON.stringify({ 3: [50, 50], 2: [70, 30] }),
+      );
+      stubMatchMedia(false);
+      const ui = useUiStore();
+      expect(ui.resultsSplitFor(3)).toEqual([34, 40, 26]);
+      expect(ui.resultsSplitFor(2)).toEqual([70, 30]);
     });
 
     it("ignores corrupt stored geometry", () => {
+      // Including the two-element array the previous version of this key held.
       localStorage.setItem("calliope-studio.results.split", "not json");
       stubMatchMedia(false);
-      expect(useUiStore().resultsSplit).toEqual([35, 65]);
+      expect(useUiStore().resultsSplitFor(3)).toEqual([34, 40, 26]);
+
+      setActivePinia(createPinia());
+      localStorage.setItem("calliope-studio.results.split", "[35, 65]");
+      expect(useUiStore().resultsSplitFor(3)).toEqual([34, 40, 26]);
+    });
+  });
+
+  describe("the results view's collapsed figures", () => {
+    it("opens with all three showing", () => {
+      stubMatchMedia(false);
+      expect(useUiStore().resultsCollapsed).toEqual({
+        map: false,
+        timeseries: false,
+        static: false,
+      });
+    });
+
+    it("survives a reload", () => {
+      // Unlike `sectionView`: collapsing a figure says what the user is working
+      // on, and having it come back expanded is what made this worth storing.
+      stubMatchMedia(false);
+      useUiStore().setResultsCollapsed("static", true);
+
+      setActivePinia(createPinia());
+      expect(useUiStore().resultsCollapsed.static).toBe(true);
+      expect(useUiStore().resultsCollapsed.map).toBe(false);
+    });
+
+    it("ignores anything that is not a boolean", () => {
+      localStorage.setItem(
+        "calliope-studio.results.collapsed",
+        JSON.stringify({ map: "yes", static: true, nonsense: true }),
+      );
+      stubMatchMedia(false);
+      expect(useUiStore().resultsCollapsed).toEqual({
+        map: false,
+        timeseries: false,
+        static: true,
+      });
     });
   });
 

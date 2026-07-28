@@ -11,10 +11,18 @@
  * Recursive: an object-typed property renders another one of these.
  */
 import { reactive, computed, onMounted } from "vue";
-import { Plus, X } from "lucide-vue-next";
+import { Plus, X } from "@lucide/vue";
 
-import { ICON_STROKE_WIDTH } from "@/lib/icons";
 import { Switch } from "@/components/ui/switch";
+import Eyebrow from "@/components/app/Eyebrow.vue";
+import FieldRow from "@/components/app/FieldRow.vue";
+import {
+  DANGER_ICON_BUTTON,
+  FIELD,
+  FIELD_MONO,
+  ICON_BUTTON_SM,
+  type FieldWidth,
+} from "@/lib/formClasses";
 // Self-import for recursive nested-object rendering.
 import SchemaObjectEditor from "./SchemaObjectEditor.vue";
 
@@ -38,6 +46,15 @@ export interface FieldConfig {
   inputProps?: Record<string, any>;
   /** Display label (defaults to the property key). */
   label?: string;
+  /**
+   * How wide the control should be, overriding the widget's default.
+   *
+   * The defaults suit what a widget usually holds — a number is 64px, a select
+   * or a string 144px — because a schema-driven form otherwise gives a solver
+   * name the full width of the pane. The handful of genuinely long strings, a
+   * model name or a log path, ask for `fill` here.
+   */
+  width?: FieldWidth;
 }
 
 export type FieldOverlay = Record<string, FieldConfig>;
@@ -67,7 +84,19 @@ interface FieldEntry {
   fieldSchema: Record<string, any>;
   options: string[] | null;
   inputProps: Record<string, any>;
+  width: FieldWidth;
 }
+
+/** What each widget usually holds, and therefore how much room it needs. */
+const WIDGET_WIDTH: Record<WidgetType, FieldWidth> = {
+  switch: "auto",
+  number: "num",
+  select: "short",
+  text: "short",
+  commaSeparated: "fill",
+  keyValue: "fill",
+  object: "fill",
+};
 
 // ---------------------------------------------------------------------------
 // Props / emits
@@ -150,6 +179,7 @@ const fieldEntries = computed<FieldEntry[]>(() => {
       fieldSchema,
       options,
       inputProps: fc.inputProps ?? {},
+      width: fc.width ?? WIDGET_WIDTH[widget],
     });
   }
   return entries;
@@ -229,29 +259,28 @@ function flushKV(key: string) {
   update(key, Object.keys(obj).length ? obj : null);
 }
 
-const FIELD =
-  "h-6 w-full min-w-0 rounded-xs border border-input bg-surface px-1.5 text-sm outline-none focus-visible:border-ring";
-const LABEL = "font-mono text-xs text-text-dim";
 </script>
 
 <template>
   <div class="flex flex-col gap-2">
     <template v-for="entry in fieldEntries" :key="entry.key">
-      <!-- A switch reads better with its label beside it than above it. -->
-      <div
+      <FieldRow
         v-if="entry.widget === 'switch'"
-        class="flex items-center justify-between gap-2"
+        :label="entry.label"
+        :width="entry.width"
       >
-        <label :class="LABEL">{{ entry.label }}</label>
         <Switch
           :model-value="!!modelValue[entry.key]"
           v-bind="entry.inputProps"
           @update:model-value="update(entry.key, $event)"
         />
-      </div>
+      </FieldRow>
 
-      <div v-else-if="entry.widget === 'select'" class="flex flex-col gap-1">
-        <label :class="LABEL">{{ entry.label }}</label>
+      <FieldRow
+        v-else-if="entry.widget === 'select'"
+        :label="entry.label"
+        :width="entry.width"
+      >
         <select
           :value="modelValue[entry.key] ?? ''"
           :class="FIELD"
@@ -266,10 +295,13 @@ const LABEL = "font-mono text-xs text-text-dim";
             {{ option }}
           </option>
         </select>
-      </div>
+      </FieldRow>
 
-      <div v-else-if="entry.widget === 'number'" class="flex flex-col gap-1">
-        <label :class="LABEL">{{ entry.label }}</label>
+      <FieldRow
+        v-else-if="entry.widget === 'number'"
+        :label="entry.label"
+        :width="entry.width"
+      >
         <input
           type="number"
           :value="modelValue[entry.key] ?? ''"
@@ -277,10 +309,13 @@ const LABEL = "font-mono text-xs text-text-dim";
           v-bind="entry.inputProps"
           @change="updateNumber(entry.key, ($event.target as HTMLInputElement).value)"
         />
-      </div>
+      </FieldRow>
 
-      <div v-else-if="entry.widget === 'commaSeparated'" class="flex flex-col gap-1">
-        <label :class="LABEL">{{ entry.label }}</label>
+      <FieldRow
+        v-else-if="entry.widget === 'commaSeparated'"
+        :label="entry.label"
+        :width="entry.width"
+      >
         <input
           v-model="commaSepCache[entry.key]"
           type="text"
@@ -288,32 +323,36 @@ const LABEL = "font-mono text-xs text-text-dim";
           v-bind="entry.inputProps"
           @change="updateCommaSep(entry.key)"
         />
-      </div>
+      </FieldRow>
 
+      <!-- A mapping is a group of rows, not one control, so it gets a heading
+           and its own rows in the same gutter rather than a label beside it. -->
       <div v-else-if="entry.widget === 'keyValue'" class="flex flex-col gap-1">
         <div class="flex items-center justify-between">
-          <label :class="LABEL">{{ entry.label }}</label>
+          <Eyebrow class="mb-0">{{ entry.label }}</Eyebrow>
           <button
             type="button"
             title="Add a row"
-            class="grid size-5 place-items-center rounded-xs text-text-faint hover:bg-hover hover:text-foreground"
+            :class="ICON_BUTTON_SM"
             @click="addKVRow(entry.key)"
           >
-            <Plus class="size-3.5" :stroke-width="ICON_STROKE_WIDTH" />
+            <Plus class="size-3.5" />
           </button>
         </div>
-        <div
+        <FieldRow
           v-for="(pair, j) in kvCache[entry.key] ?? []"
           :key="j"
-          class="flex items-center gap-1"
+          :label="pair.key"
         >
-          <input
-            v-model="pair.key"
-            type="text"
-            placeholder="key"
-            :class="FIELD"
-            @change="flushKV(entry.key)"
-          />
+          <template #label>
+            <input
+              v-model="pair.key"
+              type="text"
+              placeholder="key"
+              :class="FIELD_MONO"
+              @change="flushKV(entry.key)"
+            />
+          </template>
           <input
             v-model="pair.value"
             type="text"
@@ -321,26 +360,26 @@ const LABEL = "font-mono text-xs text-text-dim";
             :class="FIELD"
             @change="flushKV(entry.key)"
           />
-          <button
-            type="button"
-            title="Remove this row"
-            class="grid size-6 shrink-0 place-items-center rounded-xs text-text-faint hover:bg-danger-soft hover:text-danger-text"
-            @click="removeKVRow(entry.key, j)"
-          >
-            <X class="size-3.5" :stroke-width="2" />
-          </button>
-        </div>
+          <template #action>
+            <button
+              type="button"
+              title="Remove this row"
+              :class="DANGER_ICON_BUTTON"
+              @click="removeKVRow(entry.key, j)"
+            >
+              <X class="size-3.5" />
+            </button>
+          </template>
+        </FieldRow>
       </div>
 
+      <!-- Likewise a nested object: heading above, so its own fields keep the
+           gutter rather than indenting it inside another one. -->
       <div
         v-else-if="entry.widget === 'object'"
         class="flex flex-col gap-1 rounded-sm border border-border p-2"
       >
-        <label
-          class="mb-0.5 text-2xs font-semibold uppercase tracking-wide text-text-faint"
-        >
-          {{ entry.label }}
-        </label>
+        <Eyebrow>{{ entry.label }}</Eyebrow>
         <SchemaObjectEditor
           :schema="entry.fieldSchema"
           :model-value="modelValue[entry.key] ?? {}"
@@ -350,8 +389,7 @@ const LABEL = "font-mono text-xs text-text-dim";
         />
       </div>
 
-      <div v-else class="flex flex-col gap-1">
-        <label :class="LABEL">{{ entry.label }}</label>
+      <FieldRow v-else :label="entry.label" :width="entry.width">
         <input
           type="text"
           :value="modelValue[entry.key] != null ? String(modelValue[entry.key]) : ''"
@@ -361,7 +399,7 @@ const LABEL = "font-mono text-xs text-text-dim";
             update(entry.key, ($event.target as HTMLInputElement).value || null)
           "
         />
-      </div>
+      </FieldRow>
     </template>
   </div>
 </template>

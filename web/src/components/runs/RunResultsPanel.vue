@@ -11,12 +11,22 @@
  * The handle is a prop and never changes for the life of this component (the tab
  * body keys on it), so the store is resolved once in setup and provided to the
  * panels below rather than each of them re-deriving it.
+ *
+ * The three figures are three panels of one splitter, each collapsible to its own
+ * title bar. They used to be a map panel above a scrolling column holding both
+ * charts, which meant the only thing the splitter could say was how much room the
+ * map got: the two charts always shared whatever was left, and neither could be
+ * put away to concentrate on the other.
  */
-import { computed, onMounted, provide } from "vue";
+import { computed, onBeforeUnmount, onMounted, provide, ref, watch } from "vue";
 
+import MapLegend from "@/components/map/MapLegend.vue";
 import ModelMap from "@/components/map/ModelMap.vue";
+import PanelDisclosure from "@/components/app/PanelDisclosure.vue";
+import PanelHeader from "@/components/app/PanelHeader.vue";
 import ResultChart from "@/components/results/ResultChart.vue";
 import RunFilterPanel from "./RunFilterPanel.vue";
+import StateMessage from "@/components/app/StateMessage.vue";
 import {
   ResizableHandle,
   ResizablePanel,
@@ -31,13 +41,17 @@ import {
 } from "@/components/ui/select";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useResultFrame } from "@/composables/useResultFrame";
+import { resolvedColor } from "@/lib/cssColor";
+import { nodeSlices, nodeTotals, valueExtent } from "@/lib/mapValues";
 import {
   RESOLUTIONS,
   RUN_SELECTION,
   useRunSelection,
+  type MapChannel,
   type PlotType,
+  type SumBy,
 } from "@/stores/runSelection";
-import { useUiStore } from "@/stores/ui";
+import { useUiStore, type ResultsFigure } from "@/stores/ui";
 
 const props = defineProps<{ handle: string }>();
 
@@ -56,38 +70,393 @@ const staticFrame = useResultFrame(
   handle,
   computed(() => store.staticQuery),
 );
-const mapFrame = useResultFrame(
+const mapSizeFrame = useResultFrame(
   handle,
-  computed(() => store.mapQuery),
+  computed(() => store.mapSizeQuery),
+);
+const mapColorFrame = useResultFrame(
+  handle,
+  computed(() => store.mapColorQuery),
+);
+const mapPieFrame = useResultFrame(
+  handle,
+  computed(() => store.mapPieQuery),
 );
 
-/**
- * Per-node totals for the map, keyed by node.
- *
- * The map query is indexed by node and summed over technologies, so each series
- * is one node and its first value is that node's total.
- */
-const mapValues = computed<Record<string, number>>(() => {
-  const frame = mapFrame.frame.value;
-  if (!frame) return {};
-  const totals: Record<string, number> = {};
-  frame.index.forEach((node, position) => {
-    const sum = frame.series.reduce((running, series) => {
-      const value = series.values[position];
-      return Number.isNaN(value) ? running : running + value;
-    }, 0);
-    if (sum !== 0) totals[String(node)] = sum;
-  });
-  return totals;
-});
+// The reduction from a nodes-indexed frame to what the map draws lives in
+// `lib/mapValues`, tested: there are three channels wanting it now, and a marker
+// sized from the wrong series is still a perfectly plausible-looking marker.
+const mapSizes = computed(() => nodeTotals(mapSizeFrame.frame.value));
+const mapColors = computed(() => nodeTotals(mapColorFrame.frame.value));
+const mapPies = computed(() =>
+  store.mapVariables.pie ? nodeSlices(mapPieFrame.frame.value) : null,
+);
 
 const PLOT_TYPES: PlotType[] = ["Bar", "Line", "Area", "Duration"];
 const resolutions = Object.keys(RESOLUTIONS);
+
+/** How each sum-by option is labelled, in the order the toggle offers them. */
+const SUM_LABELS: Record<SumBy, string> = {
+  none: "No sum",
+  nodes: "Sum nodes",
+  techs: "Sum techs",
+};
+
+/**
+ * Shorter labels for the resolutions, where the key is the API into `RESOLUTIONS`
+ * and not a caption.
+ *
+ * "Original resolution" alone is wide enough to push this header onto a second
+ * row, which makes the time series' title bar half as tall again as the two
+ * beside it — and a collapsed figure is exactly its title bar, so the difference
+ * is not only visible while everything is open.
+ */
+const RESOLUTION_LABELS: Record<string, string> = {
+  "Original resolution": "Original",
+};
 
 const timeseriesVariables = computed(
   () => store.catalog?.variables.timeseries ?? [],
 );
 const staticVariables = computed(() => store.catalog?.variables.static ?? []);
+
+/**
+ * What the map's channels may be set to.
+ *
+ * Only variables carrying node data: everything else has nothing to put on a
+ * node. The catalogue has always computed this list and nothing used it.
+ */
+const mapVariables = computed(() => store.catalog?.variables.static_nodes ?? []);
+
+/**
+ * The sentinel a `Select` uses for "no variable" — it cannot bind to null.
+ *
+ * Underscored rather than something prettier because it shares a value space
+ * with variable names, and no Calliope variable is called this.
+ */
+const NONE = "__none__";
+
+function channelValue(channel: MapChannel): string {
+  return store.mapVariables[channel] ?? NONE;
+}
+
+function setChannel(channel: MapChannel, value: string) {
+  store.mapVariables[channel] = value === NONE ? null : value;
+}
+
+// ── The legend ─────────────────────────────────────────────────────────────
+
+const ramp = ref<string[]>([]);
+
+/**
+ * The ramp, re-read on every theme change.
+ *
+ * The swatches are DOM and could have used `var(--cg-chart-N)` directly, but the
+ * map resolves the same tokens through `lib/cssColor` for its canvas — and a
+ * legend whose colours are arrived at by a different route is a legend that can
+ * disagree with the thing it explains.
+ */
+watch(
+  () => ui.revision,
+  () => {
+    ramp.value = [1, 2, 3, 4, 5].map((step) =>
+      resolvedColor(`--cg-chart-${step}`, "#055bcc"),
+    );
+  },
+  { immediate: true },
+);
+
+const pieTechs = computed(() => {
+  const pies = mapPies.value;
+  if (!pies) return [];
+  const seen = new Map<string, { key: string; label: string; color: string }>();
+  for (const slices of Object.values(pies)) {
+    for (const slice of slices) {
+      if (seen.has(slice.key)) continue;
+      seen.set(slice.key, {
+        key: slice.key,
+        // Links go by their endpoints, exactly as they do in the chart legends.
+        label: store.techLabels[slice.key] ?? slice.key,
+        color: slice.color ?? ramp.value[0] ?? "",
+      });
+    }
+  }
+  return [...seen.values()];
+});
+
+// ── Panels: sizing and collapsing ──────────────────────────────────────────
+
+/** Three figures, or two when the model has no geography to map. */
+const panelCount = computed(() => (store.hasGeography ? 3 : 2));
+const sizes = computed(() => ui.resultsSplitFor(panelCount.value));
+
+/**
+ * What a panel costs on top of its header: `py-1` above and below the card, plus
+ * the card's own hairline top and bottom.
+ *
+ * Uniform across the three, which is why they all carry the same padding — a
+ * collapsed panel has to be *exactly* its title bar, and it cannot be if each
+ * panel wraps its card differently.
+ */
+const PANEL_CHROME_PX = 8 + 2;
+
+/** A resize handle's own hairline, which is not part of any panel's share. */
+const HANDLE_PX = 1;
+
+/** Below this a chart has no plot area left, only insets and a zoom slider. */
+const FLOOR_PX = 150;
+
+const frame = ref<HTMLElement | null>(null);
+const groupHeight = ref(0);
+
+const mapHeader = ref<{ $el?: HTMLElement } | null>(null);
+const timeseriesHeader = ref<{ $el?: HTMLElement } | null>(null);
+const staticHeader = ref<{ $el?: HTMLElement } | null>(null);
+
+const headers: Record<ResultsFigure, typeof mapHeader> = {
+  map: mapHeader,
+  timeseries: timeseriesHeader,
+  static: staticHeader,
+};
+
+/**
+ * Each header's height, measured.
+ *
+ * Not a constant, which is what made a collapsed figure clip its own title bar:
+ * the two chart headers carry enough controls to wrap onto a second row at a
+ * narrow width, so "a header is 28px" was true of the map and of neither of the
+ * others. What a collapsed panel has to be is *this* header, right now.
+ */
+const headerHeights = ref<Record<ResultsFigure, number>>({
+  map: 0,
+  timeseries: 0,
+  static: 0,
+});
+
+/**
+ * The height the panels actually divide between them.
+ *
+ * Not the group's own height: the resize handles are laid out beside the panels
+ * and a panel's percentage is of what is left after them. One pixel each, but a
+ * collapsed figure has to be its title bar exactly — a pixel out and the bottom
+ * hairline of the strip is the first thing to go.
+ */
+const availableHeight = computed(() =>
+  Math.max(0, groupHeight.value - (panelCount.value - 1) * HANDLE_PX),
+);
+
+const collapsedPct = computed<Record<ResultsFigure, number>>(() => {
+  const of = (figure: ResultsFigure) =>
+    availableHeight.value > 0 && headerHeights.value[figure] > 0
+      ? ((headerHeights.value[figure] + PANEL_CHROME_PX) / availableHeight.value) *
+        100
+      : 5;
+  return { map: of("map"), timeseries: of("timeseries"), static: of("static") };
+});
+
+/**
+ * The smallest a figure may be dragged to before it snaps shut.
+ *
+ * Always clear of its own collapsed size: reka cannot tell "as small as it goes"
+ * from "collapsed" if the two coincide, and a figure that can be dragged to
+ * exactly its title bar without registering as collapsed leaves the chevron
+ * pointing the wrong way.
+ */
+function floorFor(figure: ResultsFigure): number {
+  if (availableHeight.value <= 0) return 15;
+  return Math.max(
+    (FLOOR_PX / availableHeight.value) * 100,
+    collapsedPct.value[figure] + 2,
+  );
+}
+
+/**
+ * A collapsed figure is pinned to its title bar, top and bottom.
+ *
+ * Collapsing a panel does not make its space disappear — the splitter has to give
+ * it to a neighbour, and it will happily give it to a panel that is *itself*
+ * collapsed, which silently reopened it. Collapsing the time series and then the
+ * totals reopened the time series, so "collapse both" was not a thing that could
+ * be done. Pinning `minSize` and `maxSize` together leaves the splitter nowhere
+ * to put the slack except a figure that is actually open.
+ */
+function minFor(figure: ResultsFigure): number {
+  return ui.resultsCollapsed[figure] ? collapsedPct.value[figure] : floorFor(figure);
+}
+
+function maxFor(figure: ResultsFigure): number {
+  return ui.resultsCollapsed[figure] ? collapsedPct.value[figure] : 100;
+}
+
+/** The figures on screen — the map only when there is geography to put on it. */
+const visibleFigures = computed<ResultsFigure[]>(() =>
+  store.hasGeography ? FIGURES : FIGURES.filter((figure) => figure !== "map"),
+);
+
+/**
+ * Why a figure cannot be collapsed, or empty when it can.
+ *
+ * The last open figure has to stay open: the panels divide a fixed height between
+ * them, so if every one of them were pinned to its title bar there would be a
+ * band of space with nothing entitled to it, and one figure would be handed it —
+ * showing an empty card under its own title. Keeping one open is also what the
+ * feature is for; collapsing everything focuses on nothing.
+ */
+function lockedReason(figure: ResultsFigure): string {
+  if (ui.resultsCollapsed[figure]) return "";
+  const open = visibleFigures.value.filter((name) => !ui.resultsCollapsed[name]);
+  return open.length > 1 ? "" : "Expand another figure first — one has to stay open.";
+}
+
+let observer: ResizeObserver | null = null;
+
+function measure() {
+  const heights = { ...headerHeights.value };
+  for (const figure of FIGURES) {
+    const element = headers[figure].value?.$el;
+    if (element) heights[figure] = element.getBoundingClientRect().height;
+  }
+  headerHeights.value = heights;
+}
+
+// One observer for the group and all three headers: they change together (a
+// window resize reflows the wrapped headers *and* the group), and a single
+// callback cannot see a half-updated set.
+watch(
+  [frame, mapHeader, timeseriesHeader, staticHeader],
+  ([element]) => {
+    observer?.disconnect();
+    observer = null;
+    if (!element) return;
+    observer = new ResizeObserver(() => {
+      groupHeight.value = element.getBoundingClientRect().height;
+      measure();
+    });
+    observer.observe(element);
+    for (const figure of FIGURES) {
+      const header = headers[figure].value?.$el;
+      if (header) observer.observe(header);
+    }
+  },
+  { flush: "post" },
+);
+
+onBeforeUnmount(() => {
+  observer?.disconnect();
+  observer = null;
+});
+
+/**
+ * What reka exposes on a panel, which `SplitterPanelProps` does not describe.
+ *
+ * `ResizablePanel` forwards its child's exposed methods through
+ * `useForwardExpose`, so these reach `SplitterPanel` — but the wrapper's props
+ * type says nothing about them, hence the cast at each ref.
+ */
+type PanelHandle = {
+  collapse: () => void;
+  expand: () => void;
+  /** The panel element, which carries reka's own `data-state`. */
+  $el?: HTMLElement;
+};
+
+// Three refs rather than one keyed object: a template `ref="..."` binds by
+// matching a top-level name, so `ref="panels.map"` would bind to nothing at all.
+const mapPanel = ref<PanelHandle | null>(null);
+const timeseriesPanel = ref<PanelHandle | null>(null);
+const staticPanel = ref<PanelHandle | null>(null);
+
+const panels: Record<ResultsFigure, typeof mapPanel> = {
+  map: mapPanel,
+  timeseries: timeseriesPanel,
+  static: staticPanel,
+};
+
+const FIGURES: ResultsFigure[] = ["map", "timeseries", "static"];
+
+/**
+ * Whether a collapse is being driven by the store rather than by the user.
+ *
+ * The panel emits `@collapse` when told to collapse, so without this the store
+ * write and the panel call chase each other round once on every toggle.
+ */
+let syncing = false;
+
+/**
+ * Whether the stored state has been pushed into the panels yet.
+ *
+ * A panel emits `@expand` as it registers, which arrives *before* anything has
+ * had a chance to tell it that this figure was left collapsed — so without this
+ * every reload wrote "expanded" over the state it was about to restore, and the
+ * collapse survived exactly as long as it took the panel to mount.
+ */
+let restored = false;
+
+function toggle(figure: ResultsFigure) {
+  ui.setResultsCollapsed(figure, !ui.resultsCollapsed[figure]);
+}
+
+function onPanelState(figure: ResultsFigure, collapsed: boolean) {
+  if (syncing || !restored) return;
+  ui.setResultsCollapsed(figure, collapsed);
+}
+
+/**
+ * Pushes the stored state into the panels.
+ *
+ * Watches the refs as well as the state, because the map panel only mounts once
+ * the geography has arrived — a beat after everything else — and until its ref
+ * resolves there is nothing to collapse.
+ */
+watch(
+  [
+    () => ({ ...ui.resultsCollapsed }),
+    mapPanel,
+    timeseriesPanel,
+    staticPanel,
+    groupHeight,
+  ],
+  ([state, , , , height]) => {
+    // Not before the group has a height: reka throws "Panel size not found" if a
+    // panel is collapsed before the layout it belongs to has been computed, and
+    // the observer only fires once that has happened.
+    if (!height) return;
+
+    syncing = true;
+    for (const figure of FIGURES) {
+      const panel = panels[figure].value;
+      if (!panel) continue;
+      // Its own `data-state` rather than a shadow copy: reka snaps a panel
+      // dragged below `minSize` to collapsed on its own, so this component is
+      // not the only thing that changes it.
+      const collapsed = panel.$el?.dataset.state === "collapsed";
+      if (collapsed === state[figure]) continue;
+      if (state[figure]) panel.collapse();
+      else panel.expand();
+    }
+    // After the layout has settled, not before: reka resizes synchronously but
+    // emits on the next tick.
+    queueMicrotask(() => {
+      syncing = false;
+      restored = true;
+    });
+  },
+  // `post`, so the pinned `min-size`/`max-size` a collapsed figure carries have
+  // been re-rendered before `expand()` is called. Run before them and the panel
+  // is told to expand while still capped at its title bar, and reka does the only
+  // thing it can: leaves it shut.
+  { deep: true, immediate: true, flush: "post" },
+);
+
+
+/**
+ * A model with no geography mounts two panels rather than three, and the
+ * splitter emits a two-element layout for it. Those are stored separately, so
+ * one cannot overwrite the other with a layout of the wrong shape.
+ */
+function onLayout(layout: number[]) {
+  ui.setResultsSplit(layout);
+}
 
 // `load` is idempotent, so a pane rebuilt after an LRU teardown restores the
 // user's filters instead of resetting them.
@@ -101,15 +470,6 @@ onMounted(() => store.load());
  */
 function keepOne<T extends string>(next: unknown, current: T): T {
   return (next as T) || current;
-}
-
-/**
- * A model with no geography mounts one panel rather than two, and the splitter
- * emits a one-element layout for it. Persisting that would wipe the split the user
- * set on a model that does have a map. The store checks the length too.
- */
-function onLayout(sizes: number[]) {
-  if (sizes.length === 2) ui.setResultsSplit(sizes);
 }
 </script>
 
@@ -125,11 +485,25 @@ function onLayout(sizes: number[]) {
         {{ store.error }}
       </p>
 
-      <!-- One panel group, always mounted, with only the map panel conditional.
-           `load()` awaits the catalogue before the geography, so `hasGeography`
-           always flips false→true a moment after this mounts; `v-if`-ing the whole
-           group would remount the charts on every results open, tearing down both
-           `useResultFrame` scopes and refetching every frame. -->
+      <!-- Held back until the geography question has been answered, one way or
+           the other. A splitter reads a panel's `defaultSize` when the panel
+           *registers*, so a map panel appearing a beat later registers into a
+           layout computed without it and the stored split is quietly replaced by
+           a redistribution. `geoResolved` flips false→true exactly once and never
+           back, so this mounts once — unlike a `v-if` on `hasGeography`, which
+           would remount the charts and the map on every results open. The frames
+           are fetched by this component, not by the panels, so nothing here
+           re-requests anything. -->
+      <StateMessage
+        v-if="!store.geoResolved"
+        variant="fill"
+        loading
+        data-testid="results-loading"
+      >
+        Reading results…
+      </StateMessage>
+      <div v-else class="flex min-h-0 flex-1 flex-col py-1">
+      <div ref="frame" class="flex min-h-0 flex-1 flex-col">
       <ResizablePanelGroup
         direction="vertical"
         class="min-h-0 flex-1"
@@ -141,20 +515,61 @@ function onLayout(sizes: number[]) {
              and the stored layout transposed against the one on screen. -->
         <ResizablePanel
           v-if="store.hasGeography"
+          ref="mapPanel"
           :order="1"
-          :default-size="ui.resultsSplit[0]"
-          :min-size="15"
+          :default-size="sizes[0]"
+          :min-size="minFor('map')"
+          :max-size="maxFor('map')"
+          :collapsed-size="collapsedPct.map"
+          collapsible
+          @collapse="onPanelState('map', true)"
+          @expand="onPanelState('map', false)"
         >
-          <div class="h-full min-h-0 p-2 pb-1">
+          <div class="h-full min-h-0 px-2 py-1">
             <section
               class="flex h-full min-h-0 flex-col rounded-sm border border-border bg-surface"
             >
-              <header
-                class="flex h-7 shrink-0 items-center gap-2 border-b border-border-subtle px-2"
-              >
-                <span class="text-sm font-medium">
-                  {{ store.variableStatic }} by node
-                </span>
+              <PanelHeader ref="mapHeader" tone="card" wrap class="gap-2">
+                <PanelDisclosure
+                  label="the map"
+                  :locked-reason="lockedReason('map')"
+                  :open="!ui.resultsCollapsed.map"
+                  testid="collapse-map"
+                  @toggle="toggle('map')"
+                >
+                  Map
+                </PanelDisclosure>
+
+                <!-- One picker per encoding channel. All three set to None is a
+                     real answer, not an empty state: the nodes stay on the map at
+                     a uniform size, which says where the model is and claims
+                     nothing about how much is at each node. -->
+                <Select
+                  v-for="channel in (['size', 'color', 'pie'] as MapChannel[])"
+                  :key="channel"
+                  :model-value="channelValue(channel)"
+                  :disabled="channel === 'color' && Boolean(store.mapVariables.pie)"
+                  @update:model-value="
+                    (value) => setChannel(channel, String(value ?? NONE))
+                  "
+                >
+                  <SelectTrigger
+                    size="sm"
+                    class="w-32"
+                    :data-testid="`map-${channel}-variable`"
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem :value="NONE">
+                      {{ { size: "No size", color: "No colour", pie: "No pie" }[channel] }}
+                    </SelectItem>
+                    <SelectItem v-for="name in mapVariables" :key="name" :value="name">
+                      {{ name }}
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+
                 <div class="flex-1" />
                 <template v-if="store.mapNodes.length">
                   <span class="truncate text-2xs text-text-faint">
@@ -168,19 +583,34 @@ function onLayout(sizes: number[]) {
                     Clear
                   </button>
                 </template>
-                <span v-else class="text-2xs text-text-faint">
-                  Click nodes to narrow the charts below.
+                <span v-else class="shrink-0 text-2xs text-text-faint">
+                  Click nodes to narrow the charts.
                 </span>
-              </header>
+              </PanelHeader>
+
               <!-- No `height`: the default is already 100%, and the panel is what
                    decides it now. MapLibre tracks its container, so the drag
                    drives the map with no extra wiring. -->
-              <ModelMap
-                v-model:selected="store.mapNodes"
-                :geo="store.geo"
-                :values="mapValues"
-                class="min-h-0 flex-1"
-              />
+              <div v-show="!ui.resultsCollapsed.map" class="relative min-h-0 flex-1">
+                <ModelMap
+                  v-model:selected="store.mapNodes"
+                  :geo="store.geo"
+                  :values="mapSizes"
+                  :color-values="mapColors"
+                  :pies="mapPies"
+                  :value-label="store.mapVariables.size ?? ''"
+                  class="h-full"
+                />
+                <MapLegend
+                  :size-label="store.mapVariables.size"
+                  :size-extent="valueExtent(mapSizes)"
+                  :color-label="store.mapVariables.pie ? null : store.mapVariables.color"
+                  :color-extent="valueExtent(mapColors)"
+                  :ramp="ramp"
+                  :pie-label="store.mapVariables.pie"
+                  :pie-techs="pieTechs"
+                />
+              </div>
             </section>
           </div>
         </ResizablePanel>
@@ -191,35 +621,34 @@ function onLayout(sizes: number[]) {
           data-testid="results-split-handle"
         />
 
-        <!-- The scroll lives on this inner div, not on the panel: Reka's splitter
-             panel sets `overflow: hidden` on itself. -->
         <ResizablePanel
+          ref="timeseriesPanel"
           :order="2"
-          :default-size="ui.resultsSplit[1]"
-          :min-size="25"
+          :default-size="sizes[store.hasGeography ? 1 : 0]"
+          :min-size="minFor('timeseries')"
+          :max-size="maxFor('timeseries')"
+          :collapsed-size="collapsedPct.timeseries"
+          collapsible
+          @collapse="onPanelState('timeseries', true)"
+          @expand="onPanelState('timeseries', false)"
         >
-          <div
-            class="flex h-full flex-col gap-2 overflow-y-auto p-2"
-            :class="store.hasGeography && 'pt-1'"
-          >
-            <!-- `flex-1` with a floor rather than a fixed height: shrinking the map
-                 should give the charts the room, but below about 160px the fixed
-                 grid insets and the zoom slider leave no plot area at all. The
-                 sections deliberately keep the default `min-height: auto`, which is
-                 what carries that floor up and makes this column scroll instead of
-                 squashing both charts. -->
+          <div class="h-full min-h-0 px-2 py-1">
             <section
-              class="flex flex-1 flex-col rounded-sm border border-border bg-surface"
+              class="flex h-full min-h-0 flex-col rounded-sm border border-border bg-surface"
             >
-              <header
-                class="flex min-h-7 flex-wrap items-center gap-1.5 border-b border-border-subtle px-2 py-1"
-              >
+              <PanelHeader ref="timeseriesHeader" tone="card" wrap>
+                <PanelDisclosure
+                  label="the time series"
+                  :locked-reason="lockedReason('timeseries')"
+                  :open="!ui.resultsCollapsed.timeseries"
+                  testid="collapse-timeseries"
+                  @toggle="toggle('timeseries')"
+                >
+                  Time series
+                </PanelDisclosure>
+
                 <Select v-model="store.variableTimeseries">
-                  <SelectTrigger
-                    size="sm"
-                    class="h-7 w-48"
-                    data-testid="timeseries-variable"
-                  >
+                  <SelectTrigger size="sm" class="w-36" data-testid="timeseries-variable">
                     <SelectValue placeholder="Variable" />
                   </SelectTrigger>
                   <SelectContent>
@@ -268,7 +697,7 @@ function onLayout(sizes: number[]) {
                     :key="name"
                     :value="name"
                   >
-                    {{ name }}
+                    {{ RESOLUTION_LABELS[name] ?? name }}
                   </ToggleGroupItem>
                 </ToggleGroup>
 
@@ -285,30 +714,52 @@ function onLayout(sizes: number[]) {
                   <ToggleGroupItem value="nodes">Sum nodes</ToggleGroupItem>
                   <ToggleGroupItem value="techs">Sum techs</ToggleGroupItem>
                 </ToggleGroup>
-              </header>
+              </PanelHeader>
+
               <ResultChart
+                v-show="!ui.resultsCollapsed.timeseries"
                 :frame="timeseriesFrame.frame.value"
                 :kind="store.timeseriesKind"
                 :loading="timeseriesFrame.loading.value"
                 :error="timeseriesFrame.error.value"
                 :labels="store.techLabels"
                 height="100%"
-                class="min-h-90 flex-1"
+                class="min-h-0 flex-1"
               />
             </section>
+          </div>
+        </ResizablePanel>
 
+        <ResizableHandle with-handle data-testid="results-charts-handle" />
+
+        <ResizablePanel
+          ref="staticPanel"
+          :order="3"
+          :default-size="sizes[store.hasGeography ? 2 : 1]"
+          :min-size="minFor('static')"
+          :max-size="maxFor('static')"
+          :collapsed-size="collapsedPct.static"
+          collapsible
+          @collapse="onPanelState('static', true)"
+          @expand="onPanelState('static', false)"
+        >
+          <div class="h-full min-h-0 px-2 py-1">
             <section
-              class="flex flex-1 flex-col rounded-sm border border-border bg-surface"
+              class="flex h-full min-h-0 flex-col rounded-sm border border-border bg-surface"
             >
-              <header
-                class="flex h-9 shrink-0 items-center gap-1.5 border-b border-border-subtle px-2"
-              >
+              <PanelHeader ref="staticHeader" tone="card" wrap>
+                <PanelDisclosure
+                  label="the totals chart"
+                  :locked-reason="lockedReason('static')"
+                  :open="!ui.resultsCollapsed.static"
+                  testid="collapse-static"
+                  @toggle="toggle('static')"
+                >
+                  Totals
+                </PanelDisclosure>
+
                 <Select v-model="store.variableStatic">
-                  <SelectTrigger
-                    size="sm"
-                    class="h-7 w-48"
-                    data-testid="static-variable"
-                  >
+                  <SelectTrigger size="sm" class="w-36" data-testid="static-variable">
                     <SelectValue placeholder="Variable" />
                   </SelectTrigger>
                   <SelectContent>
@@ -321,20 +772,48 @@ function onLayout(sizes: number[]) {
                     </SelectItem>
                   </SelectContent>
                 </Select>
-              </header>
+
+                <!-- Only the aggregations this variable's dimensions allow: the
+                     server drops a `sum_by` naming a dimension the array does not
+                     have, silently, so an option that cannot work would look set
+                     while doing nothing. -->
+                <ToggleGroup
+                  type="single"
+                  variant="outline"
+                  size="sm"
+                  data-testid="static-sum-by"
+                  :model-value="store.staticSumBy"
+                  @update:model-value="
+                    (value) =>
+                      (store.staticSumBy = keepOne(value, store.staticSumBy))
+                  "
+                >
+                  <ToggleGroupItem
+                    v-for="option in store.staticSumOptions"
+                    :key="option"
+                    :value="option"
+                  >
+                    {{ SUM_LABELS[option] }}
+                  </ToggleGroupItem>
+                </ToggleGroup>
+              </PanelHeader>
+
               <ResultChart
+                v-show="!ui.resultsCollapsed.static"
                 :frame="staticFrame.frame.value"
                 kind="bar"
                 :loading="staticFrame.loading.value"
                 :error="staticFrame.error.value"
                 :labels="store.techLabels"
                 height="100%"
-                class="min-h-70 flex-1"
+                class="min-h-0 flex-1"
               />
             </section>
           </div>
         </ResizablePanel>
       </ResizablePanelGroup>
+      </div>
+      </div>
     </main>
   </div>
 </template>

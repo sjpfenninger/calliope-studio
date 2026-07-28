@@ -9,7 +9,7 @@
  */
 import { onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
-import { Check, ChevronsUpDown, FolderOpen } from "lucide-vue-next";
+import { Check, ChevronsUpDown, FolderOpen } from "@lucide/vue";
 
 import {
   DropdownMenu,
@@ -19,7 +19,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import client from "@/api/client";
-import { ICON_STROKE_WIDTH } from "@/lib/icons";
+import { ICON_STROKE_WIDTH_TIGHT } from "@/lib/icons";
 
 const props = defineProps<{
   currentId: string | null;
@@ -59,12 +59,11 @@ function open(id: string) {
     >
       <FolderOpen
         class="size-3.5 shrink-0 text-text-faint"
-        :stroke-width="ICON_STROKE_WIDTH"
       />
       <span class="min-w-0 flex-1 truncate font-medium">
         {{ currentName ?? "No model open" }}
       </span>
-      <ChevronsUpDown class="size-3 shrink-0 text-text-faint" :stroke-width="2" />
+      <ChevronsUpDown class="size-3 shrink-0 text-text-faint" :stroke-width="ICON_STROKE_WIDTH_TIGHT" />
     </DropdownMenuTrigger>
 
     <DropdownMenuContent align="start" class="w-64">
@@ -77,7 +76,6 @@ function open(id: string) {
         <Check
           class="size-3.5 shrink-0"
           :class="project.id === currentId ? 'opacity-100' : 'opacity-0'"
-          :stroke-width="2.5"
         />
         <span class="min-w-0 flex-1">
           <span class="block truncate">{{ project.name }}</span>

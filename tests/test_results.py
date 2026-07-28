@@ -224,6 +224,23 @@ class TestCatalog:
     def test_no_transmission_techs_means_no_links(self, results):
         assert build_catalog(results.dataset, transmission_techs=[]).static_links == ()
 
+    def test_every_variable_reports_its_dimensions(self, results):
+        catalog = build_catalog(results.dataset)
+        assert set(catalog.dims) >= set(catalog.all)
+        for name in catalog.all:
+            assert catalog.dims[name] == tuple(
+                str(dim) for dim in results.dataset[name].dims
+            )
+
+    def test_synthetic_dimensions_come_from_its_inputs(self, results):
+        catalog = build_catalog(results.dataset)
+        # `flow*` is never materialised to answer this, so the answer has to be
+        # the union of what it is computed from.
+        assert "timesteps" in catalog.dims["flow*"]
+        assert set(catalog.dims["flow*"]) == set(catalog.dims["flow_out"]) | set(
+            catalog.dims["flow_in"]
+        )
+
 
 class TestColors:
     def test_every_tech_gets_a_colour(self, results):

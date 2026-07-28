@@ -18,8 +18,9 @@
  * file this editor did not load, which is drawn but not movable.
  */
 import { ref, computed, onMounted, onUnmounted, watch } from "vue";
+import StateMessage from "@/components/app/StateMessage.vue";
 // `Map` is aliased so it cannot shadow the global `Map` constructor.
-import { List, Map as MapIcon, Plus, Trash2 } from "lucide-vue-next";
+import { List, Map as MapIcon, Plus, Trash2 } from "@lucide/vue";
 
 import client from "@/api/client";
 import EditorMapPane from "./EditorMapPane.vue";
@@ -32,7 +33,7 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import { DANGER_ICON_BUTTON, GHOST_BUTTON } from "@/lib/formClasses";
-import { ICON_STROKE_WIDTH } from "@/lib/icons";
+
 import { useModelGeo } from "@/composables/useModelGeo";
 import { useTabsStore } from "@/stores/tabs";
 import { useSectionDataStore } from "@/stores/sectionData";
@@ -47,7 +48,12 @@ import {
   nodesFromFeatures,
   type MapNode,
 } from "@/lib/mapGeo";
-import { nodeToRaw, rawToNode, type NodeEntry } from "@/lib/entries";
+import {
+  entryKey,
+  nodeToRaw,
+  rawToNode,
+  type NodeEntry,
+} from "@/lib/entries";
 
 const props = defineProps<{
   versionId: string;
@@ -288,15 +294,15 @@ watch(() => props.filePath, load);
 
 <template>
   <div class="flex min-h-0 flex-1 flex-col">
-    <p v-if="isLoading" class="p-6 text-center text-sm text-muted-foreground">
+    <StateMessage v-if="isLoading" variant="block" loading>
       Loading nodes…
-    </p>
-    <p v-else-if="error" class="p-6 text-center text-sm text-danger-text">{{ error }}</p>
+    </StateMessage>
+    <StateMessage v-else-if="error" variant="block" tone="danger">{{ error }}</StateMessage>
 
     <template v-else>
       <EditorToolbar :saving="isSaving" @save="save">
         <button v-if="!entryName" type="button" :class="GHOST_BUTTON" @click="addEntry">
-          <Plus class="size-3.5" :stroke-width="ICON_STROKE_WIDTH" />
+          <Plus class="size-3.5" />
           Add node
         </button>
         <button
@@ -309,7 +315,6 @@ watch(() => props.filePath, load);
           <component
             :is="showMap ? List : MapIcon"
             class="size-3.5"
-            :stroke-width="ICON_STROKE_WIDTH"
           />
           {{ showMap ? "List" : "Map" }}
         </button>
@@ -359,23 +364,20 @@ watch(() => props.filePath, load);
       </EditorMapPane>
 
       <div v-else class="min-h-0 flex-1 overflow-auto">
-        <p
-          v-if="!visibleEntries.length"
-          class="p-6 text-center text-sm text-muted-foreground"
-        >
+        <StateMessage v-if="!visibleEntries.length" variant="block">
           {{ entryName ? `No node called "${entryName}".` : "No nodes defined yet." }}
-        </p>
+        </StateMessage>
 
         <Accordion
           v-else
           type="multiple"
-          :default-value="visibleEntries.map((e) => e.name || String(entries.indexOf(e)))"
+          :default-value="visibleEntries.map((e) => entryKey(e, entries))"
           class="px-2"
         >
           <AccordionItem
             v-for="entry in visibleEntries"
-            :key="entry.name || String(entries.indexOf(entry))"
-            :value="entry.name || String(entries.indexOf(entry))"
+            :key="entryKey(entry, entries)"
+            :value="entryKey(entry, entries)"
           >
             <div class="flex items-center gap-1.5">
               <AccordionTrigger
@@ -389,7 +391,7 @@ watch(() => props.filePath, load);
                 :class="DANGER_ICON_BUTTON"
                 @click.stop="removeEntry(entry)"
               >
-                <Trash2 class="size-3.5" :stroke-width="ICON_STROKE_WIDTH" />
+                <Trash2 class="size-3.5" />
               </button>
             </div>
 

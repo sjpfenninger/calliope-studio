@@ -18,6 +18,7 @@
  * — zero size to real size — is what triggers its relayout.
  */
 import { computed } from "vue";
+import StateMessage from "@/components/app/StateMessage.vue";
 
 import CsvGridEditor from "@/components/editor/CsvGridEditor.vue";
 import MonacoYamlEditor from "@/components/editor/MonacoYamlEditor.vue";
@@ -49,12 +50,9 @@ const structuredTab = computed(() => {
 
 <template>
   <div class="relative min-h-0 flex-1 bg-surface">
-    <p
-      v-if="!active"
-      class="absolute inset-0 grid place-items-center text-sm text-muted-foreground"
-    >
+    <StateMessage v-if="!active" variant="fill" class="absolute inset-0">
       Open something from the sidebar to begin.
-    </p>
+    </StateMessage>
 
     <!-- Never v-if: see the note above. -->
     <MonacoYamlEditor

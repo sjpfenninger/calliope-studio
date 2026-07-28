@@ -93,6 +93,25 @@ async function screenPoint(lngLat) {
   return { x: box.x + point.x, y: box.y + point.y };
 }
 
+/**
+ * Waits until the server's own answer about the geography has settled.
+ *
+ * `/geo/` reports `source: resolved | stale | structural` and keeps serving the
+ * last answer that made sense while a rebuild runs in a subprocess, so for a
+ * while after a file is edited the map is still showing — and greying itself out
+ * over — the *previous* model. There is no sleep that is both long enough on a
+ * cold cache and short enough to be worth having, so this asks.
+ */
+async function waitForResolvedGeo(timeout = 60000) {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    const geo = await (await api(`${BASE}/api/versions/${ws}/geo/`)).json();
+    if (geo.source === "resolved" && !geo.resolve_error) return geo;
+    await page.waitForTimeout(500);
+  }
+  throw new Error("the model never resolved");
+}
+
 async function openSection(name) {
   await page
     .getByRole("treeitem", { name: new RegExp(`^${name}$`, "i") })
@@ -161,7 +180,7 @@ try {
   );
   check(
     "the drag marks the tab dirty",
-    (await page.locator('[data-testid^="tab-"][data-active] .rounded-full').count()) === 1,
+    (await page.locator('[data-testid^="tab-"][data-active] [data-testid="tab-dirty"]').count()) === 1,
   );
 
   // The links are rebuilt from the same positions rather than kept in step by
@@ -207,7 +226,16 @@ try {
   // A node without coordinates greys the map out, and offers the way through.
   // ---------------------------------------------------------------------------
 
-  async function reopenNodes(mutate) {
+  /**
+   * Edits the nodes section, reopens the model, and waits for the settled answer.
+   *
+   * `expect` is the testid the overlay should end up showing. Waited for rather
+   * than slept on: the resolve runs in a subprocess, `/geo/` serves the previous
+   * answer while it reruns, and how long Calliope takes to read a model is not a
+   * number this script can know. A fixed four seconds was right often enough to
+   * look reliable and wrong often enough to fail on a cold cache.
+   */
+  async function reopenNodes(mutate, expect) {
     const url = `${BASE}/api/versions/${ws}/yaml-section/${NODES_FILE}?section=nodes`;
     const section = (await (await api(url)).json()).data;
     mutate(section);
@@ -222,9 +250,7 @@ try {
     await testId("model-tree").waitFor({ timeout: 20000 });
     await page.waitForTimeout(1500);
     await openSection("nodes");
-    // The resolve runs in a subprocess; give it time to land so the overlay shows
-    // the settled answer rather than whichever one got there first.
-    await page.waitForTimeout(4000);
+    await testId(expect).waitFor({ timeout: 30000 });
   }
 
   // A node with no coordinates at all: a valid model, and the state the greyed-out
@@ -232,7 +258,7 @@ try {
   await reopenNodes((section) => {
     delete section[UNPLACED].latitude;
     delete section[UNPLACED].longitude;
-  });
+  }, "map-missing-coords");
 
   check(
     "one node without coordinates greys the whole map out",
@@ -255,7 +281,7 @@ try {
   await writeFile(NODES_FILE, before);
   await reopenNodes((section) => {
     delete section[UNPLACED].latitude;
-  });
+  }, "map-error");
 
   check(
     "an invalid coordinate pair surfaces Calliope's own complaint",
@@ -269,6 +295,12 @@ try {
   );
 
   await writeFile(NODES_FILE, before);
+
+  // Before the reload, not after: the map is greyed out for as long as the model
+  // is unresolved, and the scrim deliberately does not set `pointer-events:
+  // none` — so every link click below would land on it and do nothing at all.
+  await waitForResolvedGeo();
+
   await page.reload({ waitUntil: "networkidle" });
   await testId("model-tree").waitFor({ timeout: 20000 });
   await page.waitForTimeout(1500);
@@ -334,7 +366,7 @@ try {
   );
   check(
     "drawing a link marks the tab dirty",
-    (await page.locator('[data-testid^="tab-"][data-active] .rounded-full').count()) === 1,
+    (await page.locator('[data-testid^="tab-"][data-active] [data-testid="tab-dirty"]').count()) === 1,
   );
 
   // The new link is deliberately never saved: the point was the flow, not another

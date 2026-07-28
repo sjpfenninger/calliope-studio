@@ -15,6 +15,9 @@
  * tabs) cost no frame request.
  */
 import { computed, onMounted, ref, watch } from "vue";
+import Segmented from "@/components/app/Segmented.vue";
+import PanelHeader from "@/components/app/PanelHeader.vue";
+import StateMessage from "@/components/app/StateMessage.vue";
 
 import RunConfigPanel from "./RunConfigPanel.vue";
 import RunLogPanel from "./RunLogPanel.vue";
@@ -41,6 +44,17 @@ const available = computed<Record<RunSubView, boolean>>(() => ({
   config: props.tab.runId !== null,
   log: props.tab.runId !== null,
 }));
+
+/** The sub-tab strip, as `Segmented` items. */
+const segments = computed(() =>
+  VIEWS.map((view) => ({
+    value: view.id,
+    label: view.label,
+    disabled: !available.value[view.id],
+    tip: available.value[view.id] ? undefined : "Not available for a results file",
+    testid: `run-subtab-${view.id}`,
+  })),
+);
 
 function shows(view: RunSubView) {
   return props.tab.seenViews.includes(view) && available.value[view];
@@ -86,36 +100,26 @@ watch(
 
 <template>
   <div class="flex min-h-0 flex-1 flex-col">
-    <div
-      data-testid="run-subtabs"
-      class="flex h-7 shrink-0 items-stretch border-b border-border bg-panel px-1"
-    >
-      <button
-        v-for="view in VIEWS"
-        :key="view.id"
-        type="button"
-        :data-testid="`run-subtab-${view.id}`"
-        :data-active="tab.subView === view.id || undefined"
-        :disabled="!available[view.id]"
-        class="relative inline-flex items-center px-2 text-sm text-muted-foreground hover:text-foreground disabled:opacity-40 disabled:hover:text-muted-foreground data-[active]:text-foreground data-[active]:after:absolute data-[active]:after:inset-x-1 data-[active]:after:bottom-0 data-[active]:after:h-0.5 data-[active]:after:bg-primary"
-        @click="tabs.setSubView(tab.id, view.id)"
-      >
-        {{ view.label }}
-      </button>
+    <PanelHeader data-testid="run-subtabs" size="sm" class="px-1">
+      <Segmented
+        :model-value="tab.subView"
+        :items="segments"
+        mode="nav"
+        seam="none"
+        size="sm"
+        @update:model-value="$event && tabs.setSubView(tab.id, $event)"
+      />
 
       <div class="flex-1" />
       <span v-if="run?.label" class="self-center truncate px-2 text-2xs text-text-faint">
         {{ run.id.slice(0, 8) }}
       </span>
-    </div>
+    </PanelHeader>
 
     <div class="relative min-h-0 flex-1">
-      <p
-        v-if="missing"
-        class="absolute inset-0 grid place-items-center text-sm text-muted-foreground"
-      >
+      <StateMessage v-if="missing" variant="fill" class="absolute inset-0">
         This run is no longer on disk. Close the tab, or start a new run.
-      </p>
+      </StateMessage>
 
       <RunResultsPanel
         v-if="shows('results') && tab.handle"
@@ -139,12 +143,9 @@ watch(
         class="absolute inset-0 flex"
       />
 
-      <p
-        v-if="!missing && tab.subView === 'results' && !tab.handle"
-        class="absolute inset-0 grid place-items-center text-sm text-muted-foreground"
-      >
+      <StateMessage v-if="!missing && tab.subView === 'results' && !tab.handle" variant="fill" class="absolute inset-0">
         This run has not produced results.
-      </p>
+      </StateMessage>
     </div>
   </div>
 </template>

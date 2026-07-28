@@ -54,6 +54,7 @@ class VariableCatalog:
         static: Those without.
         static_nodes: Static variables carrying node data.
         static_links: Static variables carrying data on a transmission tech.
+        dims: Each variable's dimensions, synthetic ones included.
     """
 
     all: tuple[str, ...]
@@ -61,6 +62,7 @@ class VariableCatalog:
     static: tuple[str, ...]
     static_nodes: tuple[str, ...]
     static_links: tuple[str, ...]
+    dims: dict[str, tuple[str, ...]]
 
     def as_dict(self) -> dict:
         return {
@@ -69,6 +71,7 @@ class VariableCatalog:
             "static": list(self.static),
             "static_nodes": list(self.static_nodes),
             "static_links": list(self.static_links),
+            "dims": {name: list(dims) for name, dims in self.dims.items()},
         }
 
 
@@ -79,6 +82,24 @@ def _has_transmission_data(array: xr.DataArray, transmission_techs: list) -> boo
     if not present:
         return False
     return bool(array.sel(techs=present).notnull().any())
+
+
+def _synthetic_dims(
+    dataset: xr.Dataset, variable: SyntheticVariable
+) -> tuple[str, ...]:
+    """The dimensions a synthetic variable comes out with.
+
+    Taken from the variables it is computed from rather than by computing it: an
+    arithmetic combination broadcasts to their union, and `flow*` on a real model
+    is the single most expensive array in the dataset to materialise for the sake
+    of reading `.dims` off it.
+    """
+    seen: list[str] = []
+    for name in variable.requires:
+        for dim in dataset[name].dims:
+            if str(dim) not in seen:
+                seen.append(str(dim))
+    return tuple(seen)
 
 
 def build_catalog(
@@ -94,15 +115,23 @@ def build_catalog(
     variables = list(dataset.data_vars)
     static = [name for name in variables if "timesteps" not in dataset[name].dims]
     timeseries = [name for name in variables if "timesteps" in dataset[name].dims]
-    synthetic = [
-        variable.name
+    available = [
+        variable
         for variable in SYNTHETIC_VARIABLES.values()
         if variable.is_available(dataset)
     ]
+    synthetic = [variable.name for variable in available]
+    dims: dict[str, tuple[str, ...]] = {
+        str(name): tuple(str(dim) for dim in dataset[name].dims) for name in variables
+    }
+    dims.update(
+        {variable.name: _synthetic_dims(dataset, variable) for variable in available}
+    )
     return VariableCatalog(
         all=tuple(sorted(variables)),
         timeseries=tuple(sorted(timeseries + synthetic)),
         static=tuple(sorted(static)),
+        dims=dims,
         static_nodes=tuple(
             sorted(name for name in static if "nodes" in dataset[name].dims)
         ),

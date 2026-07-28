@@ -17,6 +17,7 @@ const SPLITTER_KEY = `${KEY_PREFIX}splitter.sizes`;
 const DATA_TABLE_SPLIT_KEY = `${KEY_PREFIX}dataTable.split`;
 const MAP_SPLIT_KEY = `${KEY_PREFIX}map.split`;
 const RESULTS_SPLIT_KEY = `${KEY_PREFIX}results.split`;
+const RESULTS_COLLAPSED_KEY = `${KEY_PREFIX}results.collapsed`;
 
 /** Explorer | editor | side panel. Replaced by a 2-panel shell later. */
 const DEFAULT_SPLITTER = [20, 55, 25];
@@ -27,8 +28,25 @@ const DEFAULT_DATA_TABLE_SPLIT = [40, 60];
 /** Map above, the selected entry's form below. */
 const DEFAULT_MAP_SPLIT = [72, 28];
 
-/** Map above, both charts below — about the 300px the map used to be fixed at. */
-const DEFAULT_RESULTS_SPLIT = [35, 65];
+/**
+ * Map, then the timeseries chart, then the static chart.
+ *
+ * Three panels rather than two: the charts used to share one panel and a scroll
+ * bar, so shrinking the map could only give them both the room at once. Keyed by
+ * how many panels are on screen, because a model with no geography mounts two and
+ * a layout of the wrong length is not a smaller version of the right one — it is
+ * the previous split, transposed. The old two-entry array under this key fails the
+ * shape check below and is simply replaced.
+ */
+const DEFAULT_RESULTS_SPLIT: Record<number, number[]> = {
+  2: [58, 42],
+  3: [34, 40, 26],
+};
+
+/** Which of the three results figures are collapsed to their title bar. */
+export type ResultsFigure = "map" | "timeseries" | "static";
+
+const RESULTS_FIGURES: ResultsFigure[] = ["map", "timeseries", "static"];
 
 const DARK_QUERY = "(prefers-color-scheme: dark)";
 
@@ -192,33 +210,84 @@ export const useUiStore = defineStore("ui", () => {
   }
 
   /**
-   * How the results view divides its map from its charts.
+   * How the results view divides its three figures, per panel count.
    *
-   * The map was a fixed 300px, which on a model spanning a country is not enough to
-   * see it by. Length-checked on the way in like the others, and here that is not
-   * hypothetical: a model with no geography mounts a single panel, and the splitter
-   * emits a one-element layout for it. Persisting that would wipe the split the
-   * user set on a model that does have a map. The caller guards it too.
+   * The map was a fixed 300px, which on a model spanning a country is not enough
+   * to see it by. Stored per count because a model with no geography mounts two
+   * panels and one with geography mounts three, and the splitter emits whichever
+   * it has: writing a two-element layout over a three-element one wipes the split
+   * the user set on a model that does have a map.
    */
-  const resultsSplit = ref<number[]>(readResultsSplit());
+  const resultsSplit = ref<Record<number, number[]>>(readResultsSplit());
 
-  function readResultsSplit(): number[] {
+  function readResultsSplit(): Record<number, number[]> {
+    const defaults = { ...DEFAULT_RESULTS_SPLIT };
     try {
       const stored = localStorage.getItem(RESULTS_SPLIT_KEY);
-      if (!stored) return [...DEFAULT_RESULTS_SPLIT];
+      if (!stored) return defaults;
       const parsed = JSON.parse(stored) as unknown;
-      return Array.isArray(parsed) && parsed.length === DEFAULT_RESULTS_SPLIT.length
-        ? (parsed as number[])
-        : [...DEFAULT_RESULTS_SPLIT];
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        return defaults;
+      }
+      for (const [count, sizes] of Object.entries(parsed)) {
+        // Only a layout of the right length for its own key is kept, so a stale
+        // or hand-edited entry cannot leave a panel group short of a size.
+        if (Array.isArray(sizes) && sizes.length === Number(count)) {
+          defaults[Number(count)] = sizes as number[];
+        }
+      }
+      return defaults;
     } catch {
-      return [...DEFAULT_RESULTS_SPLIT];
+      return defaults;
     }
   }
 
+  /** The layout for a group of `sizes.length` panels, or its default. */
+  function resultsSplitFor(count: number): number[] {
+    return resultsSplit.value[count] ?? DEFAULT_RESULTS_SPLIT[count] ?? [];
+  }
+
   function setResultsSplit(sizes: number[]) {
-    if (sizes.length !== DEFAULT_RESULTS_SPLIT.length) return;
-    resultsSplit.value = sizes;
-    localStorage.setItem(RESULTS_SPLIT_KEY, JSON.stringify(sizes));
+    if (!DEFAULT_RESULTS_SPLIT[sizes.length]) return;
+    resultsSplit.value = { ...resultsSplit.value, [sizes.length]: sizes };
+    localStorage.setItem(RESULTS_SPLIT_KEY, JSON.stringify(resultsSplit.value));
+  }
+
+  /**
+   * Which results figures are collapsed to their title bar.
+   *
+   * Persisted, unlike `sectionView`: collapsing a figure is a statement about
+   * what the user is working on rather than about one visit to a tab, and having
+   * it come back expanded after a reload is the behaviour that made this worth
+   * storing at all. Global rather than per results handle, like the split beside
+   * it — two run tabs open on the same question want the same shape.
+   */
+  const resultsCollapsed = ref<Record<ResultsFigure, boolean>>(
+    readResultsCollapsed(),
+  );
+
+  function readResultsCollapsed(): Record<ResultsFigure, boolean> {
+    const none = { map: false, timeseries: false, static: false };
+    try {
+      const stored = localStorage.getItem(RESULTS_COLLAPSED_KEY);
+      if (!stored) return none;
+      const parsed = JSON.parse(stored) as Record<string, unknown>;
+      for (const figure of RESULTS_FIGURES) {
+        if (typeof parsed?.[figure] === "boolean") none[figure] = parsed[figure];
+      }
+      return none;
+    } catch {
+      return none;
+    }
+  }
+
+  function setResultsCollapsed(figure: ResultsFigure, collapsed: boolean) {
+    if (resultsCollapsed.value[figure] === collapsed) return;
+    resultsCollapsed.value = { ...resultsCollapsed.value, [figure]: collapsed };
+    localStorage.setItem(
+      RESULTS_COLLAPSED_KEY,
+      JSON.stringify(resultsCollapsed.value),
+    );
   }
 
   /**
@@ -273,7 +342,10 @@ export const useUiStore = defineStore("ui", () => {
     mapSplit,
     setMapSplit,
     resultsSplit,
+    resultsSplitFor,
     setResultsSplit,
+    resultsCollapsed,
+    setResultsCollapsed,
     sectionView,
     setSectionView,
     toggleSectionView,

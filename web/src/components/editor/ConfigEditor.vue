@@ -1,9 +1,12 @@
 <script setup lang="ts">
 import { ref, reactive, computed, nextTick, onMounted, watch } from "vue";
+import StateMessage from "@/components/app/StateMessage.vue";
+import FieldRow from "@/components/app/FieldRow.vue";
 
 import client from "@/api/client";
 import EditorToolbar from "./EditorToolbar.vue";
-import { FIELD, FIELD_LABEL, SECTION, SECTION_HEADING } from "@/lib/formClasses";
+import { FIELD, FIELD_WIDTH, SECTION, SECTION_HEADING } from "@/lib/formClasses";
+import { cn } from "@/lib/utils";
 import { useTabsStore } from "@/stores/tabs";
 import { useSchemaStore } from "@/stores/schema";
 import SchemaObjectEditor, { type FieldOverlay } from "./SchemaObjectEditor.vue";
@@ -53,6 +56,9 @@ const solveSchema = computed(() => schemaStore.subschema("config.solve") ?? {});
 
 const initOverlay: FieldOverlay = {
   // Visible: name (a text field), mode (a select, from the schema enum).
+  // A model name is prose, not an identifier — the one string here that earns
+  // the full width a schema-driven text field no longer gets by default.
+  name: { width: "fill" },
   calliope_version: { hidden: true },
   broadcast_input_data: { hidden: true },
   subset: { hidden: true }, // rendered manually as the two fields below
@@ -80,8 +86,9 @@ const solveOverlay: FieldOverlay = {
     widget: "select",
     options: ["cbc", "glpk", "highs", "gurobi", "cplex", "cpsat"],
   },
-  // A tolerance like 1e-10 must not be rounded by a stepper.
-  zero_threshold: { inputProps: { step: "any" } },
+  // A tolerance like 1e-10 must not be rounded by a stepper, and needs more
+  // room than a plain number: the exponent plus the spinner does not fit 64px.
+  zero_threshold: { inputProps: { step: "any" }, width: "short" },
   // spores: show only when mode === 'spores' (checked via context prop).
   spores: { showIf: { field: "$ctx.mode", eq: "spores" } },
   // Hide less-common solve fields.
@@ -203,10 +210,10 @@ watch(() => props.filePath, load);
 
 <template>
   <div class="flex min-h-0 flex-1 flex-col">
-    <p v-if="isLoading" class="p-6 text-center text-sm text-muted-foreground">
+    <StateMessage v-if="isLoading" variant="block" loading>
       Loading config…
-    </p>
-    <p v-else-if="error" class="p-6 text-center text-sm text-danger-text">{{ error }}</p>
+    </StateMessage>
+    <StateMessage v-else-if="error" variant="block" tone="danger">{{ error }}</StateMessage>
 
     <template v-else>
       <EditorToolbar :saving="isSaving" @save="save" />
@@ -222,24 +229,23 @@ watch(() => props.filePath, load);
           />
           <!-- time_subset is not a schema property, so it is rendered by hand:
                two fields, because it is a start and an end rather than a list. -->
-          <div class="flex flex-col gap-1">
-            <label :class="FIELD_LABEL">time_subset</label>
+          <FieldRow label="time_subset">
             <div class="flex items-center gap-2">
               <input
                 v-model="timeSubsetStart"
                 type="text"
                 placeholder="start"
-                :class="FIELD"
+                :class="cn(FIELD, FIELD_WIDTH.short)"
               />
               <span class="text-text-faint">→</span>
               <input
                 v-model="timeSubsetEnd"
                 type="text"
                 placeholder="end"
-                :class="FIELD"
+                :class="cn(FIELD, FIELD_WIDTH.short)"
               />
             </div>
-          </div>
+          </FieldRow>
         </section>
 
         <section :class="SECTION">

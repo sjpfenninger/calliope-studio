@@ -9,7 +9,8 @@
  */
 import { computed } from "vue";
 
-import { FIELD, FIELD_LABEL } from "@/lib/formClasses";
+import FieldRow from "@/components/app/FieldRow.vue";
+import { FIELD } from "@/lib/formClasses";
 import { useSchemaStore } from "@/stores/schema";
 import SchemaObjectEditor, { type FieldOverlay } from "./SchemaObjectEditor.vue";
 
@@ -56,15 +57,14 @@ const dataTableOverlay: FieldOverlay = {
 <template>
   <div class="flex flex-col gap-2 pb-2">
     <!-- name is the mapping key, not a schema property. -->
-    <div class="flex flex-col gap-1">
-      <label :class="FIELD_LABEL">name</label>
+    <FieldRow label="name" width="short">
       <input
         :value="props.name"
         type="text"
         :class="FIELD"
         @input="emit('update:name', ($event.target as HTMLInputElement).value)"
       />
-    </div>
+    </FieldRow>
     <SchemaObjectEditor
       :key="props.formKey"
       :schema="entrySchema"

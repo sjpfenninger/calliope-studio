@@ -12,7 +12,16 @@
  * it works whether or not this section is the one being looked at.
  */
 import { computed, ref, watch } from "vue";
-import { Check, HardDrive, Play, RefreshCw } from "lucide-vue-next";
+import PanelFooter from "@/components/app/PanelFooter.vue";
+import PanelHeader from "@/components/app/PanelHeader.vue";
+import {
+  DANGER_BUTTON,
+  ICON_BUTTON,
+  PRIMARY_BUTTON,
+  SECONDARY_BUTTON,
+} from "@/lib/formClasses";
+import { cn } from "@/lib/utils";
+import { Check, HardDrive, Play, RefreshCw } from "@lucide/vue";
 
 import RunListItem from "@/components/runs/RunListItem.vue";
 import RunStatusPill from "@/components/runs/RunStatusPill.vue";
@@ -32,7 +41,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { formatBytes } from "@/lib/format";
-import { ICON_STROKE_WIDTH } from "@/lib/icons";
+import { ICON_STROKE_WIDTH_TIGHT } from "@/lib/icons";
 import { openIntent } from "@/lib/openIntent";
 import { RETENTION_CHOICES, useRunsStore, type RunRecord } from "@/stores/runs";
 import { useTabsStore } from "@/stores/tabs";
@@ -106,17 +115,15 @@ function setRetention(keep: number | null) {
 
 <template>
   <div class="flex min-h-0 flex-1 flex-col">
-    <div
-      class="flex h-8 shrink-0 items-center gap-1 border-b border-border bg-panel px-2"
-    >
+    <PanelHeader>
       <button
         type="button"
         data-testid="start-run"
         :disabled="starting || !tabs.versionId"
-        class="inline-flex h-6 items-center gap-1.5 rounded-sm bg-primary px-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
+        :class="PRIMARY_BUTTON"
         @click="start"
       >
-        <Play class="size-3.5" :stroke-width="ICON_STROKE_WIDTH" />
+        <Play class="size-3.5" />
         Run
       </button>
 
@@ -126,12 +133,12 @@ function setRetention(keep: number | null) {
       <button
         type="button"
         title="Reload the run history"
-        class="grid size-6 place-items-center rounded-sm text-text-faint hover:bg-hover hover:text-foreground"
+        :class="ICON_BUTTON"
         @click="refresh"
       >
-        <RefreshCw class="size-3.5" :stroke-width="ICON_STROKE_WIDTH" />
+        <RefreshCw class="size-3.5" />
       </button>
-    </div>
+    </PanelHeader>
 
     <div class="min-h-0 flex-1 overflow-auto" data-testid="run-list">
       <RunListItem
@@ -154,11 +161,8 @@ function setRetention(keep: number | null) {
     <!-- What the history costs, and how much of it is kept. Visible because the
          directory is visible: a user told to look in `calliope-studio/` needs to know
          both what it is costing and why old runs disappear. -->
-    <div
-      v-if="tabs.versionId"
-      class="flex h-6 shrink-0 items-center gap-1.5 border-t border-border px-2 text-2xs text-text-faint"
-    >
-      <HardDrive class="size-3" :stroke-width="ICON_STROKE_WIDTH" />
+    <PanelFooter v-if="tabs.versionId">
+      <HardDrive class="size-3" />
       <span>
         {{ runs.ordered.length }} {{ runs.ordered.length === 1 ? "run" : "runs" }}
       </span>
@@ -186,15 +190,14 @@ function setRetention(keep: number | null) {
             @select="setRetention(choice)"
           >
             <Check
-              class="size-3"
-              :stroke-width="2.5"
+              class="size-3" :stroke-width="ICON_STROKE_WIDTH_TIGHT"
               :class="runs.retention === choice ? '' : 'invisible'"
             />
             {{ choice ?? "All of them" }}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
-    </div>
+    </PanelFooter>
 
     <Dialog
       :open="pendingDelete !== null"
@@ -211,7 +214,7 @@ function setRetention(keep: number | null) {
         <DialogFooter>
           <button
             type="button"
-            class="inline-flex h-7 items-center rounded-sm border border-border px-3 text-sm hover:bg-hover"
+            :class="cn(SECONDARY_BUTTON, 'h-7 px-3')"
             @click="pendingDelete = null"
           >
             Cancel
@@ -219,7 +222,7 @@ function setRetention(keep: number | null) {
           <button
             type="button"
             data-testid="confirm-delete-run"
-            class="inline-flex h-7 items-center rounded-sm bg-destructive px-3 text-sm font-medium text-destructive-foreground hover:opacity-90"
+            :class="cn(DANGER_BUTTON, 'h-7 px-3')"
             @click="confirmDelete"
           >
             Delete

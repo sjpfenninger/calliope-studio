@@ -16,6 +16,7 @@
  * map container is 0.
  */
 import ConfigEditor from "@/components/editor/ConfigEditor.vue";
+import StateMessage from "@/components/app/StateMessage.vue";
 import DataTablesEditor from "@/components/editor/DataTablesEditor.vue";
 import LinksEditor from "@/components/editor/LinksEditor.vue";
 import NodesEditor from "@/components/editor/NodesEditor.vue";
@@ -83,8 +84,8 @@ const entryName = () => (props.tab.kind === "entry" ? props.tab.entryName : null
       :tabId="tab.id"
       :entryName="entryName()"
     />
-    <p v-else class="p-3 text-sm text-muted-foreground">
+    <StateMessage v-else variant="inline">
       No structured editor for this section yet — use the Raw view.
-    </p>
+    </StateMessage>
   </div>
 </template>

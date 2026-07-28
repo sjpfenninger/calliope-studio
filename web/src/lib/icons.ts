@@ -13,7 +13,7 @@ import {
   Table2,
   Zap,
   type LucideIcon,
-} from "lucide-vue-next";
+} from "@lucide/vue";
 
 /**
  * Icons, in one place.
@@ -25,9 +25,17 @@ import {
  * actually used.
  *
  * Stroke width 1.75 rather than lucide's default 2 — the default reads heavy
- * beside 12px text.
+ * beside 12px text. It is set once, globally, by `setLucideProps` in App.vue, so
+ * you should never need to pass it: an icon that says nothing gets 1.75.
  */
 export const ICON_STROKE_WIDTH = 1.75;
+
+/**
+ * For glyphs drawn below 14px — a chevron at `size-3`, the tick inside a
+ * checkbox. 1.75 at that scale renders under a device pixel and the glyph
+ * thins out to nothing, so these are the one legitimate override.
+ */
+export const ICON_STROKE_WIDTH_TIGHT = 2.5;
 
 const SECTION_ICONS: Record<string, LucideIcon> = {
   config: Settings2,

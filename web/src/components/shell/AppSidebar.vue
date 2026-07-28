@@ -6,6 +6,8 @@
  * real routes rather than a local `ref`, which is what they used to be.
  */
 import { computed } from "vue";
+import PanelFooter from "@/components/app/PanelFooter.vue";
+import LogoMark from "@/components/layout/LogoMark.vue";
 
 import ProjectSwitcher from "./ProjectSwitcher.vue";
 import SidebarNav from "./SidebarNav.vue";
@@ -43,12 +45,11 @@ const editable = computed(() => props.versionId !== null);
       <RouterView />
     </div>
 
-    <div
-      class="flex h-8 shrink-0 items-center gap-1 border-t border-border px-1.5 text-2xs text-text-faint"
-    >
+    <PanelFooter>
+      <LogoMark class="size-3.5 shrink-0" />
       <span class="truncate">Calliope Studio</span>
       <div class="flex-1" />
       <ThemeToggle />
-    </div>
+    </PanelFooter>
   </aside>
 </template>

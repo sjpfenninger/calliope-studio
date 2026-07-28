@@ -17,9 +17,10 @@
  * is chosen from, so the selected row should not dominate.
  */
 import { TreeItem, TreeRoot } from "reka-ui";
-import { ChevronRight } from "lucide-vue-next";
+import { ChevronRight } from "@lucide/vue";
 import type { Component } from "vue";
 
+import { ICON_STROKE_WIDTH_TIGHT } from "@/lib/icons";
 import { cn } from "@/lib/utils";
 
 const props = defineProps<{
@@ -79,7 +80,7 @@ function onSelect(item: T, event: TreeSelectEvent) {
       :key="item._id"
       v-bind="item.bind"
       :style="{ paddingLeft: `${(item.level - 1) * 12}px` }"
-      class="group relative flex h-6 w-full items-center gap-1 rounded-sm pr-2 text-text-dim outline-none transition-colors hover:bg-hover hover:text-foreground focus-visible:bg-hover data-[selected]:bg-accent-soft data-[selected]:text-accent-text data-[selected]:font-medium"
+      class="group relative flex h-6 w-full items-center gap-1 rounded-sm pr-2 text-text-dim transition-colors hover:bg-hover hover:text-foreground focus-visible:bg-hover data-[selected]:bg-accent-soft data-[selected]:text-accent-text data-[selected]:font-medium"
       @select="onSelect(item.value, $event as TreeSelectEvent)"
     >
       <!-- A fixed slot whether or not the row has children, so labels at the
@@ -87,16 +88,15 @@ function onSelect(item: T, event: TreeSelectEvent) {
       <span class="grid size-4 shrink-0 place-items-center">
         <ChevronRight
           v-if="item.hasChildren"
-          :stroke-width="2"
-          class="size-3 text-text-faint transition-transform duration-100 group-data-[expanded]:rotate-90"
+          :stroke-width="ICON_STROKE_WIDTH_TIGHT"
+          class="size-3 text-text-faint transition-transform duration-fast group-data-[expanded]:rotate-90"
         />
       </span>
 
       <component
         :is="getIcon(item.value)"
         v-if="getIcon?.(item.value)"
-        :stroke-width="1.75"
-        class="size-3.5 shrink-0 text-text-faint group-data-[selected]:text-primary"
+        class="size-3.5 shrink-0 text-text-faint group-data-[selected]:text-accent-text"
       />
 
       <span class="truncate">

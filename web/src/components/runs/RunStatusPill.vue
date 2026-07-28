@@ -21,22 +21,27 @@ withDefaults(
   { dotOnly: false },
 );
 
+// Fills are the `*-soft` tokens throughout. The neutral statuses used to reach
+// for `bg-muted`, which is `--cg-surface-2` — a *surface*, and one step from the
+// panel it sits on, so the pill all but vanished against chrome.
 const STATUS_STYLE: Record<RunStatus, string> = {
-  pending: "border-border bg-muted text-muted-foreground",
+  pending: "border-border bg-surface-2 text-text-dim",
   running: "border-accent-border bg-accent-soft text-accent-text",
-  success: "border-success/30 bg-success-soft text-success-text",
-  infeasible: "border-warning/30 bg-warning-soft text-warning-text",
-  failed: "border-danger/30 bg-danger-soft text-danger-text",
-  cancelled: "border-border bg-muted text-muted-foreground line-through decoration-1",
+  success: "border-success-soft bg-success-soft text-success-text",
+  infeasible: "border-warning-soft bg-warning-soft text-warning-text",
+  failed: "border-danger-soft bg-danger-soft text-danger-text",
+  cancelled: "border-border bg-surface-2 text-text-dim line-through decoration-1",
 };
 
+// `bg-border-strong`, not `bg-text-faint`: a text token has no business being a
+// fill, and this is a neutral *mark* rather than de-emphasised writing.
 const STATUS_DOT: Record<RunStatus, string> = {
-  pending: "bg-text-faint",
+  pending: "bg-border-strong",
   running: "bg-primary animate-pulse",
   success: "bg-success",
   infeasible: "bg-warning",
   failed: "bg-danger",
-  cancelled: "bg-text-faint",
+  cancelled: "bg-border-strong",
 };
 </script>
 

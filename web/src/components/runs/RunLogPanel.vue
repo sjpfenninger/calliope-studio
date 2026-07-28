@@ -12,14 +12,16 @@
  * make a live log unusable.
  */
 import { computed, nextTick, ref, watch } from "vue";
-import { Square } from "lucide-vue-next";
+import PanelFooter from "@/components/app/PanelFooter.vue";
+import PanelHeader from "@/components/app/PanelHeader.vue";
+import { Square } from "@lucide/vue";
 
 import RunProgress from "./RunProgress.vue";
 import RunStatusPill from "./RunStatusPill.vue";
 import { cn } from "@/lib/utils";
 import { formatDuration, formatObjective, formatTimestamp } from "@/lib/format";
 import { FIELD } from "@/lib/formClasses";
-import { ICON_STROKE_WIDTH } from "@/lib/icons";
+
 import {
   isTerminal,
   passesFilter,
@@ -91,9 +93,7 @@ watch(
 
 <template>
   <div class="flex min-h-0 flex-1 flex-col" data-testid="run-log">
-    <header
-      class="flex h-7 shrink-0 items-center gap-2 border-b border-border bg-panel px-2"
-    >
+    <PanelHeader size="sm">
       <RunStatusPill v-if="run" :status="run.status" />
       <RunProgress :stage="stage" :running="running" />
 
@@ -128,10 +128,10 @@ watch(
         class="inline-flex h-5 items-center gap-1 rounded-xs border border-border px-1.5 text-2xs hover:bg-hover"
         @click="runs.cancel(runId)"
       >
-        <Square class="size-2.5" :stroke-width="ICON_STROKE_WIDTH" />
+        <Square class="size-2.5" />
         Cancel
       </button>
-    </header>
+    </PanelHeader>
 
     <div
       ref="viewport"
@@ -174,15 +174,12 @@ watch(
       </details>
     </div>
 
-    <footer
-      v-if="run"
-      class="flex h-6 shrink-0 items-center gap-2 border-t border-border px-2 text-2xs text-text-faint"
-    >
+    <PanelFooter v-if="run">
       <span :title="run.id">{{ run.id.slice(0, 8) }}</span>
       <span v-if="run.scenario">· {{ run.scenario }}</span>
       <span v-if="run.solved_from">· solved from {{ run.solved_from }}</span>
       <div class="flex-1" />
       <span>{{ formatTimestamp(run.started_at ?? run.created_at) }}</span>
-    </footer>
+    </PanelFooter>
   </div>
 </template>

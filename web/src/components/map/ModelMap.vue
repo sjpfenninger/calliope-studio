@@ -3,10 +3,22 @@
 // loaded, so its stylesheet landed after the overrides that restyle the map's
 // chrome and reverted them. See the note there.
 import { onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue";
-import maplibregl, { type StyleSpecification } from "maplibre-gl";
+import maplibregl from "maplibre-gl";
 
+import {
+  basemapPaint,
+  basemapStyle,
+  RASTER_LAYER,
+  RASTER_PAINT,
+  VECTOR_LAYERS,
+  VECTOR_SOURCE,
+} from "../../lib/basemap";
 import { resolvedColor } from "../../lib/cssColor";
+import { MapPinOff } from "@lucide/vue";
+import StateMessage from "../app/StateMessage.vue";
 import { emptyCollection, type GeoPayload } from "../../lib/mapGeo";
+import { largestMagnitude, valueExtent, type PieSlice } from "../../lib/mapValues";
+import { donutSvg, escapeText } from "../../lib/pieMarker";
 import { useUiStore } from "../../stores/ui";
 
 /**
@@ -35,6 +47,24 @@ const props = withDefaults(
     selected?: string[];
     /** Per-node values, sizing the markers when results are being shown. */
     values?: Record<string, number> | null;
+    /**
+     * Per-node values colouring the markers, on the sequential chart ramp.
+     *
+     * A separate channel from `values` on purpose: sizing by capacity while
+     * colouring by cost is the comparison the map is for, and tying the two to
+     * one variable would have made it a picture of the same number twice.
+     */
+    colorValues?: Record<string, number> | null;
+    /**
+     * Per-node composition, drawn as a donut instead of a circle.
+     *
+     * Takes over the colour channel when set — a wedge is coloured by its
+     * technology, which is identity and cannot also carry a magnitude — while
+     * `values` still decides how big the donut is.
+     */
+    pies?: Record<string, PieSlice[]> | null;
+    /** What `values` is, for the hover popup. */
+    valueLabel?: string;
     interactive?: boolean;
     height?: string;
     /** Enables dragging; a feature's own `editable` decides whether it moves. */
@@ -58,6 +88,9 @@ const props = withDefaults(
   {
     selected: () => [],
     values: null,
+    colorValues: null,
+    pies: null,
+    valueLabel: "",
     interactive: true,
     height: "100%",
     draggableNodes: false,
@@ -89,64 +122,29 @@ const ready = ref(false);
 const MIN_RADIUS = 5;
 const MAX_RADIUS = 22;
 
+/** Every node's radius when nothing is sizing them. */
+const UNIFORM_RADIUS = 7;
+
+/** How thick a donut's ring is, as a fraction of its radius. */
+const DONUT_THICKNESS = 0.55;
+
+/** How many pie slices a hover names before it says "and more". */
+const PIE_TOOLTIP_ROWS = 5;
+
 /** How far the pointer may travel during a press and still count as a click. */
 const CLICK_SLOP = 3;
 
 /**
- * OpenStreetMap raster tiles, declared inline.
+ * Whether the vector tiles failed and the raster fallback is showing.
  *
- * A vector basemap would look better but every hosted style needs an API key,
- * and an energy model viewer should not require signing up for a tile service
- * to see where its nodes are.
+ * `lib/basemap` explains the choice of provider. Keyless does not mean always
+ * reachable — a machine offline, behind a proxy, or looking at a model while the
+ * tile host is down still has a model to place, so a basemap that cannot load
+ * falls back to plain OpenStreetMap raster tiles rather than to a blank canvas.
+ * The fallback layer is already in the style with `visibility: none`, so this is
+ * a visibility flip and not a `setStyle` — see `applyTheme` for why that matters.
  */
-const STYLE: StyleSpecification = {
-  version: 8,
-  sources: {
-    osm: {
-      type: "raster",
-      tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
-      tileSize: 256,
-      attribution:
-        '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-    },
-  },
-  layers: [{ id: "osm", type: "raster", source: "osm" }],
-};
-
-/**
- * How hard to drain the basemap, per theme.
- *
- * No dark tile provider is used, deliberately. The keyless options all have a
- * catch: CARTO's free CDN ties use to their platform and is rate-limited without
- * a contract, Stadia's keyless tiles only work from localhost (fine for the dev
- * server, broken for an installed tool), and Esri's terms contemplate an account.
- * None is something a locally-installed scientific tool should silently depend on
- * for every user.
- *
- * Desaturating the tiles already fetched is better anyway, and not only as a
- * dark-mode workaround: standard OSM is by far the most saturated thing on
- * screen, which breaks the achromatic-surfaces rule that the whole palette is
- * built on. Draining it is the fix in *both* themes.
- *
- * Dark dims rather than inverts — MapLibre has no raster-invert — giving a dark
- * grey basemap with legible but recessed geography.
- */
-const BASEMAP_PAINT = {
-  light: {
-    "raster-saturation": -0.85,
-    "raster-contrast": -0.15,
-    "raster-brightness-min": 0.12,
-    "raster-brightness-max": 0.97,
-    "raster-opacity": 0.9,
-  },
-  dark: {
-    "raster-saturation": -0.95,
-    "raster-contrast": -0.1,
-    "raster-brightness-min": 0,
-    "raster-brightness-max": 0.34,
-    "raster-opacity": 0.75,
-  },
-} as const;
+const fellBack = ref(false);
 
 /**
  * Data-layer colours, resolved from the tokens.
@@ -176,32 +174,216 @@ function layerPaint() {
   };
 }
 
+/** The ordinal chart ramp, resolved, darkest first. */
+function rampStops(): string[] {
+  return [1, 2, 3, 4, 5].map((step) =>
+    resolvedColor(`--cg-chart-${step}`, "#055bcc"),
+  );
+}
+
+/**
+ * `circle-color` for the colour channel.
+ *
+ * Interpolates the five `--cg-chart-*` steps over the normalised value each
+ * feature carries. That ramp is one hue family with stepped lightness and is
+ * deliberately *not* the technology palette, which is what makes it readable as a
+ * magnitude here and impossible to confuse with tech identity — a node coloured
+ * from the tech palette would claim to *be* a technology.
+ *
+ * A node the query returned nothing for keeps the flat accent rather than
+ * landing at the bottom of the ramp, because "no value" and "the smallest value"
+ * are different facts.
+ */
+function nodeColorExpression(fallback: string): maplibregl.ExpressionSpecification {
+  const stops = rampStops();
+  return [
+    "case",
+    ["==", ["get", "shade"], -1],
+    fallback,
+    [
+      "interpolate",
+      ["linear"],
+      ["get", "shade"],
+      ...stops.flatMap((color, step) => [step / (stops.length - 1), color]),
+    ],
+  ] as maplibregl.ExpressionSpecification;
+}
+
+/** Whether the colour channel is carrying anything. */
+function hasColorChannel(): boolean {
+  return !props.pies && Object.keys(props.colorValues ?? {}).length > 0;
+}
+
 function nodeFeatures(): GeoJSON.FeatureCollection {
   const source = props.geo?.nodes ?? emptyCollection();
   const values = props.values ?? {};
-  const magnitudes = Object.values(values).map(Math.abs);
-  const largest = magnitudes.length ? Math.max(...magnitudes) : 0;
+  const largest = largestMagnitude(values);
+  const colorValues = props.colorValues ?? {};
+  const extent = hasColorChannel() ? valueExtent(colorValues) : null;
 
   return {
     type: "FeatureCollection",
     features: source.features.map((feature) => {
       const id = String(feature.id ?? "");
       const value = values[id];
-      // Area-proportional, not radius-proportional: a value twice as large
-      // should look twice as big, and radius alone exaggerates it.
-      const scale =
-        largest > 0 && value != null ? Math.sqrt(Math.abs(value) / largest) : 0;
       return {
         ...feature,
         properties: {
           ...feature.properties,
           selected: props.selected.includes(id),
           value: value ?? null,
-          radius: largest > 0 ? MIN_RADIUS + scale * (MAX_RADIUS - MIN_RADIUS) : 7,
+          colorValue: colorValues[id] ?? null,
+          // -1 rather than null: MapLibre's `interpolate` cannot be handed a
+          // missing input, and a sentinel outside 0–1 is what the `case` above
+          // tests for. A single-valued extent normalises to the ramp's top, not
+          // to a division by zero.
+          shade: shadeOf(colorValues[id], extent),
+          radius: nodeRadius(largest, value),
         },
       };
     }),
   };
+}
+
+/** Where a value sits on the ramp, 0–1, or -1 when it has none. */
+function shadeOf(
+  value: number | undefined,
+  extent: [number, number] | null,
+): number {
+  if (extent === null || value == null || !Number.isFinite(value)) return -1;
+  const [min, max] = extent;
+  return max === min ? 1 : (value - min) / (max - min);
+}
+
+/**
+ * Marker radius for one node.
+ *
+ * Area-proportional, not radius-proportional: a value twice as large should look
+ * twice as big, and scaling the radius exaggerates it. With no size channel every
+ * node is the same small dot, which is the "nothing at all" case — the map still
+ * says where the model is, and claims nothing about how much is there.
+ */
+function nodeRadius(largest: number, value: number | undefined): number {
+  if (largest <= 0 || value == null) return UNIFORM_RADIUS;
+  const scale = Math.sqrt(Math.abs(value) / largest);
+  return MIN_RADIUS + scale * (MAX_RADIUS - MIN_RADIUS);
+}
+
+// ── Pies ───────────────────────────────────────────────────────────────────
+//
+// MapLibre has no pie mark and no paint property that could make one, so a node
+// showing composition is an SVG donut in a `maplibregl.Marker` — DOM the map keeps
+// positioned, which also means the click and hover it needs are ordinary listeners.
+//
+// The markers are kept in a map keyed by node and updated in place. Recreating
+// them on every payload would tear a marker out from under the pointer mid-hover,
+// and on the editor side `pies` is never set, so none of this runs there at all.
+
+const donuts = new Map<string, maplibregl.Marker>();
+
+/** Removes every donut, for when the pie channel is switched off. */
+function clearDonuts() {
+  for (const marker of donuts.values()) marker.remove();
+  donuts.clear();
+}
+
+function donutElement(node: string, slices: PieSlice[], radius: number): string {
+  const paint = layerPaint();
+  return donutSvg(slices, {
+    radius,
+    thickness: DONUT_THICKNESS,
+    stroke: props.selected.includes(node) ? paint.nodeStrokeSelected : paint.nodeStroke,
+    strokeWidth: props.selected.includes(node) ? 2 : 1,
+    fallbackColor: paint.nodeColor,
+    label: node,
+  });
+}
+
+function syncDonuts() {
+  const instance = map.value;
+  if (!instance || !ready.value) return;
+
+  const pies = props.pies;
+  if (!pies) {
+    clearDonuts();
+    return;
+  }
+
+  const largest = largestMagnitude(props.values ?? {});
+  const seen = new Set<string>();
+
+  for (const feature of props.geo?.nodes.features ?? []) {
+    const node = String(feature.id ?? "");
+    const slices = pies[node];
+    if (!slices?.length || feature.geometry.type !== "Point") continue;
+    seen.add(node);
+
+    const radius = nodeRadius(largest, (props.values ?? {})[node]);
+    const html = donutElement(node, slices, radius);
+
+    let marker = donuts.get(node);
+    if (!marker) {
+      const element = document.createElement("div");
+      element.style.cursor = "pointer";
+      element.addEventListener("click", (event) => {
+        event.stopPropagation();
+        emit("nodeClick", node);
+        select(node);
+      });
+      marker = new maplibregl.Marker({ element }).setLngLat(
+        feature.geometry.coordinates as [number, number],
+      );
+      marker.addTo(instance);
+      donuts.set(node, marker);
+    } else {
+      marker.setLngLat(feature.geometry.coordinates as [number, number]);
+    }
+    // Only the inner SVG is replaced: the element itself carries the click
+    // listener, and swapping it would drop the listener silently.
+    marker.getElement().innerHTML = html;
+  }
+
+  for (const [node, marker] of donuts) {
+    if (seen.has(node)) continue;
+    marker.remove();
+    donuts.delete(node);
+  }
+}
+
+/**
+ * What hovering a node says.
+ *
+ * Names the variable rather than showing a bare number: with three channels on
+ * offer, a figure with no label is a figure the reader has to go and look up in
+ * the header. Values are read from the props rather than from the feature so a
+ * donut, which has no feature under the pointer, says the same thing.
+ */
+function popupHtml(node: string): string {
+  const rows: string[] = [`<strong>${escapeText(node)}</strong>`];
+
+  const value = (props.values ?? {})[node];
+  if (value != null) {
+    const label = props.valueLabel ? `${escapeText(props.valueLabel)}: ` : "";
+    rows.push(`${label}${value.toLocaleString()}`);
+  }
+
+  const slices = props.pies?.[node];
+  if (slices?.length) {
+    const total = slices.reduce((sum, slice) => sum + slice.value, 0);
+    rows.push(
+      ...slices
+        .slice(0, PIE_TOOLTIP_ROWS)
+        .map(
+          (slice) =>
+            `${escapeText(slice.key)}: ${Math.round((slice.value / total) * 100)}%`,
+        ),
+    );
+    if (slices.length > PIE_TOOLTIP_ROWS) {
+      rows.push(`+${slices.length - PIE_TOOLTIP_ROWS} more`);
+    }
+  }
+
+  return rows.join("<br>");
 }
 
 function setData() {
@@ -211,6 +393,20 @@ function setData() {
   const links = props.geo?.links ?? emptyCollection();
   (instance.getSource("links") as maplibregl.GeoJSONSource)?.setData(links);
   (instance.getSource("links-hit") as maplibregl.GeoJSONSource)?.setData(links);
+
+  // The circle layer and the donuts are two ways of drawing the same node, so
+  // exactly one of them is up at a time. Hiding the layer rather than emptying
+  // its source keeps `queryRenderedFeatures` honest: `overNode` uses it to stop a
+  // click on a node also reaching the link underneath.
+  if (instance.getLayer("nodes")) {
+    instance.setLayoutProperty(
+      "nodes",
+      "visibility",
+      props.pies ? "none" : "visible",
+    );
+  }
+  syncDonuts();
+  applyNodePaint(instance);
 }
 
 /**
@@ -225,7 +421,7 @@ function nodeSignature(): string {
   return (props.geo?.nodes.features ?? [])
     .map((feature) => String(feature.id))
     .sort()
-    .join(" ");
+    .join("\u001f");
 }
 
 let fittedSignature: string | null = null;
@@ -326,31 +522,56 @@ function setPending(cursor: maplibregl.LngLat | null) {
 }
 
 /**
- * Repaints everything the theme touches.
+ * The node layer's colours.
  *
- * Never `setStyle`. Swapping the style destroys every custom source and layer,
- * so it would mean re-running `addLayers` and re-`setData`-ing on each theme
- * change, with a visible flash and a whole class of ordering bugs. Setting the
- * paint properties is nine cheap calls and touches nothing else.
+ * Split out of `applyTheme` because it no longer depends on the theme alone:
+ * whether `circle-color` is the flat accent or the ramp is a function of the
+ * data, so switching the colour channel on has to repaint without waiting for a
+ * theme change.
  */
-function applyTheme(instance: maplibregl.Map) {
-  if (!instance.getLayer("osm")) return;
-
-  const basemap = BASEMAP_PAINT[ui.mode];
-  for (const [property, value] of Object.entries(basemap)) {
-    instance.setPaintProperty("osm", property as keyof typeof basemap, value);
-  }
-
+function applyNodePaint(instance: maplibregl.Map) {
+  if (!instance.getLayer("nodes")) return;
   const paint = layerPaint();
-  instance.setPaintProperty("links", "line-color", paint.linkColor);
-  instance.setPaintProperty("pending", "line-color", paint.accent);
-  instance.setPaintProperty("nodes", "circle-color", paint.nodeColor);
+  instance.setPaintProperty(
+    "nodes",
+    "circle-color",
+    hasColorChannel() ? nodeColorExpression(paint.nodeColor) : paint.nodeColor,
+  );
   instance.setPaintProperty("nodes", "circle-stroke-color", [
     "case",
     ["get", "selected"],
     paint.nodeStrokeSelected,
     paint.nodeStroke,
   ]);
+}
+
+/**
+ * Repaints everything the theme touches.
+ *
+ * Never `setStyle`. Swapping the style destroys every custom source and layer,
+ * so it would mean re-running `addLayers` and re-`setData`-ing on each theme
+ * change, with a visible flash and a whole class of ordering bugs. Setting the
+ * paint properties is a handful of cheap calls and touches nothing else.
+ */
+function applyTheme(instance: maplibregl.Map) {
+  if (!instance.getLayer("nodes")) return;
+
+  for (const [layer, property, value] of basemapPaint()) {
+    if (instance.getLayer(layer)) instance.setPaintProperty(layer, property, value);
+  }
+
+  const raster = RASTER_PAINT[ui.mode];
+  for (const [property, value] of Object.entries(raster)) {
+    instance.setPaintProperty(RASTER_LAYER, property as keyof typeof raster, value);
+  }
+
+  const paint = layerPaint();
+  instance.setPaintProperty("links", "line-color", paint.linkColor);
+  instance.setPaintProperty("pending", "line-color", paint.accent);
+  applyNodePaint(instance);
+  // The donuts are SVG, not paint properties, so their strokes only follow the
+  // theme if they are redrawn.
+  syncDonuts();
 }
 
 function addLayers(instance: maplibregl.Map) {
@@ -427,16 +648,8 @@ function addLayers(instance: maplibregl.Map) {
     const feature = event.features?.[0];
     if (!feature || dragging) return;
     instance.getCanvas().style.cursor = props.draggableNodes ? "grab" : "pointer";
-    const name = feature.properties?.node ?? feature.id;
-    const value = feature.properties?.value;
-    popup
-      .setLngLat(event.lngLat)
-      .setHTML(
-        value == null
-          ? `<strong>${name}</strong>`
-          : `<strong>${name}</strong><br>${Number(value).toLocaleString()}`,
-      )
-      .addTo(instance);
+    const name = String(feature.properties?.node ?? feature.id);
+    popup.setLngLat(event.lngLat).setHTML(popupHtml(name)).addTo(instance);
   });
 
   instance.on("mouseleave", "nodes", () => {
@@ -526,7 +739,7 @@ onMounted(() => {
   if (!container.value) return;
   const instance = new maplibregl.Map({
     container: container.value,
-    style: STYLE,
+    style: basemapStyle(),
     center: [0, 20],
     zoom: 1,
     attributionControl: { compact: true },
@@ -538,6 +751,22 @@ onMounted(() => {
     ready.value = true;
     setData();
     fit();
+  });
+
+  // MapLibre reports a failed tile or TileJSON request here and nowhere else; it
+  // does not throw, and without this a map whose tiles never arrive is simply
+  // empty. One failure is enough to switch: a basemap that is half there is a
+  // worse picture of a model's geography than a plain one.
+  instance.on("error", (event) => {
+    const sourceId = (event as { sourceId?: string }).sourceId;
+    if (sourceId !== VECTOR_SOURCE || fellBack.value) return;
+    fellBack.value = true;
+    for (const layer of VECTOR_LAYERS) {
+      if (instance.getLayer(layer)) {
+        instance.setLayoutProperty(layer, "visibility", "none");
+      }
+    }
+    instance.setLayoutProperty(RASTER_LAYER, "visibility", "visible");
   });
 
   // The map lives behind a `v-if` and inside a draggable splitter, so it can be
@@ -574,6 +803,7 @@ onBeforeUnmount(() => {
   observer?.disconnect();
   observer = null;
   if (frame) cancelAnimationFrame(frame);
+  clearDonuts();
   map.value?.remove();
   map.value = null;
 });
@@ -585,7 +815,16 @@ watch(
     fit();
   },
 );
-watch([() => props.selected, () => props.values], setData, { deep: true });
+watch(
+  [
+    () => props.selected,
+    () => props.values,
+    () => props.colorValues,
+    () => props.pies,
+  ],
+  setData,
+  { deep: true },
+);
 
 watch(
   () => props.pendingLinkFrom,
@@ -604,63 +843,32 @@ watch(
 </script>
 
 <template>
-  <div class="map-root" :style="{ height }">
+  <div class="relative w-full" :style="{ height }">
     <!-- The overlay is a slot with the empty-model message as its fallback, so
          the editor can grey the map out over the top of a partly-placed model
-         without this component knowing why. -->
-    <div
+         without this component knowing why.
+
+         It deliberately does NOT set `pointer-events: none`: while the map is
+         greyed there must be no way to drag a node through it. `map-scrim` is
+         the one piece of CSS left, in assets/maplibre-overrides.css, because
+         `backdrop-filter` has no Tailwind utility and this is DOM-only. -->
+    <StateMessage
       v-if="$slots.overlay || (emptyMessage && geo && geo.nodes.features.length === 0)"
-      class="map-placeholder"
-      :class="{ 'over-content': !!$slots.overlay }"
+      variant="fill"
+      :icon="MapPinOff"
+      :class="[
+        'absolute inset-0 z-raised',
+        $slots.overlay ? 'map-scrim' : 'bg-surface',
+      ]"
       data-testid="map-overlay"
     >
       <slot name="overlay">
         No nodes with coordinates to display.
-        <span class="hint">Add latitude and longitude to your nodes.</span>
+        <span class="block text-2xs text-text-faint">
+          Add latitude and longitude to your nodes.
+        </span>
       </slot>
-    </div>
-    <div ref="container" class="map" />
+    </StateMessage>
+    <div ref="container" class="h-full w-full" />
   </div>
 </template>
-
-<style scoped>
-.map-root {
-  position: relative;
-  width: 100%;
-}
-
-.map {
-  width: 100%;
-  height: 100%;
-}
-
-.map-placeholder {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 0.4rem;
-  z-index: 1;
-  background: var(--cg-surface);
-  text-align: center;
-  font-size: 12px;
-  color: var(--cg-text-muted);
-}
-
-/* Greying out a map that does have something on it: the geography stays
-   readable underneath, drained and blurred, and the overlay still swallows every
-   pointer event so nothing can be edited through it. `color-mix` is fine here —
-   this is DOM-only CSS, and no canvas ever has to parse it. */
-.map-placeholder.over-content {
-  background: color-mix(in oklch, var(--cg-surface) 72%, transparent);
-  backdrop-filter: grayscale(1) blur(1.5px);
-  padding: 1rem;
-}
-
-.hint {
-  font-size: 0.8rem;
-  opacity: 0.8;
-}
-</style>

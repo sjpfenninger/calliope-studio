@@ -8,11 +8,14 @@
  * a run's charts the full width they need.
  */
 import { computed, ref, watch } from "vue";
-import { Network, RefreshCw, ShieldCheck } from "lucide-vue-next";
+import { Badge } from "@/components/ui/badge";
+import PanelHeader from "@/components/app/PanelHeader.vue";
+import { ICON_BUTTON } from "@/lib/formClasses";
+import { Network, RefreshCw, ShieldCheck } from "@lucide/vue";
 
 import ImportGraphDialog from "@/components/layout/ImportGraphDialog.vue";
 import { Tree } from "@/components/ui/tree";
-import { ICON_STROKE_WIDTH, sectionIcon } from "@/lib/icons";
+import { sectionIcon } from "@/lib/icons";
 import { buildModelTree, STRUCTURED_SECTIONS, type ModelTreeNode } from "@/lib/modelTree";
 import { openIntent } from "@/lib/openIntent";
 import { useComponentTreeStore } from "@/stores/componentTree";
@@ -68,9 +71,7 @@ function validateDeep() {
 
 <template>
   <div class="flex min-h-0 flex-1 flex-col">
-    <div
-      class="flex h-8 shrink-0 items-center gap-1 border-b border-border bg-panel px-2"
-    >
+    <PanelHeader>
       <button
         type="button"
         title="Validate"
@@ -78,7 +79,7 @@ function validateDeep() {
         class="inline-flex h-6 items-center gap-1.5 rounded-sm px-2 text-sm text-text-dim hover:bg-hover hover:text-foreground"
         @click="validate"
       >
-        <ShieldCheck class="size-3.5" :stroke-width="ICON_STROKE_WIDTH" />
+        <ShieldCheck class="size-3.5" />
         Validate
       </button>
       <button
@@ -94,20 +95,20 @@ function validateDeep() {
       <button
         type="button"
         title="Import graph"
-        class="grid size-6 place-items-center rounded-sm text-text-faint hover:bg-hover hover:text-foreground"
+        :class="ICON_BUTTON"
         @click="showImportGraph = true"
       >
-        <Network class="size-3.5" :stroke-width="ICON_STROKE_WIDTH" />
+        <Network class="size-3.5" />
       </button>
       <button
         type="button"
         title="Reload the model tree"
-        class="grid size-6 place-items-center rounded-sm text-text-faint hover:bg-hover hover:text-foreground"
+        :class="ICON_BUTTON"
         @click="refresh"
       >
-        <RefreshCw class="size-3.5" :stroke-width="ICON_STROKE_WIDTH" />
+        <RefreshCw class="size-3.5" />
       </button>
-    </div>
+    </PanelHeader>
 
     <Tree
       v-model="selected"
@@ -126,13 +127,14 @@ function validateDeep() {
       @select="(node, event) => open(node as ModelTreeNode, event)"
     >
       <template #trailing="{ item }">
-        <span
+        <Badge
           v-if="(item as ModelTreeNode).template"
-          class="ml-auto shrink-0 rounded-xs bg-muted px-1 text-2xs text-text-faint"
+          variant="outline"
+          class="ml-auto shrink-0 border-border-subtle px-1 font-normal text-text-faint"
           :title="`From template ${(item as ModelTreeNode).template}`"
         >
           {{ (item as ModelTreeNode).template }}
-        </span>
+        </Badge>
         <span
           v-else-if="(item as ModelTreeNode).settingCount"
           class="ml-auto shrink-0 text-2xs tabular-nums text-text-faint"

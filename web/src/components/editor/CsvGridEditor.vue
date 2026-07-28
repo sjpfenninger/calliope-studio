@@ -8,6 +8,7 @@
  * tab.
  */
 import { computed, onMounted, toRef } from "vue";
+import StateMessage from "@/components/app/StateMessage.vue";
 
 import CsvGrid from "./CsvGrid.vue";
 import EditorToolbar from "./EditorToolbar.vue";
@@ -54,9 +55,11 @@ function onKeyDown(e: KeyboardEvent) {
 </script>
 
 <template>
+  <!-- design-check: allow focus — a focus *container*, not a control: it takes
+       focus so the grid can receive keys, and a ring round a whole pane says nothing. -->
   <div class="flex min-h-0 flex-1 flex-col outline-none" tabindex="-1" @keydown="onKeyDown">
-    <p v-if="isLoading" class="p-6 text-center text-sm text-muted-foreground">Loading…</p>
-    <p v-else-if="error" class="p-6 text-center text-sm text-danger-text">{{ error }}</p>
+    <StateMessage v-if="isLoading" variant="block" loading>Loading…</StateMessage>
+    <StateMessage v-else-if="error" variant="block" tone="danger">{{ error }}</StateMessage>
 
     <template v-else>
       <EditorToolbar @save="save" />

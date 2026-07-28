@@ -9,9 +9,13 @@
  *
  * Drawn as one segmented control rather than three links: as a plain stack it
  * read as website nav, and nothing said that these three choose what the panel
- * underneath shows. One bordered box with divided segments, a filled active one
- * and a 2px bar along its bottom edge does say it — the bar points at what it
- * controls.
+ * underneath shows. Being *continuous* with that panel says it — the active
+ * segment is the same colour as the section beneath it and has no line between
+ * them, while the other two sit on a recessed strip.
+ *
+ * It used to carry a soft accent fill, a hand-rolled underline span, and the
+ * codebase's only two `!important` utilities, all at once. See
+ * components/app/segmented.ts for the one rule that replaced them.
  *
  * Horizontal, because the sidebar is 22% of the window by default and three
  * labels need about 210px of that. The segments grow from their content rather
@@ -21,9 +25,9 @@
  */
 import { computed } from "vue";
 import { useRoute } from "vue-router";
-import { BarChart3, FileCode2, Folder } from "lucide-vue-next";
+import { BarChart3, FileCode2, Folder } from "@lucide/vue";
 
-import { ICON_STROKE_WIDTH } from "@/lib/icons";
+import Segmented from "@/components/app/Segmented.vue";
 import { useValidationStore } from "@/stores/validation";
 
 const route = useRoute();
@@ -65,47 +69,40 @@ function target(name: string) {
       }
     : { name: "viewer", query };
 }
+
+/** The nav as segments; `to` is what makes each one a RouterLink. */
+const segments = computed(() =>
+  items.value.map((item) => ({
+    value: item.name,
+    label: item.label,
+    icon: item.icon,
+    badge: item.count || undefined,
+    disabled: !item.enabled,
+    tip: item.enabled ? undefined : "Not available for a results file",
+    to: item.enabled ? target(item.name) : undefined,
+    testid: `nav-${item.name}`,
+  })),
+);
+
+/** Which segment the route is on. RouterLink paints its own active state, but
+ *  `Segmented` keys the bar off `data-active`, so it has to be told. */
+const active = computed(() =>
+  items.value.find((item) => route.name === item.name)?.name,
+);
 </script>
 
 <template>
-  <!-- The padding is on the outer element, so the section divider the shell
-       draws underneath still spans the full width of the sidebar. -->
-  <div class="p-1.5">
-    <nav
-      class="flex divide-x divide-border-subtle overflow-hidden rounded-sm border border-border bg-surface"
-      role="group"
-    >
-      <component
-        :is="item.enabled ? 'RouterLink' : 'span'"
-        v-for="item in items"
-        :key="item.name"
-        :to="item.enabled ? target(item.name) : undefined"
-        :data-testid="`nav-${item.name}`"
-        :title="item.enabled ? undefined : 'Not available for a results file'"
-        class="group relative flex h-7 min-w-0 flex-auto items-center justify-center gap-1.5 px-1.5 text-sm text-text-dim transition-colors"
-        :class="
-          item.enabled
-            ? 'hover:bg-hover hover:text-foreground'
-            : 'cursor-default text-text-faint'
-        "
-        active-class="!bg-accent-soft !text-accent-text font-medium"
-      >
-        <component
-          :is="item.icon"
-          class="size-3.5 shrink-0 text-text-faint group-[.router-link-active]:text-primary"
-          :stroke-width="ICON_STROKE_WIDTH"
-        />
-        <span class="truncate">{{ item.label }}</span>
-        <span
-          v-if="item.count"
-          class="shrink-0 rounded-xs bg-danger-soft px-1 text-2xs font-medium tabular-nums text-danger-text"
-        >
-          {{ item.count }}
-        </span>
-        <span
-          class="absolute inset-x-0 bottom-0 h-0.5 bg-primary opacity-0 transition-opacity group-[.router-link-active]:opacity-100"
-        />
-      </component>
-    </nav>
-  </div>
+  <!-- Full-bleed, and recessed relative to the sidebar it sits in, so the active
+       segment can open straight into the section below it. `bg-background` is a
+       step *back* from `--cg-panel` in both themes, which is what makes the same
+       two classes read correctly in light and dark. -->
+  <Segmented
+    :model-value="active"
+    :items="segments"
+    mode="nav"
+    seam="panel"
+    size="sm"
+    fill
+    class="border-b border-border bg-background"
+  />
 </template>

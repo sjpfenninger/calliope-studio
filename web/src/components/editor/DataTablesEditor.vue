@@ -12,7 +12,8 @@
  * is where they meet, so Save there writes both.
  */
 import { computed, onMounted, onUnmounted, ref, toRef, watch } from "vue";
-import { Plus, Trash2 } from "lucide-vue-next";
+import StateMessage from "@/components/app/StateMessage.vue";
+import { Plus, Trash2 } from "@lucide/vue";
 
 import client from "@/api/client";
 import CsvGrid from "./CsvGrid.vue";
@@ -29,8 +30,9 @@ import {
   ResizablePanel,
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
-import { DANGER_ICON_BUTTON, GHOST_BUTTON } from "@/lib/formClasses";
-import { ICON_STROKE_WIDTH } from "@/lib/icons";
+import { DANGER_ICON_BUTTON, FIELD_LABEL, GHOST_BUTTON } from "@/lib/formClasses";
+import { cn } from "@/lib/utils";
+
 import { resolveDataPath } from "@/lib/modelPaths";
 import { useCsvGrid } from "@/composables/useCsvGrid";
 import { useTabsStore } from "@/stores/tabs";
@@ -314,10 +316,10 @@ watch(() => props.filePath, load);
        a fraction of this element, and `flex-1` inside the host's block-level
        wrapper leaves it at content height, which would collapse the grid. -->
   <div class="flex h-full min-h-0 flex-col">
-    <p v-if="isLoading" class="p-6 text-center text-sm text-muted-foreground">
+    <StateMessage v-if="isLoading" variant="block" loading>
       Loading data_tables…
-    </p>
-    <p v-else-if="error" class="p-6 text-center text-sm text-danger-text">{{ error }}</p>
+    </StateMessage>
+    <StateMessage v-else-if="error" variant="block" tone="danger">{{ error }}</StateMessage>
 
     <template v-else>
       <EditorToolbar :saving="isSaving" @save="save">
@@ -327,22 +329,19 @@ watch(() => props.filePath, load);
           :class="GHOST_BUTTON"
           @click="addEntry"
         >
-          <Plus class="size-3.5" :stroke-width="ICON_STROKE_WIDTH" />
+          <Plus class="size-3.5" />
           Add table
         </button>
         <span v-if="saveError" class="text-2xs text-danger-text">{{ saveError }}</span>
       </EditorToolbar>
 
-      <p
-        v-if="!visibleEntries.length"
-        class="p-6 text-center text-sm text-muted-foreground"
-      >
+      <StateMessage v-if="!visibleEntries.length" variant="block">
         {{
           entryName
             ? `No data table called "${entryName}".`
             : "No data tables defined yet."
         }}
-      </p>
+      </StateMessage>
 
       <!-- One table: its configuration above, its CSV below. -->
       <ResizablePanelGroup
@@ -367,8 +366,15 @@ watch(() => props.filePath, load);
 
         <ResizablePanel :default-size="ui.dataTableSplit[1]" :min-size="20">
           <div class="flex h-full min-h-0 flex-col">
+            <!-- A file path is an identifier, so it gets the same treatment as
+                 the key of a field: mono, at the mono step. -->
             <div
-              class="flex h-6 shrink-0 items-center gap-2 border-b border-border px-2 font-mono text-2xs text-text-dim"
+              :class="
+                cn(
+                  'flex h-6 shrink-0 items-center gap-2 border-b border-border px-2',
+                  FIELD_LABEL,
+                )
+              "
             >
               <span class="truncate">{{ csvPath }}</span>
             </div>
@@ -387,15 +393,12 @@ watch(() => props.filePath, load);
               <span class="text-text-faint">discards unsaved cell edits</span>
             </p>
 
-            <p
-              v-if="csvLoading"
-              class="p-6 text-center text-sm text-muted-foreground"
-            >
+            <StateMessage v-if="csvLoading" variant="block" loading>
               Loading…
-            </p>
-            <p v-else-if="csvError" class="p-6 text-center text-sm text-danger-text">
+            </StateMessage>
+            <StateMessage v-else-if="csvError" variant="block" tone="danger">
               {{ csvError }}
-            </p>
+            </StateMessage>
             <CsvGrid
               v-else
               :column-defs="columnDefs"
@@ -446,7 +449,7 @@ watch(() => props.filePath, load);
                 :class="DANGER_ICON_BUTTON"
                 @click.stop="removeEntry(index)"
               >
-                <Trash2 class="size-3.5" :stroke-width="ICON_STROKE_WIDTH" />
+                <Trash2 class="size-3.5" />
               </button>
             </div>
             <AccordionContent>

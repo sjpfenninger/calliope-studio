@@ -12,7 +12,10 @@
  * this the one?" is visible before clicking rather than after.
  */
 import { computed, ref, watch } from "vue";
-import { ChevronRight, CornerLeftUp, Folder, FolderCheck } from "lucide-vue-next";
+import StateMessage from "@/components/app/StateMessage.vue";
+import { PRIMARY_BUTTON, SECONDARY_BUTTON } from "@/lib/formClasses";
+import { cn } from "@/lib/utils";
+import { ChevronRight, CornerLeftUp, Folder, FolderCheck } from "@lucide/vue";
 
 import client from "@/api/client";
 import {
@@ -23,7 +26,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { ICON_STROKE_WIDTH } from "@/lib/icons";
+import { ICON_STROKE_WIDTH_TIGHT } from "@/lib/icons";
 
 const open = defineModel<boolean>("open", { default: false });
 const emit = defineEmits<{ opened: [projectId: string] }>();
@@ -106,7 +109,7 @@ async function openHere() {
           class="grid size-6 shrink-0 place-items-center rounded-sm text-text-faint hover:bg-hover hover:text-foreground disabled:opacity-40"
           @click="browse(listing?.parent ?? undefined)"
         >
-          <CornerLeftUp class="size-3.5" :stroke-width="ICON_STROKE_WIDTH" />
+          <CornerLeftUp class="size-3.5" />
         </button>
         <span
           data-testid="browse-path"
@@ -120,10 +123,10 @@ async function openHere() {
         class="h-72 min-h-0 overflow-y-auto rounded-sm border border-border bg-surface"
         data-testid="browse-entries"
       >
-        <p v-if="isLoading" class="p-3 text-sm text-muted-foreground">Listing…</p>
-        <p v-else-if="!entries.length" class="p-3 text-sm text-muted-foreground">
+        <StateMessage v-if="isLoading" variant="inline" loading>Listing…</StateMessage>
+        <StateMessage v-else-if="!entries.length" variant="inline">
           No folders here.
-        </p>
+        </StateMessage>
 
         <button
           v-for="entry in entries"
@@ -139,13 +142,12 @@ async function openHere() {
             :is="entry.is_model ? FolderCheck : Folder"
             class="size-3.5 shrink-0"
             :class="entry.is_model ? 'text-accent-text' : 'text-text-faint'"
-            :stroke-width="ICON_STROKE_WIDTH"
           />
           <span class="min-w-0 flex-1 truncate">{{ entry.name }}</span>
           <span v-if="entry.is_model" class="shrink-0 text-2xs text-accent-text">
             model
           </span>
-          <ChevronRight class="size-3 shrink-0 text-text-faint" :stroke-width="2" />
+          <ChevronRight class="size-3 shrink-0 text-text-faint" :stroke-width="ICON_STROKE_WIDTH_TIGHT" />
         </button>
 
         <p v-if="listing?.truncated" class="p-2 text-2xs text-text-faint">
@@ -162,7 +164,7 @@ async function openHere() {
       <DialogFooter>
         <button
           type="button"
-          class="inline-flex h-7 items-center rounded-sm border border-border px-3 text-sm hover:bg-hover"
+          :class="cn(SECONDARY_BUTTON, 'h-7 px-3')"
           @click="open = false"
         >
           Cancel
@@ -171,7 +173,7 @@ async function openHere() {
           type="button"
           data-testid="open-this-folder"
           :disabled="!listing?.is_model || opening"
-          class="inline-flex h-7 items-center rounded-sm bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+          :class="cn(PRIMARY_BUTTON, 'h-7 px-3')"
           @click="openHere"
         >
           Open this folder

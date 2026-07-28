@@ -9,30 +9,164 @@
  * that no canvas parser ever sees.
  */
 
-.maplibregl-ctrl-group {
+/* Lucide `plus`, `minus` and `info`, transcribed from @lucide/vue so the map's
+   chrome is drawn with the same geometry as every other icon in the app: a 24-unit
+   box, stroke width 1.75, round caps. Deliberately *not* `--cg-*` — these are
+   shapes local to this file, not part of the design-token vocabulary. */
+:root {
+  --map-glyph-plus: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='1.75' stroke-linecap='round'%3E%3Cpath d='M5 12h14'/%3E%3Cpath d='M12 5v14'/%3E%3C/svg%3E");
+  --map-glyph-minus: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='1.75' stroke-linecap='round'%3E%3Cpath d='M5 12h14'/%3E%3C/svg%3E");
+  --map-glyph-info: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='1.75' stroke-linecap='round'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Cpath d='M12 16v-4'/%3E%3Cpath d='M12 8h.01'/%3E%3C/svg%3E");
+}
+
+/* `:not(:empty)` is not decoration: maplibre-gl.css styles the group through that
+   selector, so a bare `.maplibregl-ctrl-group` here loses on specificity no matter
+   what the import order is. Written flat, this rule's `box-shadow` was dead and the
+   group drew stock's 2px `rgba(0,0,0,.1)` ring *on top of* the border below — a 3px
+   dark edge around the zoom buttons. Matching the selector is what removes it, and
+   with the ring gone the hairline can drop to the subtle tier. */
+.maplibregl-ctrl-group:not(:empty) {
   background: var(--cg-surface);
-  border: 1px solid var(--cg-border);
+  border: 1px solid var(--cg-border-subtle);
   border-radius: var(--cg-radius-sm);
   box-shadow: var(--cg-shadow-1);
 }
 
 .maplibregl-ctrl-group button {
-  width: 26px;
-  height: 26px;
+  width: 24px;
+  height: 24px;
 }
 
 .maplibregl-ctrl-group button + button {
   border-top: 1px solid var(--cg-border-subtle);
 }
 
-.maplibregl-ctrl-group button:hover {
+/* The inner radius for a 3px outer edge and a 1px border, so a hover fill does not
+   square off the group's corners. `overflow: hidden` would do it in one line and
+   also clip the focus outline below, which is the whole indicator. */
+.maplibregl-ctrl-group button:first-child {
+  border-radius: var(--cg-radius-xs) var(--cg-radius-xs) 0 0;
+}
+
+.maplibregl-ctrl-group button:last-child {
+  border-radius: 0 0 var(--cg-radius-xs) var(--cg-radius-xs);
+}
+
+/* Same story as the group: stock hovers through
+   `.maplibregl-ctrl button:not(:disabled):hover`, which outranks a plain
+   `button:hover` here, so the token only lands if the `:not()` is matched too. */
+.maplibregl-ctrl-group button:not(:disabled):hover {
   background: var(--cg-hover);
 }
 
-/* The control glyphs are inline SVG data URIs with a dark fill baked in, so
-   there is no property to retint — inverting is the only lever. */
-[data-cg-theme="dark"] .maplibregl-ctrl-group button .maplibregl-ctrl-icon {
-  filter: invert(1) brightness(1.4);
+/* The glyphs, redrawn.
+ *
+ * MapLibre's are *filled* paths — 3-unit bars in a 29-unit box, painted at 29px
+ * inside a 24px button — where every other icon in this app is lucide at stroke
+ * width 1.75 in a 24-unit box. They were not merely too dark, they were a
+ * different drawing, and the only lever the stock markup offers is `filter`,
+ * which is why dark mode used to invert them.
+ *
+ * Masking replaces both problems with one mechanism: the shape comes from lucide
+ * (`plus`, `minus`, `info` in @lucide/vue) and the colour is an ordinary token
+ * that already inverts, so there is no dark-mode rule at all.
+ *
+ * The `stroke` inside each data URI is a *stencil, not a colour*. A mask reads
+ * alpha only, so the value never reaches a pixel; SVG's default stroke is `none`
+ * and `currentColor` does not inherit into an external image, so it has to say
+ * something opaque.
+ *
+ * `button.maplibregl-ctrl-zoom-*` is not padding either. Stock reaches these
+ * through `.maplibregl-ctrl button.maplibregl-ctrl-zoom-in .maplibregl-ctrl-icon`
+ * — (0,3,1), not the (0,2,0) the selector in its source reads as — so a shorter
+ * one here loses and stock's glyph goes on painting *through* the mask, which
+ * looks like the retint simply not working. Clearing `background-image` has to
+ * happen at that same weight, i.e. in these rules and not the shared one above.
+ */
+.maplibregl-ctrl-group .maplibregl-ctrl-icon {
+  background-color: var(--cg-text-muted);
+  -webkit-mask: center / 14px no-repeat;
+  mask: center / 14px no-repeat;
+}
+
+.maplibregl-ctrl-group button.maplibregl-ctrl-zoom-in .maplibregl-ctrl-icon {
+  background-image: none;
+  -webkit-mask-image: var(--map-glyph-plus);
+  mask-image: var(--map-glyph-plus);
+}
+
+.maplibregl-ctrl-group button.maplibregl-ctrl-zoom-out .maplibregl-ctrl-icon {
+  background-image: none;
+  -webkit-mask-image: var(--map-glyph-minus);
+  mask-image: var(--map-glyph-minus);
+}
+
+.maplibregl-ctrl-group button:not(:disabled):hover .maplibregl-ctrl-icon {
+  background-color: var(--cg-text);
+}
+
+/* The compact attribution toggle. Stock draws it as a translucent white circle
+   with a filled glyph, and it had no rule here at all — including no dark-mode
+   one, because its glyph is a `background-image` on the button itself rather than
+   on a `.maplibregl-ctrl-icon` child, so the old invert never reached it.
+   Masking the button directly would erase its own background along with
+   everything else, hence `::before`: the plate stays a paintable surface.
+
+   Qualified with `.maplibregl-compact` for the same reason as the zoom glyphs:
+   stock sets `display: block` on this button through
+   `.maplibregl-ctrl-attrib.maplibregl-compact .maplibregl-ctrl-attrib-button`,
+   which outranks a bare class here — and compact is the only mode ModelMap uses,
+   so a bare rule's `place-items` would be dead in the one case that exists,
+   leaving the glyph in the corner rather than the middle of the 24px box. */
+.maplibregl-ctrl-attrib.maplibregl-compact .maplibregl-ctrl-attrib-button {
+  background-image: none;
+  background-color: transparent;
+  border-radius: var(--cg-radius-sm);
+  display: grid;
+  place-items: center;
+}
+
+/* Stock fills the button once the strip is open, and open is the state it starts
+   in at any normal map width — so that fill is not feedback, it is permanent
+   chrome. The expanded strip beside it already says what the toggle would. Only
+   hover gets a plate. */
+.maplibregl-ctrl-attrib.maplibregl-compact-show .maplibregl-ctrl-attrib-button {
+  background-color: transparent;
+}
+
+.maplibregl-ctrl-attrib .maplibregl-ctrl-attrib-button:hover {
+  background-color: var(--cg-hover);
+}
+
+.maplibregl-ctrl-attrib-button::before {
+  content: "";
+  width: 14px;
+  height: 14px;
+  background-color: var(--cg-text-muted);
+  -webkit-mask: var(--map-glyph-info) center / 14px no-repeat;
+  mask: var(--map-glyph-info) center / 14px no-repeat;
+}
+
+.maplibregl-ctrl-attrib-button:hover::before {
+  background-color: var(--cg-text);
+}
+
+/* The one focus mechanism, restored to three controls that opt out of it.
+   Stock sets `outline: none` on both the zoom buttons and this one, and these
+   sheets are unlayered while style.css's `:focus-visible` sits in `@layer base` —
+   so the app's outline lost outright and stock's own `0 0 2px 2px #0096ff` was
+   the indicator, in the wrong blue and on plain `:focus`, i.e. on a mouse click
+   as well. Matching `outline` and `outline-offset` to style.css, not a second
+   treatment. */
+.maplibregl-ctrl-group button:focus,
+.maplibregl-ctrl-attrib-button:focus {
+  box-shadow: none;
+}
+
+.maplibregl-ctrl-group button:focus-visible,
+.maplibregl-ctrl-attrib-button:focus-visible {
+  outline: 2px solid var(--cg-accent);
+  outline-offset: 1px;
 }
 
 .maplibregl-ctrl-attrib {

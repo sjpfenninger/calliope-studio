@@ -415,10 +415,11 @@ describe("useRunSelection", () => {
       expect(store.staticQuery?.sum_by).toBe("nodes");
     });
 
-    it("only offers what the variable has", async () => {
+    it("locks what the variable cannot do, rather than hiding it", async () => {
       const store = useRunSelection("h1");
       await store.load();
-      expect(store.staticSumOptions).toEqual(["none", "nodes", "techs"]);
+      expect(store.sumLock("flow_cap", "nodes")).toBe("");
+      expect(store.sumLock("flow_cap", "techs")).toBe("");
 
       catalogFor.mockResolvedValue(
         catalog({
@@ -433,7 +434,42 @@ describe("useRunSelection", () => {
         }),
       );
       await store.load(true);
-      expect(store.staticSumOptions).toEqual(["none", "techs"]);
+      // Named, not merely refused: a greyed control that does not say why reads
+      // as broken.
+      expect(store.sumLock("flow_cap", "nodes")).toContain("nodes");
+      expect(store.sumLock("flow_cap", "techs")).toBe("");
+    });
+
+    it("locks nothing when the catalogue reports no dimensions", async () => {
+      // The regression this whole mechanism was rewritten for. An API process
+      // older than the catalogue's `dims` field sends none, and treating that as
+      // "the variable has no dimensions" removed both sum options from every
+      // variable — including ones that sum perfectly well.
+      const store = useRunSelection("h1");
+      catalogFor.mockResolvedValue(
+        catalog({
+          variables: {
+            all: ["flow_cap"],
+            timeseries: ["storage"],
+            static: ["flow_cap"],
+            static_nodes: ["flow_cap"],
+            static_links: [],
+            dims: undefined as unknown as Record<string, string[]>,
+          },
+        }),
+      );
+      await store.load();
+
+      expect(store.sumLock("flow_cap", "nodes")).toBe("");
+      expect(store.sumLock("flow_cap", "techs")).toBe("");
+      store.staticSumBy = "techs";
+      expect(store.staticQuery?.sum_by).toBe("techs");
+    });
+
+    it("never locks the do-nothing option", async () => {
+      const store = useRunSelection("h1");
+      await store.load();
+      expect(store.sumLock("total_levelised_cost", "none")).toBe("");
     });
 
     it("ignores a sum the variable cannot do", async () => {
@@ -458,6 +494,43 @@ describe("useRunSelection", () => {
       );
       await store.load(true);
       expect(store.staticQuery?.sum_by).toBeUndefined();
+    });
+
+    it("guards the time series the same way", async () => {
+      // This toggle was ungated and had no way off, so on a variable with no
+      // `techs` — `unmet_demand` and `unused_supply` are real examples — "Sum
+      // techs" was a button that set a state the query could not honour.
+      const store = useRunSelection("h1");
+      catalogFor.mockResolvedValue(
+        catalog({
+          variables: {
+            all: ["unmet_demand"],
+            timeseries: ["unmet_demand"],
+            static: ["flow_cap"],
+            static_nodes: ["flow_cap"],
+            static_links: [],
+            dims: {
+              unmet_demand: ["nodes", "carriers", "timesteps"],
+              flow_cap: ["nodes", "techs", "carriers"],
+            },
+          },
+        }),
+      );
+      await store.load();
+
+      expect(store.sumLock("unmet_demand", "techs")).toContain("techs");
+      expect(store.timeseriesQuery?.sum_by).toBe("nodes");
+
+      store.sumBy = "techs";
+      expect(store.timeseriesQuery?.sum_by).toBeUndefined();
+    });
+
+    it("still sums nodes on the time series by default", async () => {
+      // Widening `sumBy` to carry "none" must not change what the chart asks for
+      // on load.
+      const store = useRunSelection("h1");
+      await store.load();
+      expect(store.timeseriesQuery?.sum_by).toBe("nodes");
     });
   });
 

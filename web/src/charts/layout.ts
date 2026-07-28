@@ -23,6 +23,21 @@ export const ZOOM_BOTTOM = LEGEND_H + 4;
 export const GRID_BOTTOM = ZOOM_BOTTOM + ZOOM_H + ZOOM_GAP;
 
 /**
+ * The same geometry with the legend taken out.
+ *
+ * A chart whose bars are coloured by their category has no legend — colour maps
+ * to the axis, not to a series — and it should get that strip back as plot area
+ * rather than leave a gap where the legend used to be. Derived here for the same
+ * reason `GRID_BOTTOM` is: a second number that merely happens to agree is one
+ * that stops agreeing.
+ */
+export const zoomBottom = (withLegend: boolean): number =>
+  withLegend ? ZOOM_BOTTOM : 4;
+
+export const gridBottom = (withLegend: boolean): number =>
+  zoomBottom(withLegend) + ZOOM_H + ZOOM_GAP;
+
+/**
  * Room above the plot area.
  *
  * 8px, not 32: the y-axis name used to be rendered *inside* the canvas above the

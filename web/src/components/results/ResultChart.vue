@@ -3,15 +3,16 @@ import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vu
 import * as echarts from "echarts";
 import type { ResultFrame } from "../../api/results";
 import {
-  GRID_BOTTOM,
   GRID_LEFT,
   GRID_RIGHT,
   GRID_TOP,
   LEGEND_H,
-  ZOOM_BOTTOM,
   ZOOM_H,
+  gridBottom,
+  zoomBottom,
 } from "../../charts/layout";
 import { ensureTheme } from "../../charts/theme";
+import { resolvedColor } from "../../lib/cssColor";
 import StateMessage from "../app/StateMessage.vue";
 import { seriesLabel } from "../../lib/seriesLabel";
 import { useUiStore } from "../../stores/ui";
@@ -27,8 +28,23 @@ const props = withDefaults(
     height?: string;
     /** Display text per technology, for those whose name is not what to show. */
     labels?: Record<string, string>;
+    /**
+     * Colours for the index values, when the index is what carries identity.
+     *
+     * Summing a dimension away moves the one that is left onto the axis: ask the
+     * totals chart to sum the nodes and every *bar* is a technology, while the
+     * series are whatever remains. Colour was only ever read off the series, so
+     * the bars came out in one flat palette colour — a chart of eight
+     * technologies with nothing to tell them apart, and the same technology a
+     * different colour from the map and every other chart beside it.
+     *
+     * Supplied by the caller rather than inferred, because which dimension owns
+     * colour is a question about the model, and this component deliberately knows
+     * nothing about Calliope.
+     */
+    indexColors?: Record<string, string> | null;
   }>(),
-  { labels: () => ({}) },
+  { labels: () => ({}), indexColors: null },
 );
 
 function nameOf(frame: ResultFrame, series: ResultFrame["series"][number]) {
@@ -47,6 +63,11 @@ let observer: ResizeObserver | null = null;
  */
 const LARGE_SERIES_THRESHOLD = 2000;
 
+/** The hairline between stacked segments that share one colour. */
+function separator(): string {
+  return resolvedColor("--cg-surface", "#ffffff");
+}
+
 /** Whether the index is real time, and so deserves a time axis. */
 function isTimeIndex(frame: ResultFrame): boolean {
   return frame.indexName === "timesteps";
@@ -58,6 +79,10 @@ function axisValues(frame: ResultFrame): (string | number)[] {
   return frame.index.map((value) => {
     if (value instanceof Date) return value.getTime();
     if (typeof value === "bigint") return Number(value);
+    // The index carries identity, so it gets the same display names the legend
+    // gives it — a link reads `A → B` on the axis exactly as it does everywhere
+    // else, rather than reverting to its generated `a_to_b` technology name.
+    if (props.indexColors) return props.labels[String(value)] ?? (value as string);
     return value as string | number;
   });
 }
@@ -67,12 +92,22 @@ function buildOption(frame: ResultFrame): echarts.EChartsOption {
   const onTime = isTimeIndex(frame);
   const stacked = props.kind !== "line";
   const totalPoints = frame.index.length * Math.max(frame.series.length, 1);
+  const byIndex = props.indexColors;
+  // Colour means the axis now, so a one-entry legend could only mislead: its
+  // swatch would be a single colour standing beside bars of several. The series
+  // name still reaches the reader through the tooltip.
+  const withLegend = !byIndex;
 
   const toPoint = (value: number, position: number) => {
     const y = Number.isNaN(value) ? null : value;
     // A time axis needs explicit x values; a category axis takes the series in
     // index order.
-    return onTime ? [axis[position], y] : y;
+    if (onTime) return [axis[position], y];
+    if (!byIndex) return y;
+    // Looked up on the raw index value, not on `axis`, which may have been
+    // substituted for a display name.
+    const color = byIndex[String(frame.index[position])];
+    return color ? { value: y, itemStyle: { color } } : y;
   };
 
   return {
@@ -83,7 +118,7 @@ function buildOption(frame: ResultFrame): echarts.EChartsOption {
       left: GRID_LEFT,
       right: GRID_RIGHT,
       top: GRID_TOP,
-      bottom: GRID_BOTTOM,
+      bottom: gridBottom(withLegend),
       containLabel: true,
     },
     tooltip: {
@@ -94,7 +129,9 @@ function buildOption(frame: ResultFrame): echarts.EChartsOption {
       order: "valueDesc",
       confine: true,
     },
-    legend: { type: "scroll", bottom: 0, height: LEGEND_H },
+    legend: withLegend
+      ? { type: "scroll", bottom: 0, height: LEGEND_H }
+      : { show: false },
     xAxis: onTime
       ? { type: "time", axisLabel: { hideOverlap: true } }
       : {
@@ -109,7 +146,7 @@ function buildOption(frame: ResultFrame): echarts.EChartsOption {
     yAxis: { type: "value" },
     dataZoom: [
       { type: "inside", throttle: 50 },
-      { type: "slider", height: ZOOM_H, bottom: ZOOM_BOTTOM },
+      { type: "slider", height: ZOOM_H, bottom: zoomBottom(withLegend) },
     ],
     series: frame.series.map((series) => ({
       // `tooltip.trigger: "axis"` renders this too, so the short name reaches the
@@ -119,7 +156,15 @@ function buildOption(frame: ResultFrame): echarts.EChartsOption {
       stack: stacked ? "total" : undefined,
       areaStyle: props.kind === "area" ? {} : undefined,
       symbol: "none",
-      itemStyle: series.color ? { color: series.color } : undefined,
+      itemStyle: {
+        ...(series.color ? { color: series.color } : {}),
+        // Every segment of a bar takes its *category's* colour when colour maps
+        // to the axis, so without a hairline between them a stack of three
+        // carriers would read as one solid bar.
+        ...(props.indexColors && frame.series.length > 1
+          ? { borderColor: separator(), borderWidth: 1 }
+          : {}),
+      },
       large: series.values.length > LARGE_SERIES_THRESHOLD,
       largeThreshold: LARGE_SERIES_THRESHOLD,
       progressive: 4000,
@@ -152,6 +197,10 @@ function render() {
     isTimeIndex(props.frame),
     props.kind,
     props.frame.variable,
+    // Whether colour maps to the axis, because that decides the legend and with
+    // it the grid: a merge never puts a hidden legend back, so a chart that had
+    // one and then did not would keep the gap where it used to be.
+    Boolean(props.indexColors),
     // Keyed on the rendered names rather than the raw ones: just as
     // discriminating, and it forces a replace when the labels change under an
     // unchanged set of keys, where merging would draw the new names beside the old.

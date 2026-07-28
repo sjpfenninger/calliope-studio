@@ -83,6 +83,16 @@ export type PlotType = "Bar" | "Line" | "Area" | "Duration";
  */
 export type SumBy = "none" | "nodes" | "techs";
 
+/**
+ * Every sum-by option, always offered in this order.
+ *
+ * *Always*: an option a variable cannot honour is locked and says why, never
+ * removed. A toggle group whose button count changes with the variable reads as a
+ * broken control rather than an inapplicable option — which is exactly how it was
+ * read the first time it shrank to a lone "No sum".
+ */
+export const SUM_OPTIONS: SumBy[] = ["none", "nodes", "techs"];
+
 /** How the map encodes a variable. Each channel picks its own. */
 export type MapChannel = "size" | "color" | "pie";
 
@@ -108,7 +118,15 @@ function defineRunSelection(handle: string) {
     const variableStatic = ref<string | null>(null);
     const resolution = ref<string>("Daily");
     const plotType = ref<PlotType>("Bar");
-    const sumBy = ref<"nodes" | "techs">("nodes");
+    /**
+     * How the time series aggregates.
+     *
+     * Widened from `"nodes" | "techs"` to include `"none"`, because a variable
+     * with neither dimension — `timestep_resolution` is one — would otherwise
+     * leave both options locked and the control stuck on a setting it cannot
+     * honour. Still defaults to `"nodes"`, so nothing changes on load.
+     */
+    const sumBy = ref<SumBy>("nodes");
     const timeRange = ref<[string, string] | null>(null);
 
     /**
@@ -230,15 +248,27 @@ function defineRunSelection(handle: string) {
       return current && options.includes(current) ? current : null;
     }
 
-    /** A variable's dimensions, empty when the catalogue does not know it. */
-    function dimsOf(variable: string | null): string[] {
-      if (!variable) return [];
-      return catalog.value?.variables.dims?.[variable] ?? [];
-    }
-
-    /** Whether a chart can be asked to sum a dimension the variable has. */
-    function canSum(variable: string | null, dimension: string): boolean {
-      return dimsOf(variable).includes(dimension);
+    /**
+     * Why `option` cannot be applied to `variable`, or "" when it can.
+     *
+     * The server drops a `sum_by` naming a dimension the array does not have, and
+     * drops it *silently*, so an option that cannot work would sit there looking
+     * set while changing nothing. That is what this exists to prevent.
+     *
+     * Note what an unknown variable returns. Not knowing a variable's dimensions
+     * is not the same as knowing it has none, and conflating the two removed both
+     * sum options from every variable — including ones that could plainly be
+     * summed — whenever the catalogue arrived without a `dims` map at all, which
+     * is what an API process older than that field serves. Missing information
+     * must not take a working control away, so this fails open.
+     */
+    function sumLock(variable: string | null, option: SumBy): string {
+      if (option === "none" || !variable) return "";
+      const dims = catalog.value?.variables.dims?.[variable];
+      if (!dims) return "";
+      return dims.includes(option)
+        ? ""
+        : `${variable} has no ${option} dimension to sum.`;
     }
 
     /**
@@ -349,36 +379,56 @@ function defineRunSelection(handle: string) {
       return { ...resolvedSelectors.value, nodes: mapNodes.value };
     });
 
+    /**
+     * The sum a query may actually carry.
+     *
+     * A locked choice becomes no sum rather than travelling and being ignored: the
+     * toggle refuses a locked click, but a *variable* can change under a standing
+     * choice, and then the chart would be labelled "Sum techs" while showing
+     * something else entirely.
+     */
+    function effectiveSum(variable: string | null, choice: SumBy): SumBy {
+      return sumLock(variable, choice) ? "none" : choice;
+    }
+
+    /**
+     * What each toggle should show as selected.
+     *
+     * The refs hold what the *user* asked for and the queries use what the
+     * variable can honour, and the control has to show the second or it says
+     * "Sum nodes" over a chart that is not summing anything. Binding the display
+     * rather than rewriting the ref is what lets the preference come back when a
+     * variable that can honour it is chosen again.
+     */
+    const effectiveSumBy = computed(() =>
+      effectiveSum(variableTimeseries.value, sumBy.value),
+    );
+    const effectiveStaticSum = computed(() =>
+      effectiveSum(variableStatic.value, staticSumBy.value),
+    );
+
     const timeseriesQuery = computed<ResultQuery | null>(() => {
       if (!variableTimeseries.value) return null;
+      const sum = effectiveSum(variableTimeseries.value, sumBy.value);
       return {
         variable: variableTimeseries.value,
         selectors: effectiveSelectors.value,
         resample: RESOLUTIONS[resolution.value] ?? null,
-        sum_by: sumBy.value,
         time_range: timeRange.value,
         order: plotType.value === "Duration" ? "duration" : "time",
+        // Omitted rather than sent as null when there is nothing to sum, the same
+        // shape the static chart uses: a body that stays byte-identical is one
+        // `useResultFrame`'s deep watch does not refetch for nothing.
+        ...(sum === "none" ? {} : { sum_by: sum }),
       };
     });
 
-    /** Which sum-by options the static chart's variable can actually offer. */
-    const staticSumOptions = computed<SumBy[]>(() =>
-      (["none", "nodes", "techs"] as SumBy[]).filter(
-        (option) => option === "none" || canSum(variableStatic.value, option),
-      ),
-    );
-
     const staticQuery = computed<ResultQuery | null>(() => {
       if (!variableStatic.value) return null;
-      const sum = staticSumOptions.value.includes(staticSumBy.value)
-        ? staticSumBy.value
-        : "none";
+      const sum = effectiveSum(variableStatic.value, staticSumBy.value);
       return {
         variable: variableStatic.value,
         selectors: effectiveSelectors.value,
-        // Omitted rather than sent as null when there is nothing to sum, so the
-        // body is byte-identical to the one this chart has always sent and
-        // `useResultFrame`'s deep watch does not refetch on mount.
         ...(sum === "none" ? {} : { sum_by: sum }),
       };
     });
@@ -454,7 +504,9 @@ function defineRunSelection(handle: string) {
       plotType,
       sumBy,
       staticSumBy,
-      staticSumOptions,
+      sumLock,
+      effectiveSumBy,
+      effectiveStaticSum,
       mapVariables,
       timeRange,
       mapNodes,

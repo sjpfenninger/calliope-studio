@@ -22,6 +22,7 @@ import { computed, onBeforeUnmount, onMounted, provide, ref, watch } from "vue";
 
 import MapLegend from "@/components/map/MapLegend.vue";
 import ModelMap from "@/components/map/ModelMap.vue";
+import InfoTip from "@/components/app/InfoTip.vue";
 import PanelDisclosure from "@/components/app/PanelDisclosure.vue";
 import PanelHeader from "@/components/app/PanelHeader.vue";
 import ResultChart from "@/components/results/ResultChart.vue";
@@ -40,12 +41,14 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import type { ResultFrame } from "@/api/results";
 import { useResultFrame } from "@/composables/useResultFrame";
 import { resolvedColor } from "@/lib/cssColor";
 import { nodeSlices, nodeTotals, valueExtent } from "@/lib/mapValues";
 import {
   RESOLUTIONS,
   RUN_SELECTION,
+  SUM_OPTIONS,
   useRunSelection,
   type MapChannel,
   type PlotType,
@@ -91,6 +94,34 @@ const mapColors = computed(() => nodeTotals(mapColorFrame.frame.value));
 const mapPies = computed(() =>
   store.mapVariables.pie ? nodeSlices(mapPieFrame.frame.value) : null,
 );
+
+/**
+ * Technology colours for a chart whose *index* is the technologies.
+ *
+ * Summing a dimension away promotes the one left standing onto the axis: sum the
+ * nodes out of `flow_cap` and each bar is a technology, with the carriers as the
+ * series. Colour is stamped per series, so there was none to be had and every bar
+ * came out the same flat blue — the one thing a chart of eight technologies must
+ * not be, and inconsistent with the map and every other chart, where a technology
+ * has one colour throughout.
+ *
+ * The catalogue's `colors` is the same per-model assignment the server stamps
+ * into the Arrow field metadata (`results/colors.py`), so this is the one answer
+ * arriving by a second route, not a second answer.
+ */
+function indexColorsFor(
+  frame: ResultFrame | null,
+  sum: SumBy,
+): Record<string, string> | null {
+  if (frame?.indexName !== "techs") return null;
+  // The aggregation is what says the axis is the point. Summing the nodes away
+  // asks for totals *by technology*, so the technologies are the comparison and
+  // the carriers left over are detail. With nothing summed the series are still
+  // the comparison being made — one bar per technology split by node and carrier
+  // — and their legend is doing real work, so colour stays on them.
+  if (sum === "none") return null;
+  return store.catalog?.colors ?? null;
+}
 
 const PLOT_TYPES: PlotType[] = ["Bar", "Line", "Area", "Duration"];
 const resolutions = Object.keys(RESOLUTIONS);
@@ -471,6 +502,19 @@ onMounted(() => store.load());
 function keepOne<T extends string>(next: unknown, current: T): T {
   return (next as T) || current;
 }
+
+/**
+ * `keepOne` for the sum-by toggles, refusing a locked option.
+ *
+ * The locked items carry `aria-disabled` rather than `disabled`, because a
+ * natively disabled button receives no pointer events and so could never open the
+ * tooltip that explains why it is locked — the same trade `PanelDisclosure` makes.
+ * The click therefore still arrives, and this is what ignores it.
+ */
+function chooseSum(next: unknown, current: SumBy, variable: string | null): SumBy {
+  const value = keepOne(next as SumBy, current);
+  return store.sumLock(variable, value) ? current : value;
+}
 </script>
 
 <template>
@@ -615,9 +659,15 @@ function keepOne<T extends string>(next: unknown, current: T): T {
           </div>
         </ResizablePanel>
 
+        <!-- No hairline of its own: each figure is a bordered card, so the
+             handle's line made three parallel rules where one boundary is. The
+             grip is the affordance, and it is the only one that has to be there.
+             The editors' splitters keep theirs — nothing on either side of those
+             is a card, so there the line *is* the boundary. -->
         <ResizableHandle
           v-if="store.hasGeography"
           with-handle
+          class="bg-transparent"
           data-testid="results-split-handle"
         />
 
@@ -701,24 +751,50 @@ function keepOne<T extends string>(next: unknown, current: T): T {
                   </ToggleGroupItem>
                 </ToggleGroup>
 
+                <!-- Every option, always: one the variable cannot honour is
+                     locked and says why, never taken away. See SUM_OPTIONS. -->
                 <ToggleGroup
                   type="single"
                   variant="outline"
                   size="sm"
                   data-testid="sum-by"
-                  :model-value="store.sumBy"
+                  :model-value="store.effectiveSumBy"
                   @update:model-value="
-                    (value) => (store.sumBy = keepOne(value, store.sumBy))
+                    (value) =>
+                      (store.sumBy = chooseSum(
+                        value,
+                        store.sumBy,
+                        store.variableTimeseries,
+                      ))
                   "
                 >
-                  <ToggleGroupItem value="nodes">Sum nodes</ToggleGroupItem>
-                  <ToggleGroupItem value="techs">Sum techs</ToggleGroupItem>
+                  <InfoTip
+                    v-for="option in SUM_OPTIONS"
+                    :key="option"
+                    :label="store.sumLock(store.variableTimeseries, option)"
+                  >
+                    <ToggleGroupItem
+                      :value="option"
+                      :aria-disabled="
+                        Boolean(store.sumLock(store.variableTimeseries, option))
+                      "
+                      :class="
+                        store.sumLock(store.variableTimeseries, option) &&
+                        'cursor-default opacity-50'
+                      "
+                    >
+                      {{ SUM_LABELS[option] }}
+                    </ToggleGroupItem>
+                  </InfoTip>
                 </ToggleGroup>
               </PanelHeader>
 
               <ResultChart
                 v-show="!ui.resultsCollapsed.timeseries"
                 :frame="timeseriesFrame.frame.value"
+                :index-colors="
+                  indexColorsFor(timeseriesFrame.frame.value, store.effectiveSumBy)
+                "
                 :kind="store.timeseriesKind"
                 :loading="timeseriesFrame.loading.value"
                 :error="timeseriesFrame.error.value"
@@ -730,7 +806,11 @@ function keepOne<T extends string>(next: unknown, current: T): T {
           </div>
         </ResizablePanel>
 
-        <ResizableHandle with-handle data-testid="results-charts-handle" />
+        <ResizableHandle
+          with-handle
+          class="bg-transparent"
+          data-testid="results-charts-handle"
+        />
 
         <ResizablePanel
           ref="staticPanel"
@@ -773,34 +853,48 @@ function keepOne<T extends string>(next: unknown, current: T): T {
                   </SelectContent>
                 </Select>
 
-                <!-- Only the aggregations this variable's dimensions allow: the
-                     server drops a `sum_by` naming a dimension the array does not
-                     have, silently, so an option that cannot work would look set
-                     while doing nothing. -->
                 <ToggleGroup
                   type="single"
                   variant="outline"
                   size="sm"
                   data-testid="static-sum-by"
-                  :model-value="store.staticSumBy"
+                  :model-value="store.effectiveStaticSum"
                   @update:model-value="
                     (value) =>
-                      (store.staticSumBy = keepOne(value, store.staticSumBy))
+                      (store.staticSumBy = chooseSum(
+                        value,
+                        store.staticSumBy,
+                        store.variableStatic,
+                      ))
                   "
                 >
-                  <ToggleGroupItem
-                    v-for="option in store.staticSumOptions"
+                  <InfoTip
+                    v-for="option in SUM_OPTIONS"
                     :key="option"
-                    :value="option"
+                    :label="store.sumLock(store.variableStatic, option)"
                   >
-                    {{ SUM_LABELS[option] }}
-                  </ToggleGroupItem>
+                    <ToggleGroupItem
+                      :value="option"
+                      :aria-disabled="
+                        Boolean(store.sumLock(store.variableStatic, option))
+                      "
+                      :class="
+                        store.sumLock(store.variableStatic, option) &&
+                        'cursor-default opacity-50'
+                      "
+                    >
+                      {{ SUM_LABELS[option] }}
+                    </ToggleGroupItem>
+                  </InfoTip>
                 </ToggleGroup>
               </PanelHeader>
 
               <ResultChart
                 v-show="!ui.resultsCollapsed.static"
                 :frame="staticFrame.frame.value"
+                :index-colors="
+                  indexColorsFor(staticFrame.frame.value, store.effectiveStaticSum)
+                "
                 kind="bar"
                 :loading="staticFrame.loading.value"
                 :error="staticFrame.error.value"

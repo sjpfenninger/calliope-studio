@@ -5,6 +5,12 @@ on:
     branches: [main]
   pull_request:
 
+# Nothing in this workflow writes back to the repository, so the default
+# token scope is more than any job needs. Dependabot keeps the SHA pins below
+# current; pinning by tag would let a retagged action ship new code silently.
+permissions:
+  contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
@@ -14,11 +20,11 @@ jobs:
     name: Python
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           # setuptools-scm derives the version from tags.
           fetch-depth: 0
-      - uses: prefix-dev/setup-pixi@v0
+      - uses: prefix-dev/setup-pixi@a09b6247153796b190642a2b53fac4241043cf6f # v0.10.0
         with:
           cache: true
       - name: Lint
@@ -35,18 +41,22 @@ jobs:
     name: Frontend
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       # Node and pnpm both come from pixi, so their versions are pinned in
       # pixi.lock alongside everything else rather than drifting against it.
       # Every step below is a pixi task, which is why there is no
       # `working-directory` here: the tasks carry their own `cwd = "web"`.
-      - uses: prefix-dev/setup-pixi@v0
+      - uses: prefix-dev/setup-pixi@a09b6247153796b190642a2b53fac4241043cf6f # v0.10.0
         with:
           cache: true
       - name: Install
         run: pixi run web-install
+      - name: Lint
+        run: pixi run web-lint
       - name: Type check
         run: pixi run web-typecheck
+      - name: Audit
+        run: pixi run web-audit
       - name: Test
         run: pixi run -- pnpm --dir web test
       - name: Build
@@ -56,10 +66,10 @@ jobs:
     name: Browser
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
-      - uses: prefix-dev/setup-pixi@v0
+      - uses: prefix-dev/setup-pixi@a09b6247153796b190642a2b53fac4241043cf6f # v0.10.0
         with:
           cache: true
 
@@ -117,7 +127,7 @@ jobs:
 
       - name: Keep the screenshots when something fails
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: browser-screenshots
           path: /tmp/calliope-studio-*.png
@@ -127,10 +137,10 @@ jobs:
     name: Package
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
-      - uses: prefix-dev/setup-pixi@v0
+      - uses: prefix-dev/setup-pixi@a09b6247153796b190642a2b53fac4241043cf6f # v0.10.0
         with:
           cache: true
       - name: Build wheel and check the interface is bundled

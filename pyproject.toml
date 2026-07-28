@@ -141,6 +141,11 @@ web-update = { cmd = "pnpm update --latest", cwd = "web" }
 web-build = { cmd = "pnpm run build", cwd = "web", depends-on = ["web-install"] }
 web-dev = { cmd = "pnpm dev", cwd = "web", depends-on = ["web-install"] }
 web-typecheck = { cmd = "pnpm exec vue-tsc --noEmit", cwd = "web", depends-on = ["web-install"] }
+web-lint = { cmd = "pnpm run lint", cwd = "web", depends-on = ["web-install"] }
+# Blocking, so a newly disclosed advisory fails the build rather than sitting
+# unnoticed. `--audit-level=high` because moderate findings in build-only
+# dependencies would otherwise make this a gate nobody reads.
+web-audit = { cmd = "pnpm audit --audit-level=high", cwd = "web" }
 
 # A scratch model to develop against, so `serve` opens something real rather
 # than whatever directory it happened to start in. Gitignored; delete it to get

@@ -1,0 +1,44 @@
+version: 2
+
+# Nothing surfaced dependency advisories before this: there was no audit step,
+# no update automation, and nine open advisories in the frontend tree that the
+# pnpm migration was the first thing to notice.
+#
+# Grouped, because ungrouped updates across three ecosystems open a PR per
+# package and the review then never happens. Note that pixi.lock is *not*
+# covered by any of this — conda dependencies stay a manual job.
+updates:
+  # Dependabot reads pnpm-lock.yaml under the "npm" ecosystem.
+  - package-ecosystem: npm
+    directory: /web
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+    ignore:
+      # Pinned deliberately: 0.53 changed how a worker hands its foreign module
+      # to the main thread, monaco-yaml still speaks the older protocol, and
+      # under 0.55 the YAML language worker answered nothing at all. Lifting
+      # the pin is a decision `pixi run -- pnpm --dir web run monaco-check`
+      # makes, not one a bot should.
+      - dependency-name: monaco-editor
+        update-types:
+          - "version-update:semver-minor"
+          - "version-update:semver-major"
+
+  # This is what keeps the SHA-pinned actions in ci.yml current. Without it,
+  # pinning by SHA means pinning to whatever was true the day it was written.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: monthly

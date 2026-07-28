@@ -153,15 +153,23 @@
   /* ── Basemap. The vector basemap is drawn from these rather than fetched
         pre-styled, which is what lets it obey the achromatic-surfaces rule the
         rest of the palette is built on: geography has to stay quieter than the
-        nodes, links and series painted on top of it. Barely cool rather than
-        neutral, so land reads as land and not as another panel. MapLibre parses
-        none of this — lib/cssColor resolves it first. ── */
-  --cg-map-land: oklch(96.5% 0.002 250); /* #f4f5f6 */
-  --cg-map-land-alt: oklch(94.5% 0.008 160); /* #ecf1ed */
-  --cg-map-water: oklch(92% 0.017 235); /* #dfe8ee */
-  --cg-map-boundary: oklch(72% 0.006 250); /* #adafb2 */
-  --cg-map-road: oklch(89% 0.003 250); /* #e0e1e2 */
-  --cg-map-label: oklch(48% 0.006 250); /* #6c6e71 */
+        nodes, links and series painted on top of it.
+
+        Every one of them is chroma 0, so the whole basemap is greyscale and the
+        only colour anywhere on the map belongs to the energy system. Water is
+        the reason this is a rule rather than a preference: a light blue ocean is
+        the largest coloured area on screen for any coastal model, it competes
+        with the technology palette for attention, and it means nothing — the
+        model has no sea in it. Land and sea are told apart by lightness instead,
+        which is also the one channel that survives greyscale printing.
+
+        MapLibre parses none of this — lib/cssColor resolves it first. ── */
+  --cg-map-land: oklch(96.5% 0 0); /* #f3f3f3 */
+  --cg-map-land-alt: oklch(94% 0 0); /* #ebebeb */
+  --cg-map-water: oklch(89.5% 0 0); /* #dcdcdc */
+  --cg-map-boundary: oklch(72% 0 0); /* #a4a4a4 */
+  --cg-map-road: oklch(87% 0 0); /* #d4d4d4 */
+  --cg-map-label: oklch(48% 0 0); /* #5d5d5d */
   --cg-map-label-halo: oklch(99% 0 0); /* #fcfcfc */
 
   /* ── Type. Faces only; the size scale lives in @theme so Tailwind owns it. ── */
@@ -275,13 +283,13 @@
      reason the style is authored here instead of fetched. Land sits a step above
      --cg-bg so the map reads as a surface, and water a step below it, keeping
      the light theme's figure/ground rather than inverting it. */
-  --cg-map-land: oklch(22% 0.003 250); /* #1b1c1d */
-  --cg-map-land-alt: oklch(25% 0.011 160); /* #1f2520 */
-  --cg-map-water: oklch(27% 0.019 245); /* #1f272f */
-  --cg-map-boundary: oklch(45% 0.007 250); /* #63656a */
-  --cg-map-road: oklch(31% 0.004 250); /* #2e2f31 */
-  --cg-map-label: oklch(68% 0.006 250); /* #a1a3a7 */
-  --cg-map-label-halo: oklch(18% 0 0); /* #131313 */
+  --cg-map-land: oklch(22% 0 0); /* #1b1b1b */
+  --cg-map-land-alt: oklch(24.5% 0 0); /* #202020 */
+  --cg-map-water: oklch(28% 0 0); /* #292929 */
+  --cg-map-boundary: oklch(45% 0 0); /* #555555 */
+  --cg-map-road: oklch(32% 0 0); /* #333333 */
+  --cg-map-label: oklch(68% 0 0); /* #989898 */
+  --cg-map-label-halo: oklch(18% 0 0); /* #121212 */
 
   --cg-shadow-1: 0 4px 12px oklch(0% 0 0 / 0.45), 0 0 1px oklch(0% 0 0 / 0.6);
   --cg-shadow-2: 0 8px 24px oklch(0% 0 0 / 0.55), 0 0 1px oklch(0% 0 0 / 0.6);

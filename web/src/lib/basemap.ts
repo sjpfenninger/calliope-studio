@@ -78,20 +78,24 @@ const LABEL: unknown = ["coalesce", ["get", "name:latin"], ["get", "name"]];
 /**
  * How hard to drain the raster fallback, per theme.
  *
- * Kept from the raster-only version, because the fallback still needs it: plain
- * OpenStreetMap is by far the most saturated thing on screen, and dark can only
- * dim rather than invert.
+ * Fully, in both: the vector basemap is greyscale by construction, and a
+ * fallback that reintroduced a blue ocean would make the map's meaning depend on
+ * whether the tiles happened to load. `-1` is complete desaturation, not merely a
+ * lot of it — the previous −0.85 left the sea visibly blue.
+ *
+ * The rest is what raster still needs and vector does not: dark can only dim,
+ * because MapLibre has no raster-invert.
  */
 export const RASTER_PAINT = {
   light: {
-    "raster-saturation": -0.85,
+    "raster-saturation": -1,
     "raster-contrast": -0.15,
     "raster-brightness-min": 0.12,
     "raster-brightness-max": 0.97,
     "raster-opacity": 0.9,
   },
   dark: {
-    "raster-saturation": -0.95,
+    "raster-saturation": -1,
     "raster-contrast": -0.1,
     "raster-brightness-min": 0,
     "raster-brightness-max": 0.34,

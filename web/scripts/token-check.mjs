@@ -238,6 +238,52 @@ if ((await page.locator(".maplibregl-map").count()) > 0) {
   console.log("  skip  the map is not on this page");
 }
 
+// ── The basemap is greyscale ────────────────────────────────────────────────
+//
+// A rule, not a preference: the only colour on the map belongs to the energy
+// system, so a technology's colour is never competing with an ocean for
+// attention. Resolved through the browser rather than read out of the file,
+// because that is how MapLibre gets them — `lib/cssColor` paints the token and
+// converts, and a chroma that survives that round trip is one the map draws.
+const mapTokenGreys = await page.evaluate(() => {
+  const probe = document.createElement("span");
+  probe.style.display = "none";
+  document.body.appendChild(probe);
+  const names = [
+    "land",
+    "land-alt",
+    "water",
+    "boundary",
+    "road",
+    "label",
+    "label-halo",
+  ];
+  const out = {};
+  for (const name of names) {
+    const token = `--cg-map-${name}`;
+    probe.style.color = "";
+    probe.style.color = getComputedStyle(document.documentElement)
+      .getPropertyValue(token)
+      .trim();
+    const computed = getComputedStyle(probe).color;
+    const [r, g, b] = computed.match(/\d+(\.\d+)?/g).map(Number);
+    out[name] = { computed, spread: Math.max(r, g, b) - Math.min(r, g, b) };
+  }
+  probe.remove();
+  return out;
+});
+
+const tinted = Object.entries(mapTokenGreys).filter(
+  // One byte of slack: an oklch→sRGB conversion can land a hair off neutral
+  // without anything being visibly coloured.
+  ([, { spread }]) => spread > 1,
+);
+check(
+  "every basemap token is grey",
+  tinted.length === 0,
+  tinted.length ? JSON.stringify(Object.fromEntries(tinted)) : "",
+);
+
 // ── The pre-paint guard ─────────────────────────────────────────────────────
 
 const guardSystemDark = await withoutTheBundle({ colorScheme: "dark" });

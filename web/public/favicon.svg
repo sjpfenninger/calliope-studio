@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!--
+    Calliope's own favicon, recoloured into Calliope Studio's accent blue and with
+    the flame clipped to the white disc — in the original the lower tongues spill
+    past the circle onto the tile.
+
+    Source of truth is the real vector artwork, kept outside this repository, in
+    Academic/Projects/Calliope/Design/logo/: favicon.svg is Calliope's original,
+    favicon-clipped-{red,blue}.svg add the clip, and blue-variants/ holds the
+    recolourings this was chosen from. Do not hand-edit the paths here.
+
+    Two-tone, tile lighter than flame, which is the relationship in the original
+    (#b84854 tile against a #98262e flame). The flame is #026fff, mirroring the
+    cg-accent design token. Writing colours literally here is a deliberate, narrow
+    exception to the rule that web/src/assets/tokens.css is the only place a colour
+    may be written: a favicon renders outside the page's CSS context, so a var()
+    reference to a design token resolves to nothing. One blue serves both themes —
+    it was checked against a white and a #171717 tab strip.
+
+    An SVG is the only icon shipped. Every browser that can run this app supports
+    SVG favicons (Chrome/Edge 80+, Firefox 41+, Safari 16+), and a vector renders
+    sharp at whatever size the tab strip, bookmark bar or task switcher asks for,
+    which no fixed set of PNGs manages.
+-->
+<svg width="262" height="262" viewBox="0 0 262 262" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xml:space="preserve" xmlns:serif="http://www.serif.com/" style="fill-rule:evenodd;clip-rule:evenodd;stroke-linejoin:round;stroke-miterlimit:2;">
+    <g id="Page-1" serif:id="Page 1" transform="matrix(4.166667,0,0,4.166667,0,0)">
+        <rect x="0" y="0" width="62.857" height="62.844" style="fill:none;"/>
+        <clipPath id="_clip1">
+            <rect x="0" y="0" width="62.857" height="62.844"/>
+        </clipPath>
+        <g clip-path="url(#_clip1)">
+            <g transform="matrix(1,0,0,1,63.0822,7.7073)">
+                <g id="Layer-6" serif:id="Layer 6">
+                    <path d="M0,47.43C0,51.686 -3.309,55.137 -7.391,55.137L-55.692,55.137C-59.773,55.137 -63.082,51.686 -63.082,47.43L-63.082,0C-63.082,-4.257 -59.773,-7.707 -55.692,-7.707L-7.391,-7.707C-3.309,-7.707 0,-4.257 0,0L0,47.43Z" style="fill:#7aaeff;fill-rule:nonzero;"/>
+                </g>
+            </g>
+            <g id="favicon-vector">
+                <g transform="matrix(0,-1,-1,0,31.435,4.393)">
+                    <path d="M-27.029,-27.03C-41.957,-27.03 -54.059,-14.928 -54.059,0C-54.059,14.928 -41.957,27.029 -27.029,27.029C-12.101,27.029 0,14.928 0,0C0,-14.928 -12.101,-27.03 -27.029,-27.03" style="fill:white;fill-rule:nonzero;"/>
+                </g>
+                <clipPath id="disc-clip">
+                    <circle cx="31.435" cy="31.422" r="27.0295"/>
+                </clipPath>
+                <g clip-path="url(#disc-clip)">
+                    <g transform="matrix(1,0,0,1,42.4313,52.3751)">
+                    <path d="M0,-36.647C-0.227,-36.763 -0.101,-36.601 -0.064,-36.517C2.521,-30.717 -2.21,-19.855 -8.083,-18.214C2.156,-32.6 -18.789,-43.721 -17.705,-41.585C-11.437,-29.248 -24.904,-26.095 -24.478,-17.708C-25.487,-19.553 -25.379,-20.814 -24.783,-23.136C-23.665,-27.489 -22.506,-29.421 -25.995,-33.365C-26.063,-33.449 -26.083,-33.371 -26.083,-33.33C-26.192,-28.545 -30.89,-25.429 -32.533,-20.394C-34.801,-13.442 -29.633,-9.973 -30.271,-4.284C-30.591,-1.408 -31.128,1.311 -30.136,3.874C-29.425,5.711 -28.522,7.074 -28.531,5.906C-28.539,4.831 -28.378,3.685 -28.094,2.524C-26.699,-3.216 -25.236,-4.716 -27.528,-10.919C-27.801,-11.658 -28.092,-12.44 -28.362,-13.38C-28.935,-15.376 -29.027,-17.571 -28.444,-18.918C-27.591,-15.56 -25.099,-11.025 -21.805,-11.322C-17.739,-11.689 -15.528,-17.683 -16.008,-21.057C-13.604,-18.852 -13.171,-16.55 -13.405,-15.163C-13.928,-12.071 -18.668,-8.907 -12.855,-1.826C-12.081,-8.701 -9.688,-8.824 -4.424,-12.141C0.865,-15.475 3.621,-19.415 4.069,-21.895C7.485,-16.223 4.4,-14.61 3.849,-11.35C3.106,-6.961 9.323,-4.94 9.789,-0.841L11.808,-1.714C11.783,-1.928 11.758,-2.069 11.714,-2.294C10.821,-6.868 8.581,-6.26 10.352,-11.728C10.894,-13.4 11.604,-15.146 11.911,-16.717C13.449,-24.604 9.655,-31.002 0,-36.647" style="fill:#026fff;"/>
+                </g>
+                </g>
+            </g>
+        </g>
+    </g>
+</svg>

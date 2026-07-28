@@ -44,7 +44,6 @@ const segments = computed(() =>
       value: layout.id,
       label: layout.label,
       icon: layout.icon,
-      tip: layout.tip,
       testid: `results-layout-${layout.id}`,
     }),
   ),

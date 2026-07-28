@@ -54,10 +54,8 @@ export interface ResultsGeometry {
 
 export interface ResultsLayout {
   id: ResultsLayoutId;
-  /** Shown in the strip. */
+  /** Shown in the strip, and the whole explanation: these name themselves. */
   label: string;
-  /** Shown on hover — what this arrangement is *for*. */
-  tip: string;
   icon: LucideIcon;
   /**
    * Which way the `main` group runs.
@@ -106,7 +104,6 @@ export const RESULTS_LAYOUTS: ResultsLayout[] = [
   {
     id: "stacked",
     label: "Stacked",
-    tip: "All three, top to bottom",
     icon: Rows3,
     direction: "vertical",
     needsMap: false,
@@ -115,7 +112,6 @@ export const RESULTS_LAYOUTS: ResultsLayout[] = [
   {
     id: "beside",
     label: "Beside",
-    tip: "The map beside the charts — for a wide window",
     icon: Columns2,
     direction: "horizontal",
     needsMap: true,
@@ -124,7 +120,6 @@ export const RESULTS_LAYOUTS: ResultsLayout[] = [
   {
     id: "map",
     label: "Map",
-    tip: "The map, with the time series underneath",
     icon: MapIcon,
     direction: "vertical",
     needsMap: true,
@@ -136,7 +131,6 @@ export const RESULTS_LAYOUTS: ResultsLayout[] = [
   {
     id: "timeseries",
     label: "Time series",
-    tip: "The time series in full",
     icon: ChartLine,
     direction: "vertical",
     needsMap: false,
@@ -148,7 +142,6 @@ export const RESULTS_LAYOUTS: ResultsLayout[] = [
   {
     id: "totals",
     label: "Totals",
-    tip: "The totals in full",
     icon: ChartColumn,
     direction: "vertical",
     needsMap: false,

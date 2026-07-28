@@ -3,8 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- SVG only: every browser that can run this app supports SVG favicons, and
+         one vector beats any fixed set of PNGs at whatever size a tab strip,
+         bookmark bar or task switcher asks for. -->
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
     <title>Calliope Studio</title>
     <script>
       // Pre-paint theme guard. stores/ui.ts owns this state; this only stops a

@@ -62,10 +62,9 @@ describe("results layouts", () => {
     }
   });
 
-  it("gives every layout a label, a tip and an icon", () => {
+  it("gives every layout a label and an icon", () => {
     for (const layout of RESULTS_LAYOUTS) {
       expect(layout.label.length).toBeGreaterThan(0);
-      expect(layout.tip.length).toBeGreaterThan(0);
       expect(layout.icon).toBeTruthy();
     }
   });

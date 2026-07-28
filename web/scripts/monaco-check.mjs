@@ -2,7 +2,7 @@
  * The YAML editor, and the language worker behind it.
  *
  *   pixi run calliope-studio --no-browser --port 8791 example-model
- *   npm run monaco-check -- http://127.0.0.1:8791
+ *   pnpm run monaco-check http://127.0.0.1:8791
  *
  * For most of this project's life that worker answered *nothing*. Every request
  * failed with `Missing requestHandler or method: doValidation / findLinks /

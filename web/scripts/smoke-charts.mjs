@@ -1,7 +1,7 @@
 /**
  * Aggregating the totals chart, the colours that follow, and locked options.
  *
- *   npm run smoke:charts -- http://127.0.0.1:8792
+ *   pnpm run smoke:charts http://127.0.0.1:8792
  *
  * The colour assertion reads the pixels off the canvas, which is the only place
  * the answer exists: colour is stamped per series in Arrow field metadata, and

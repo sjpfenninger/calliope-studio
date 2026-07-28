@@ -1,7 +1,7 @@
 /**
  * How the three figures divide the height: dragging, folding, and the layouts.
  *
- *   npm run smoke:layout -- http://127.0.0.1:8792
+ *   pnpm run smoke:layout http://127.0.0.1:8792
  *
  * The layouts exist because there used to be one stored geometry, and the
  * splitter rewrites it on every drag *and* on every collapse-driven

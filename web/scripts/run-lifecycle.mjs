@@ -2,7 +2,7 @@
  * The run loop, end to end, against a running server on a real model.
  *
  *   pixi run calliope-studio --no-browser --port 8791 example-model
- *   npm run run-lifecycle -- http://127.0.0.1:8791
+ *   pnpm run run-lifecycle http://127.0.0.1:8791
  *
  * Click Run → the tab opens immediately on the log → lines stream → the run
  * finishes → the same tab shows the charts, with no reload and no navigation.

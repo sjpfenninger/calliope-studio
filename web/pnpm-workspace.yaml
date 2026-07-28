@@ -1,0 +1,52 @@
+# pnpm's supply-chain settings. Every value here is set explicitly rather than
+# left to pnpm 11's defaults, so that the policy is readable in one place and
+# does not change under a different pnpm. Note that in pnpm 10+ only auth and
+# registry settings are read from .npmrc; everything else must live here.
+
+# A version must have been published for 24 hours before pnpm will resolve it,
+# for transitive dependencies as well as direct ones. This is the single most
+# effective defence available against a compromised release: the npm attacks
+# that have actually happened were caught and pulled inside this window —
+# chalk/debug in about 2.5 hours, Shai-Hulud in about 12.
+minimumReleaseAge: 1440
+minimumReleaseAgeExclude: []
+
+# Transitive dependencies may not be pulled from git URLs or bare tarballs.
+# A direct dependency on one is a visible choice in package.json; a transitive
+# one is a way into the tree that no review would catch.
+blockExoticSubdeps: true
+
+# Install scripts do not run unless the package is named here. Every entry is a
+# decision to execute someone else's code at install time, so they are added one
+# at a time from what `pnpm install` reports as blocked. Never
+# `dangerouslyAllowAllBuilds`.
+#
+# Two, and both are load-bearing rather than incidental:
+# - `esbuild` selects and links its platform binary on install; Vite's dev
+#   server and build both go through it, so without this nothing runs.
+# - `vue-demi` is pinia's Vue 2/3 compatibility shim, and its postinstall is
+#   what rewrites its re-exports to point at the Vue actually installed.
+#
+# Add entries only from what a clean `pnpm install` reports as blocked — a
+# partial node_modules under-reports, which is how esbuild was missed here at
+# first.
+allowBuilds:
+  esbuild: true
+  vue-demi: true
+
+# Fail rather than silently skip when an allowed build does not succeed.
+strictDepBuilds: true
+
+# `pnpm run` checks node_modules against the lockfile first, so a stale install
+# is an error rather than a confusing failure further along.
+verifyDepsBeforeRun: install
+
+# Forced resolutions for advisories in packages we do not depend on directly.
+# Keep this list short and delete entries once the dependency ships the fix
+# itself — an override is a version pin nobody upstream is maintaining.
+overrides:
+  # GHSA-mh99-v99m-4gvg, a DoS in the glob brace parser. Reached three ways
+  # through minimatch: @vue/test-utils, js-beautify and vue-tsc's language
+  # core, all of which still ask for ^2. Build-time only, but it is the last
+  # high-severity finding in the tree, and vue-tsc and vitest both pass on 5.
+  brace-expansion: ">=5.0.8"

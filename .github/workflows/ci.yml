@@ -34,23 +34,23 @@ jobs:
   web:
     name: Frontend
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: web
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      # Node and pnpm both come from pixi, so their versions are pinned in
+      # pixi.lock alongside everything else rather than drifting against it.
+      # Every step below is a pixi task, which is why there is no
+      # `working-directory` here: the tasks carry their own `cwd = "web"`.
+      - uses: prefix-dev/setup-pixi@v0
         with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: web/package-lock.json
-      - run: npm ci
+          cache: true
+      - name: Install
+        run: pixi run web-install
       - name: Type check
-        run: npx vue-tsc --noEmit
+        run: pixi run web-typecheck
       - name: Test
-        run: npm test
+        run: pixi run -- pnpm --dir web test
       - name: Build
-        run: npm run build
+        run: pixi run web-build
 
   browser:
     name: Browser
@@ -62,11 +62,6 @@ jobs:
       - uses: prefix-dev/setup-pixi@v0
         with:
           cache: true
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: web/package-lock.json
 
       - name: Install the frontend and build it into the package
         run: pixi run web-build
@@ -75,11 +70,10 @@ jobs:
         # The scripts use playwright-core, which ships no browsers. Matching the
         # installer's version to playwright-core's is what makes
         # `chromium.executablePath()` resolve to the one it just downloaded.
-        working-directory: web
         run: |
-          version=$(node -p "require('playwright-core/package.json').version")
-          npx --yes playwright@$version install --with-deps chromium
-          echo "CHROMIUM=$(node -e "console.log(require('playwright-core').chromium.executablePath())")" >> "$GITHUB_ENV"
+          version=$(pixi run -- pnpm --dir web exec node -p "require('playwright-core/package.json').version")
+          pixi run -- pnpm --dir web dlx playwright@$version install --with-deps chromium
+          echo "CHROMIUM=$(pixi run -- pnpm --dir web exec node -e "console.log(require('playwright-core').chromium.executablePath())")" >> "$GITHUB_ENV"
 
       - name: Scaffold a model to drive
         run: pixi run example
@@ -87,45 +81,39 @@ jobs:
       - name: Start the server on it
         run: |
           pixi run calliope-studio --no-browser --port 8791 example-model &
-          npx --yes wait-on -t 120000 http://127.0.0.1:8791/api/health
+          pixi run -- pnpm dlx wait-on -t 120000 http://127.0.0.1:8791/api/health
 
       # The design tokens, and every renderer that reads them outside the DOM.
       - name: Token check
-        working-directory: web
-        run: npm run token-check -- http://127.0.0.1:8791
+        run: pixi run -- pnpm --dir web run token-check http://127.0.0.1:8791
 
       # The YAML language worker, which answered nothing at all until the
       # monaco-editor pin. This is what notices if the pin is lifted.
       - name: Monaco check
-        working-directory: web
-        run: npm run monaco-check -- http://127.0.0.1:8791
+        run: pixi run -- pnpm --dir web run monaco-check http://127.0.0.1:8791
 
       # A no-op save must not change the file, across every structured section.
       - name: Faithful-save check
-        working-directory: web
-        run: npm run save-check -- http://127.0.0.1:8791
+        run: pixi run -- pnpm --dir web run save-check http://127.0.0.1:8791
 
       # The map as an input: it has a size at all, a node drags, a link draws.
       - name: Map editing
-        working-directory: web
-        run: npm run map-edit -- http://127.0.0.1:8791
+        run: pixi run -- pnpm --dir web run map-edit http://127.0.0.1:8791
 
       # The picker's entries are not clipped, and a model can be created.
       - name: Model picker
-        working-directory: web
-        run: npm run model-picker -- http://127.0.0.1:8791
+        run: pixi run -- pnpm --dir web run model-picker http://127.0.0.1:8791
 
       # Really solves, with CBC, and drives the run tab from log to charts.
       - name: Run lifecycle
-        working-directory: web
-        run: npm run run-lifecycle -- http://127.0.0.1:8791
+        run: pixi run -- pnpm --dir web run run-lifecycle http://127.0.0.1:8791
 
       - name: Results view, on what that run produced
         run: |
           results=$(ls example-model/calliope-studio/runs/*/results.nc | head -1)
           pixi run calliope-studio --no-browser --port 8792 "$results" &
-          npx --yes wait-on -t 120000 http://127.0.0.1:8792/api/health
-          cd web && npm run smoke -- http://127.0.0.1:8792
+          pixi run -- pnpm dlx wait-on -t 120000 http://127.0.0.1:8792/api/health
+          pixi run -- pnpm --dir web run smoke http://127.0.0.1:8792
 
       - name: Keep the screenshots when something fails
         if: failure()

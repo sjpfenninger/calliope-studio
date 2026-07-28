@@ -2,7 +2,7 @@
  * The results view opens, and its filters narrow what the charts ask for.
  *
  *   pixi run calliope-studio --no-browser --port 8792 path/to/results.nc
- *   npm run smoke:results -- http://127.0.0.1:8792
+ *   pnpm run smoke:results http://127.0.0.1:8792
  *
  * Type-checking and unit tests cannot see the things that actually broke here:
  * an Arrow reader whose schema is only on the batch, an ECharts option merge

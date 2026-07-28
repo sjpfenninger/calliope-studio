@@ -94,6 +94,11 @@ gurobi = { features = ["dev", "gurobi"] }
 [tool.pixi.feature.dev.dependencies]
 ruff = "*"
 pytest = "*"
+# Pins the frontend toolchain into pixi.lock alongside everything else. The
+# conda package depends on nodejs, so this one line fixes both the package
+# manager and the Node version — which were previously pinned only inside CI,
+# leaving every local build to use whatever was on PATH.
+pnpm = "11.*"
 
 [tool.pixi.feature.build.dependencies]
 python-build = "*"
@@ -125,10 +130,17 @@ test = "pytest"
 
 # Frontend. `web-build` compiles the Vue bundle into the Python package so that
 # a wheel serves the UI from the same process as the API.
-web-install = { cmd = "npm install", cwd = "web" }
-web-build = { cmd = "npm run build", cwd = "web", depends-on = ["web-install"] }
-web-dev = { cmd = "npm run dev", cwd = "web", depends-on = ["web-install"] }
-web-typecheck = { cmd = "npx vue-tsc --noEmit", cwd = "web", depends-on = ["web-install"] }
+#
+# `--frozen-lockfile` is what makes the lockfile authoritative. This task used
+# to run `npm install`, which *rewrites* the lockfile as a side effect, so every
+# local build and two of three CI jobs resolved floated versions instead of the
+# committed ones — which is how the tree drifted to axios 1.13 while
+# package.json still said ^1.8. Use `web-update` to move versions deliberately.
+web-install = { cmd = "pnpm install --frozen-lockfile", cwd = "web" }
+web-update = { cmd = "pnpm update --latest", cwd = "web" }
+web-build = { cmd = "pnpm run build", cwd = "web", depends-on = ["web-install"] }
+web-dev = { cmd = "pnpm dev", cwd = "web", depends-on = ["web-install"] }
+web-typecheck = { cmd = "pnpm exec vue-tsc --noEmit", cwd = "web", depends-on = ["web-install"] }
 
 # A scratch model to develop against, so `serve` opens something real rather
 # than whatever directory it happened to start in. Gitignored; delete it to get

@@ -560,6 +560,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/openssl-3.6.3-h35e630c_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/orc-2.3.1-h443056b_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/pandas-2.2.3-py312hf9745cd_3.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/pnpm-11.17.0-h245e063_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/prometheus-cpp-1.3.0-ha5d0236_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/pyarrow-25.0.0-py312h7900ff3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/pyarrow-core-25.0.0-py312h2054cf2_0_cpu.conda
@@ -828,6 +829,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/openssl-3.6.3-hd24854e_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/orc-2.3.1-hef2a647_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/pandas-2.2.3-py312hcb1e3ce_3.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/pnpm-11.17.0-h0d9a1b3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/prometheus-cpp-1.3.0-h0967b3e_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/pyarrow-25.0.0-py312h1f38498_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/pyarrow-core-25.0.0-py312h7d9569a_0_cpu.conda
@@ -1481,6 +1483,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/openssl-3.6.3-h35e630c_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/orc-2.3.1-h443056b_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/pandas-2.2.3-py312hf9745cd_3.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/pnpm-11.17.0-h245e063_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/prometheus-cpp-1.3.0-ha5d0236_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/pyarrow-25.0.0-py312h7900ff3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/pyarrow-core-25.0.0-py312h2054cf2_0_cpu.conda
@@ -1750,6 +1753,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/openssl-3.6.3-hd24854e_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/orc-2.3.1-hef2a647_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/pandas-2.2.3-py312hcb1e3ce_3.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/pnpm-11.17.0-h0d9a1b3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/prometheus-cpp-1.3.0-h0967b3e_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/pyarrow-25.0.0-py312h1f38498_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/pyarrow-core-25.0.0-py312h7d9569a_0_cpu.conda
@@ -3702,6 +3706,21 @@ packages:
   run_exports: {}
   size: 15392153
   timestamp: 1744430987175
+- conda: https://conda.anaconda.org/conda-forge/linux-64/pnpm-11.17.0-h245e063_0.conda
+  sha256: a977f20920b874ac9eeb14db82089a3629aae2aebb8e095e81aa734cc7ff5fc2
+  md5: 4dd187f650075bb33487ae37cb400ddd
+  depends:
+  - nodejs
+  - __glibc >=2.17,<3.0.a0
+  - libstdcxx >=14
+  - libgcc >=14
+  - nodejs >=26.5.0,<27.0a0
+  license: MIT
+  license_family: MIT
+  purls: []
+  run_exports: {}
+  size: 7229738
+  timestamp: 1784836165472
 - conda: https://conda.anaconda.org/conda-forge/linux-64/prometheus-cpp-1.3.0-ha5d0236_0.conda
   sha256: 013669433eb447548f21c3c6b16b2ed64356f726b5f77c1b39d5ba17a8a4b8bc
   md5: a83f6a2fdc079e643237887a37460668
@@ -6613,6 +6632,20 @@ packages:
   run_exports: {}
   size: 14442730
   timestamp: 1744431003090
+- conda: https://conda.anaconda.org/conda-forge/osx-arm64/pnpm-11.17.0-h0d9a1b3_0.conda
+  sha256: 9a25855019b18ace0d54a2549e6f1c863194f8383b2a28b741a57c302a3b0f3d
+  md5: 5537f59642d9b1b7536ffcc509fc9a48
+  depends:
+  - nodejs
+  - __osx >=11.0
+  - libcxx >=19
+  - nodejs >=26.5.0,<27.0a0
+  license: MIT
+  license_family: MIT
+  purls: []
+  run_exports: {}
+  size: 7236721
+  timestamp: 1784836300978
 - conda: https://conda.anaconda.org/conda-forge/osx-arm64/prometheus-cpp-1.3.0-h0967b3e_0.conda
   sha256: 851a77ae1a8e90db9b9f3c4466abea7afb52713c3d98ceb0d37ba6ff27df2eff
   md5: 7172339b49c94275ba42fec3eaeda34f

@@ -2,7 +2,7 @@
  * Every results-view check, run at the same time against one server.
  *
  *   pixi run calliope-studio --no-browser --port 8792 path/to/results.nc
- *   npm run smoke -- http://127.0.0.1:8792
+ *   pnpm run smoke http://127.0.0.1:8792
  *
  * This was one script of 850 lines and 77 checks covering the load, the filters,
  * the layouts, the map, the charts, the table, the exports and both themes. Two
@@ -17,7 +17,7 @@
  *
  * `--serial` runs them one after another, which is what you want when a failure
  * is hard to place: interleaved output from five browsers is not a transcript.
- * A part name runs just that part — `npm run smoke -- $BASE layout`.
+ * A part name runs just that part — `pnpm run smoke $BASE layout`.
  */
 import { spawn } from "node:child_process";
 import { cpus } from "node:os";

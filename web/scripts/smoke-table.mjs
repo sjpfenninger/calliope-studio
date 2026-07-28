@@ -1,7 +1,7 @@
 /**
  * The table, and getting the numbers out of any figure.
  *
- *   npm run smoke:table -- http://127.0.0.1:8792
+ *   pnpm run smoke:table http://127.0.0.1:8792
  *
  * v0.2.0 had a table view and this project did not, so there was no way to read an
  * exact figure or take the numbers away. The export is written from the frame

@@ -2,7 +2,7 @@
  * Checks that the design tokens are actually live in a browser.
  *
  *   pixi run calliope-studio --no-browser --port 8791 example-model
- *   npm run token-check -- http://127.0.0.1:8791
+ *   pnpm run token-check http://127.0.0.1:8791
  *
  * Every assertion here failed silently before Tailwind was adopted:
  * `assets/tokens.css` was never imported, so every `--cg-*` was undefined and

@@ -2,7 +2,7 @@
  * The model picker: entries that are not clipped, and the two ways to get a model.
  *
  *   pixi run calliope-studio --no-browser --port 8791 example-model
- *   npm run model-picker -- http://127.0.0.1:8791
+ *   pnpm run model-picker http://127.0.0.1:8791
  *
  * The first half is geometry, which is why this is a browser check and not a
  * vitest. Every entry in the picker is two lines — a folder name over its path,

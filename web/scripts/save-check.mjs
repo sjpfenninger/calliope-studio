@@ -2,7 +2,7 @@
  * A no-op save must not change the file.
  *
  *   pixi run calliope-studio --no-browser --port 8791 example-model
- *   npm run save-check -- http://127.0.0.1:8791
+ *   pnpm run save-check http://127.0.0.1:8791
  *
  * Table-driven over every structured section: open the editor, press Save
  * without touching anything, and compare the file with what it was. This is the

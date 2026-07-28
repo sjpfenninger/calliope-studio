@@ -1,7 +1,7 @@
 /**
  * The map: its three encoding channels, its legend, and its basemap in the dark.
  *
- *   npm run smoke:map -- http://127.0.0.1:8792
+ *   pnpm run smoke:map http://127.0.0.1:8792
  *
  * All three channels drawn at once is the case worth checking, because each is
  * its own query and a marker sized from the wrong series is a perfectly

@@ -2,7 +2,7 @@
  * The map, as an editing surface.
  *
  *   pixi run calliope-studio --no-browser --port 8791 example-model
- *   npm run map-edit -- http://127.0.0.1:8791
+ *   pnpm run map-edit http://127.0.0.1:8791
  *
  * The first thing it asserts is the one that was broken: that the canvas has a
  * non-zero size at all. The nodes map rendered at 0px high for as long as it

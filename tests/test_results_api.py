@@ -76,6 +76,21 @@ class TestCatalog:
             assert link["tech"] in body["dimensions"]["techs"]
             assert link["from"] and link["to"]
 
+    def test_carries_each_techs_base_tech(self, results_client):
+        body = results_client.get(
+            f"/api/results/{results_client.handle}/catalog/"
+        ).json()
+        base_techs = body["base_techs"]
+        assert base_techs, "the example model states a base tech for every tech"
+        # The sidebar splits `dimensions.techs` by this, so a key it does not
+        # contain would group a technology that is not on offer.
+        for tech, base_tech in base_techs.items():
+            assert tech in body["dimensions"]["techs"]
+            assert isinstance(base_tech, str) and base_tech
+        assert {link["tech"] for link in body["links"]} == {
+            tech for tech, base in base_techs.items() if base == "transmission"
+        }
+
     def test_names_synthetic_variables(self, results_client):
         body = results_client.get(
             f"/api/results/{results_client.handle}/catalog/"

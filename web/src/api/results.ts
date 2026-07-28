@@ -65,6 +65,15 @@ export interface Catalog {
   /** Every dimension's members, `techs` still including the links. */
   dimensions: Record<string, string[]>;
   links: Link[];
+  /**
+   * Each technology's base tech — supply, demand, conversion, storage,
+   * transmission — as Calliope resolved it.
+   *
+   * What the sidebar splits `techs` into. Empty on a model that states none, and
+   * absent from an API process older than the field; both mean "do not group",
+   * never "this tech has no type".
+   */
+  base_techs?: Record<string, string>;
   colors: Record<string, string>;
   time_extent: [string, string] | null;
   synthetic: Record<string, string>;

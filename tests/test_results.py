@@ -15,6 +15,7 @@ from calliope_studio.results.catalog import (
     base_tech_members,
     build_catalog,
     get_array,
+    tech_base_techs,
 )
 from calliope_studio.results.colors import DEFAULT_PALETTE, tech_colors
 from calliope_studio.results.links import Link, link_orientation, transmission_links
@@ -240,6 +241,46 @@ class TestCatalog:
         assert set(catalog.dims["flow*"]) == set(catalog.dims["flow_out"]) | set(
             catalog.dims["flow_in"]
         )
+
+
+class TestBaseTechs:
+    """The tech→type map the results sidebar groups its filters by."""
+
+    def test_every_tech_is_classified(self, results):
+        mapped = tech_base_techs(results.model)
+        assert set(mapped) == set(results.model.inputs.techs.to_index())
+
+    def test_it_agrees_with_base_tech_members(self, results):
+        """One question, one answer — the two must not be able to disagree."""
+        mapped = tech_base_techs(results.model)
+        for base_tech in set(mapped.values()):
+            assert sorted(
+                tech for tech, value in mapped.items() if value == base_tech
+            ) == base_tech_members(results.model, base_tech)
+
+    def test_a_model_without_base_tech_is_not_an_error(self):
+        assert tech_base_techs(SimpleNamespace(inputs=xr.Dataset())) == {}
+
+    def test_an_unclassified_tech_is_absent_rather_than_guessed(self):
+        """The sidebar's `other` bucket must be its own decision, not ours.
+
+        The array is built object-dtype by hand rather than through `stub_model`,
+        because numpy turns `["supply", nan]` into `["supply", "nan"]` — strings —
+        and the test would then be asserting against its own fixture rather than
+        against the shape Calliope actually produces.
+        """
+        model = SimpleNamespace(
+            inputs=xr.Dataset(
+                {
+                    "base_tech": xr.DataArray(
+                        np.array(["supply", np.nan], dtype=object),
+                        dims="techs",
+                        coords={"techs": ["pv", "mystery"]},
+                    )
+                }
+            )
+        )
+        assert tech_base_techs(model) == {"pv": "supply"}
 
 
 class TestColors:

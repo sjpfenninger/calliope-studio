@@ -56,25 +56,56 @@ check(
   frames.some(({ query }) => query?.order === "duration"),
 );
 
-// Deselecting a technology must remove its series, which merging never does.
+// The technologies are split across a section per base tech — supply, storage,
+// demand — plus one for the links. `data-dimension` is how the panel says which
+// dataset dimension a section actually filters, and it is the only marker that
+// does not depend on what a given model happens to contain.
 await testId("plot-type").getByText("Bar", { exact: true }).click();
 await page.waitForTimeout(1500);
+
+const techSections = page.locator('[data-testid^="filter-"][data-dimension="techs"]');
+const techSectionNames = await techSections.evaluateAll((nodes) =>
+  nodes.map((node) => node.dataset.testid.replace("filter-", "")),
+);
+check("the technologies are split into sections", techSectionNames.length >= 2);
+console.log(`  sections: ${techSectionNames.join(", ")}`);
+
+// Deselecting a technology must remove its series, which merging never does.
 const beforeDeselect = frames.length;
-const techRows = page.locator('[data-testid^="filter-techs-"]');
+const first = techSections.first();
+const techRows = first.locator('[role="checkbox"][data-testid]');
 if (await techRows.count()) {
   await techRows.first().click();
 } else {
-  // A model with more technologies than fit as checkboxes gets the searchable
+  // A section with more members than fit as checkboxes gets the searchable
   // control instead.
-  await testId("filter-techs").getByRole("combobox").click();
+  await first.getByRole("combobox").click();
   await page.getByRole("option").first().click();
   await page.keyboard.press("Escape");
 }
 await page.waitForTimeout(2500);
 check("deselecting a technology re-queries", frames.length > beforeDeselect);
 
+// The point of the split: one click clears a whole type. `None` then `All` on a
+// section must move the chart in both directions.
+const beforeNone = frames.length;
+await first.getByText("None", { exact: true }).click();
+await page.waitForTimeout(2500);
+check("clearing a whole type re-queries", frames.length > beforeNone);
+const clearedTechs = frames.at(-1)?.query?.selectors?.techs ?? [];
+
+const beforeAll = frames.length;
+await first.getByText("All", { exact: true }).click();
+await page.waitForTimeout(2500);
+check("restoring a whole type re-queries", frames.length > beforeAll);
+check(
+  "All restores more technologies than None left",
+  (frames.at(-1)?.query?.selectors?.techs ?? []).length > clearedTechs.length,
+);
+
 // Transmission links get a section of their own: on a real model they outnumber
-// the technologies five to one, and an undivided list is unusable.
+// the technologies five to one, and an undivided list is unusable. Theirs is the
+// one tech section whose members are labelled by their endpoints.
 if (await testId("filter-transmission").count()) {
   const linkRows = page.locator('[data-testid^="filter-transmission-"]');
   const beforeLink = frames.length;
@@ -96,17 +127,21 @@ if (await testId("filter-transmission").count()) {
   }
   await page.waitForTimeout(2500);
   check("deselecting a link re-queries", frames.length > beforeLink);
-
-  // The section is synthetic — the dataset has no `transmission` dimension — and
-  // `filter_selectors` drops keys it does not know *silently*. A leak would not
-  // raise anything; the `techs` filter would just quietly lose half its members.
-  check(
-    "the synthetic section never reaches the server",
-    frames.every(({ query }) => query?.selectors?.transmission === undefined),
-  );
 } else {
   skip("the transmission section (this model has no links)");
 }
+
+// None of those sections is a dimension — the dataset has no `supply` or
+// `transmission` coordinate — and `filter_selectors` drops keys it does not know
+// *silently*. A leak would not raise anything; the `techs` filter would just
+// quietly lose most of its members.
+const syntheticSections = techSectionNames.filter((name) => name !== "techs");
+check(
+  "no section name reaches the server as a selector key",
+  frames.every(({ query }) =>
+    syntheticSections.every((name) => query?.selectors?.[name] === undefined),
+  ),
+);
 
 // The map was a fixed 300px, which on a model spanning a country is not enough
 // to see it by.

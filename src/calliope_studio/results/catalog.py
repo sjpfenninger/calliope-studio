@@ -165,6 +165,26 @@ def base_tech_members(model, base_tech: str | list) -> list[str]:
     )
 
 
+def tech_base_techs(model) -> dict[str, str]:
+    """Each technology's base tech, as Calliope resolved it.
+
+    The whole map rather than one slice of it, because the results sidebar groups
+    the technologies by it. Read from `inputs` for the same reason
+    `colors.tech_colors` is: this is also asked of a model that has been resolved
+    but not solved, whose `results` is empty.
+
+    A technology Calliope left without a base tech is simply absent, so the caller
+    can tell "unclassified" from "classified as something we did not expect".
+    """
+    inputs = model.inputs
+    if "base_tech" not in inputs:
+        return {}
+    return {
+        str(tech): str(base_tech)
+        for tech, base_tech in inputs.base_tech.to_series().dropna().items()
+    }
+
+
 def dimension_members(dataset: xr.Dataset, ignore: Iterable[str] = ()) -> dict:
     """The members of each dimension, for building selection controls."""
     ignored = set(ignore)

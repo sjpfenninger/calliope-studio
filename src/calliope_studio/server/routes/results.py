@@ -18,6 +18,7 @@ from calliope_studio.results.catalog import (
     SYNTHETIC_VARIABLES,
     build_catalog,
     dimension_members,
+    tech_base_techs,
 )
 from calliope_studio.results.colors import tech_colors
 from calliope_studio.results.links import link_orientation, transmission_links
@@ -95,6 +96,10 @@ def catalog(results: ResultHandle = Depends(resolve)) -> dict:
         # them are links is presentation, and the merged selector needs the whole
         # list to re-order against.
         "links": [link.as_dict() for link in links],
+        # What the sidebar groups the technologies by, so that selecting or
+        # clearing every supply tech is one click. Calliope's answer, not ours —
+        # see "Structure and meaning" in CLAUDE.md.
+        "base_techs": tech_base_techs(results.model),
         "colors": colors,
         "time_extent": time_extent,
         "synthetic": {

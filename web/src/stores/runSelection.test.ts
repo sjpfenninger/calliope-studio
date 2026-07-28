@@ -270,6 +270,192 @@ describe("useRunSelection", () => {
     });
   });
 
+  /**
+   * One section per base tech, so that clearing every demand technology is one
+   * click rather than one per technology — the shape v0.2.0's sidebar had. Note
+   * that every test above runs on a catalogue with no `base_techs` at all, which
+   * is the fallback path: they are the proof it still works.
+   */
+  describe("the base-tech sections", () => {
+    const typed = (overrides: Partial<Catalog> = {}) =>
+      catalog({
+        dimensions: {
+          nodes: ["region1", "region2"],
+          techs: ["ccgt", "r1_to_r2", "battery", "demand_power", "csp"],
+          carriers: ["power"],
+        },
+        links: [{ tech: "r1_to_r2", from: "r1", to: "r2" }],
+        base_techs: {
+          ccgt: "supply",
+          csp: "supply",
+          battery: "storage",
+          demand_power: "demand",
+          r1_to_r2: "transmission",
+        },
+        ...overrides,
+      });
+
+    it("replaces the flat techs section rather than sitting beside it", async () => {
+      // Two sections offering the same technology would let one deselect what
+      // the other still shows as chosen.
+      catalogFor.mockResolvedValue(typed());
+      const store = useRunSelection("h1");
+      await store.load();
+
+      expect(store.dimensions).not.toContain("techs");
+      expect(store.membersOf("techs")).toEqual([]);
+      expect(store.selected.techs).toBeUndefined();
+    });
+
+    it("orders the groups, and puts them where techs was", async () => {
+      catalogFor.mockResolvedValue(typed());
+      const store = useRunSelection("h1");
+      await store.load();
+
+      expect(store.dimensions).toEqual([
+        "carriers",
+        "nodes",
+        "supply",
+        "storage",
+        "demand",
+        "transmission",
+      ]);
+    });
+
+    it("keeps the links in their own section, not in a transmission group", async () => {
+      // Their section carries endpoint labels, which a base-tech group could not.
+      catalogFor.mockResolvedValue(typed());
+      const store = useRunSelection("h1");
+      await store.load();
+
+      expect(store.techGroups.map((group) => group.name)).toEqual([
+        "supply",
+        "storage",
+        "demand",
+      ]);
+      expect(store.membersOf("transmission")).toEqual(["r1_to_r2"]);
+      expect(store.sections.find((s) => s.name === "transmission")?.labels).toEqual({
+        r1_to_r2: "r1 → r2",
+      });
+    });
+
+    it("offers every technology exactly once, across all of them", async () => {
+      // A technology in no section would never be selected, and so would vanish
+      // from every chart — a wrong answer, not a missing control.
+      catalogFor.mockResolvedValue(typed());
+      const store = useRunSelection("h1");
+      await store.load();
+
+      const offered = store.sections
+        .filter((section) => section.dimension === "techs")
+        .flatMap((section) => section.members);
+      expect([...offered].sort()).toEqual(
+        [...store.catalog!.dimensions.techs].sort(),
+      );
+      expect(new Set(offered).size).toBe(offered.length);
+    });
+
+    it("buckets an unclassified technology rather than dropping it", async () => {
+      catalogFor.mockResolvedValue(
+        typed({
+          dimensions: { techs: ["ccgt", "mystery"] },
+          links: [],
+          base_techs: { ccgt: "supply" },
+        }),
+      );
+      const store = useRunSelection("h1");
+      await store.load();
+
+      expect(store.membersOf("other")).toEqual(["mystery"]);
+      // `other` goes last, after every base tech Calliope did name.
+      expect(store.dimensions).toEqual(["supply", "other"]);
+    });
+
+    it("gives a base tech it has never heard of a section too", async () => {
+      catalogFor.mockResolvedValue(
+        typed({
+          dimensions: { techs: ["ccgt", "odd"] },
+          links: [],
+          base_techs: { ccgt: "supply", odd: "zeitgeist" },
+        }),
+      );
+      const store = useRunSelection("h1");
+      await store.load();
+      expect(store.dimensions).toEqual(["supply", "zeitgeist"]);
+    });
+
+    it("selects every group in full on first load", async () => {
+      catalogFor.mockResolvedValue(typed());
+      const store = useRunSelection("h1");
+      await store.load();
+
+      expect(store.selected.supply).toEqual(["ccgt", "csp"]);
+      expect(store.selected.storage).toEqual(["battery"]);
+      expect(store.selected.demand).toEqual(["demand_power"]);
+      expect(store.resolvedSelectors.techs).toEqual(
+        store.catalog!.dimensions.techs,
+      );
+    });
+
+    it("clears one type without reaching past it", async () => {
+      // The point of the whole change: one click removes every supply tech and
+      // leaves the rest of the selection, in catalogue order.
+      catalogFor.mockResolvedValue(typed());
+      const store = useRunSelection("h1");
+      await store.load();
+
+      store.selectNone("supply");
+      expect(store.resolvedSelectors.techs).toEqual([
+        "r1_to_r2",
+        "battery",
+        "demand_power",
+      ]);
+
+      store.selectAll("supply");
+      expect(store.resolvedSelectors.techs).toEqual(
+        store.catalog!.dimensions.techs,
+      );
+    });
+
+    it("never sends a group name to the server", async () => {
+      // `filter_selectors` drops keys it does not know *silently*, so a leak here
+      // is not an error but a `techs` filter quietly missing most of its members.
+      catalogFor.mockResolvedValue(typed());
+      const store = useRunSelection("h1");
+      await store.load();
+      store.mapVariables.pie = "flow_cap";
+
+      const dimensionNames = new Set(Object.keys(store.catalog!.dimensions));
+      for (const query of [
+        store.timeseriesQuery,
+        store.staticQuery,
+        store.mapSizeQuery,
+        store.mapPieQuery,
+      ]) {
+        for (const key of Object.keys(query?.selectors ?? {})) {
+          expect(dimensionNames.has(key)).toBe(true);
+        }
+      }
+    });
+
+    it("falls back to one flat section when nothing states a base tech", async () => {
+      // A model that names none, and an API process older than the field, both
+      // arrive this way. Missing information must not take a working control away.
+      catalogFor.mockResolvedValue(typed({ base_techs: {} }));
+      const store = useRunSelection("h1");
+      await store.load();
+
+      expect(store.techGroups).toEqual([]);
+      expect(store.dimensions).toContain("techs");
+      expect(store.membersOf("techs")).toEqual([
+        "ccgt",
+        "battery",
+        "demand_power",
+        "csp",
+      ]);
+    });
+  });
+
   describe("variable revalidation", () => {
     it("prefers the documented default", async () => {
       const store = useRunSelection("h1");

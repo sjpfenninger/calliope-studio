@@ -35,10 +35,10 @@ import type { GeoPayload } from "../lib/mapGeo";
  * from the command line has a handle but no run.
  *
  * Two behaviours here are v0.2.0's `AppState` cascade and are not obvious: the
- * sidebar's two technology sections fold back into one `techs` selector before any
- * query leaves the browser, and changing which variables are on offer re-validates
- * every variable already chosen rather than leaving a selection pointing at
- * something that no longer exists.
+ * sidebar's several technology sections fold back into one `techs` selector before
+ * any query leaves the browser, and changing which variables are on offer
+ * re-validates every variable already chosen rather than leaving a selection
+ * pointing at something that no longer exists.
  */
 
 /**
@@ -50,8 +50,34 @@ import type { GeoPayload } from "../lib/mapGeo";
  * else. It must never reach the server as a selector key. `filter_selectors` drops
  * keys it does not recognise *silently*, so the failure would not be an error but a
  * `techs` filter quietly missing half its members.
+ *
+ * It is no longer the exception it was: every base tech now gets a section of its
+ * own on the same terms, and `FilterSection.dimension` is the one rule they all
+ * follow.
  */
 export const TRANSMISSION = "transmission";
+
+/**
+ * The base techs given a section each, in the order they are shown.
+ *
+ * Presentation, so it lives here — v0.2.0 kept the same list in its app layer
+ * (`BASE_TECH_ORDERING`) rather than its data layer. `transmission` is absent
+ * deliberately: it already has `TRANSMISSION`, whose members come from the
+ * catalogue's `links` and carry endpoint labels this list could not give them.
+ *
+ * Anything Calliope reports that is not here still gets a section, sorted after
+ * these — a base tech we have not heard of is not a reason to hide technologies.
+ */
+const BASE_TECH_ORDER = ["supply", "conversion", "storage", "demand"];
+
+/**
+ * Where a technology with no base tech at all goes.
+ *
+ * Every non-link technology must land in exactly one section. One that landed in
+ * none would never be selected, and so would silently vanish from every chart —
+ * which is a wrong answer shown to a user, not a missing control.
+ */
+const OTHER_TECHS = "other";
 
 /** Sections shown first in the filter sidebar; the rest follow alphabetically. */
 const DIMENSION_ORDER = ["carriers", "nodes", "techs", TRANSMISSION, "costs"];
@@ -98,8 +124,17 @@ export type MapChannel = "size" | "color" | "pie";
 
 /** One section of the filter sidebar, which is all the panel needs to know. */
 export interface FilterSection {
-  /** The dimension it filters, and the suffix of its `data-testid`. */
+  /** Its own name: the key into `selected`, and the suffix of its `data-testid`. */
   name: string;
+  /**
+   * The dataset dimension it filters, which is not always its name.
+   *
+   * Equal to `name` for a section that *is* a dimension. For the technology
+   * sections — `supply`, `demand`, `transmission`, … — it is `techs`, and
+   * `resolvedSelectors` folds them all back into one selector on that. A section
+   * whose name reached the server as a selector key would be dropped in silence.
+   */
+  dimension: string;
   /** Its members, in catalogue order. */
   members: string[];
   /** Display text per member, where it differs from the member itself. */
@@ -171,31 +206,94 @@ function defineRunSelection(handle: string) {
       return labels;
     });
 
+    /** The non-link technologies, in catalogue order. */
+    const plainTechs = computed(() => {
+      const all = catalog.value?.dimensions.techs ?? [];
+      if (!linkTechs.value.length) return all;
+      const isLink = new Set(linkTechs.value);
+      return all.filter((tech) => !isLink.has(tech));
+    });
+
+    /**
+     * The non-link technologies bucketed by base tech, in display order.
+     *
+     * What replaces the single flat `techs` section, so that selecting or clearing
+     * every supply technology is one click rather than one per technology — the
+     * shape v0.2.0's sidebar had (`_techs_filter`, one checkbox group per base
+     * tech, each with its own select-all pair).
+     *
+     * Empty when the catalogue says nothing about base techs, which is the signal
+     * to keep the flat section: a model that states none, and an API process older
+     * than the field, both arrive that way. Missing information must not take a
+     * working control away — the same reason `sumLock` fails open.
+     */
+    const techGroups = computed<{ name: string; members: string[] }[]>(() => {
+      const baseTechs = catalog.value?.base_techs;
+      if (!baseTechs || !Object.keys(baseTechs).length) return [];
+
+      const buckets = new Map<string, string[]>();
+      for (const tech of plainTechs.value) {
+        // A tech Calliope did not classify still has to be selectable, so it
+        // falls to `OTHER_TECHS` rather than out of the sidebar.
+        const group = baseTechs[tech] ?? OTHER_TECHS;
+        buckets.set(group, [...(buckets.get(group) ?? []), tech]);
+      }
+
+      const leading = BASE_TECH_ORDER.filter((name) => buckets.has(name));
+      const rest = [...buckets.keys()]
+        .filter((name) => !leading.includes(name) && name !== OTHER_TECHS)
+        .sort();
+      const trailing = buckets.has(OTHER_TECHS) ? [OTHER_TECHS] : [];
+      return [...leading, ...rest, ...trailing].map((name) => ({
+        name,
+        members: buckets.get(name) ?? [],
+      }));
+    });
+
     /**
      * The members one section offers, in catalogue order.
      *
-     * The only place the technology split lives. `TRANSMISSION` is tested first
-     * because `catalog.dimensions.transmission` does not exist and never will.
+     * The only place the technology split lives. `TRANSMISSION` and the base-tech
+     * groups are tested before the catalogue, because `catalog.dimensions.supply`
+     * does not exist and never will.
      */
-    function membersOf(dimension: string): string[] {
-      if (dimension === TRANSMISSION) return linkTechs.value;
-      const all = catalog.value?.dimensions[dimension] ?? [];
-      if (dimension === "techs" && linkTechs.value.length) {
-        const isLink = new Set(linkTechs.value);
-        return all.filter((tech) => !isLink.has(tech));
-      }
-      return all;
+    function membersOf(section: string): string[] {
+      if (section === TRANSMISSION) return linkTechs.value;
+      const group = techGroups.value.find((entry) => entry.name === section);
+      if (group) return group.members;
+      // The groups replace the flat section rather than sitting beside it; two
+      // sections offering the same technology would let one deselect what the
+      // other still shows as chosen.
+      if (section === "techs") return techGroups.value.length ? [] : plainTechs.value;
+      return catalog.value?.dimensions[section] ?? [];
+    }
+
+    /** The dataset dimension a section filters — see `FilterSection.dimension`. */
+    function dimensionOf(section: string): string {
+      if (section === TRANSMISSION) return "techs";
+      return techGroups.value.some((entry) => entry.name === section)
+        ? "techs"
+        : section;
     }
 
     /** Sections in display order, empty ones dropped. */
     const dimensions = computed(() => {
       const names = Object.keys(catalog.value?.dimensions ?? {});
       if (linkTechs.value.length) names.push(TRANSMISSION);
-      // One filter covers both edge cases: a model with no links has no
-      // transmission section, and one that is nothing but links has no techs
-      // section, rather than either showing an empty box with All/None in it.
+      names.push(...techGroups.value.map((group) => group.name));
+      // One filter covers all of the edge cases: a model with no links has no
+      // transmission section, one that is nothing but links has no techs section,
+      // and a base tech nothing uses has none either, rather than any of them
+      // showing an empty box with All/None in it.
       const present = names.filter((name) => membersOf(name).length > 0);
-      const leading = DIMENSION_ORDER.filter((name) => present.includes(name));
+      // The groups take the place `techs` held, so `TRANSMISSION` still follows
+      // them and `costs` still comes last.
+      const order = DIMENSION_ORDER.flatMap((name) =>
+        name === "techs" && techGroups.value.length
+          ? techGroups.value.map((group) => group.name)
+          : [name],
+      );
+      const leading = order.filter((name) => present.includes(name));
       const rest = present.filter((name) => !leading.includes(name)).sort();
       return [...leading, ...rest];
     });
@@ -203,6 +301,7 @@ function defineRunSelection(handle: string) {
     const sections = computed<FilterSection[]>(() =>
       dimensions.value.map((name) => ({
         name,
+        dimension: dimensionOf(name),
         members: membersOf(name),
         labels: name === TRANSMISSION ? techLabels.value : {},
       })),
@@ -339,29 +438,47 @@ function defineRunSelection(handle: string) {
     }
 
     /**
-     * `selected`, with the transmission section folded back into `techs`.
+     * `selected`, with every section folded onto the dimension it filters.
      *
      * What every query must use — see `TRANSMISSION` for what happens if one does
-     * not. Ordered by the catalogue's `techs` rather than by concatenation: an
-     * identical selection has to produce an identical query body, or toggling one
-     * link reorders the array and `useResultFrame`'s watcher refetches every chart
-     * for nothing.
+     * not. The technology sections — `supply`, `demand`, `transmission`, … — merge
+     * into one `techs` selector, always ordered by the catalogue rather than by
+     * concatenation: an identical selection has to produce an identical query
+     * body, or clearing one group reorders the array and `useResultFrame`'s
+     * watcher refetches every chart for nothing.
      *
-     * Empty stays empty. Selecting no links and no technologies means an empty
-     * chart, exactly as selecting no technologies does today; "empty means
+     * Every section goes through the merge, including one whose name already *is*
+     * its dimension. Letting those pass straight through instead looks like the
+     * obvious shortcut and is wrong: on a model with links but no base techs,
+     * `techs` and `transmission` are both sections of the `techs` dimension, and
+     * the merged result overwrote the passed-through one — clearing the links
+     * emptied the technologies too.
+     *
+     * Driven by `sections` rather than by the keys of `selected`, so a section that
+     * has gone away — the catalogue reloaded, the groups appeared — takes its stale
+     * entry with it instead of leaving it in the query.
+     *
+     * Empty stays empty. Selecting no supply techs and no links means an empty
+     * chart, exactly as selecting no technologies did before; "empty means
      * everything" is a rule that belongs to map selection alone.
      */
     const resolvedSelectors = computed<Record<string, string[]>>(() => {
-      const current = selected.value;
-      if (!(TRANSMISSION in current)) return current;
-      const { [TRANSMISSION]: chosenLinks, ...rest } = current;
-      const keep = new Set([...(rest.techs ?? []), ...chosenLinks]);
-      return {
-        ...rest,
-        techs: (catalog.value?.dimensions.techs ?? []).filter((tech) =>
-          keep.has(tech),
-        ),
-      };
+      const merged = new Map<string, Set<string>>();
+      for (const section of sections.value) {
+        const members = merged.get(section.dimension) ?? new Set<string>();
+        for (const member of selected.value[section.name] ?? []) {
+          members.add(member);
+        }
+        merged.set(section.dimension, members);
+      }
+
+      const out: Record<string, string[]> = {};
+      for (const [dimension, keep] of merged) {
+        out[dimension] = (catalog.value?.dimensions[dimension] ?? []).filter(
+          (member) => keep.has(member),
+        );
+      }
+      return out;
     });
 
     /** Nodes picked on the map, which narrow the charts further. */
@@ -496,6 +613,7 @@ function defineRunSelection(handle: string) {
       links,
       linkTechs,
       techLabels,
+      techGroups,
       membersOf,
       resolvedSelectors,
       variableTimeseries,

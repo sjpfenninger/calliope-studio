@@ -28,8 +28,12 @@ const CHECKBOX_LIMIT = 8;
 
 /**
  * The panel is generic over `store.sections` and knows nothing about what any of
- * them mean — transmission is a section like any other, which is what keeps the
- * knowledge of which technologies are links in one place in the store.
+ * them mean — supply and transmission are sections like any other, which is what
+ * keeps the knowledge of which technologies are which in one place in the store.
+ *
+ * That is also why splitting the technologies by base tech needed nothing here
+ * beyond the `data-dimension` attribute: a section already carries All/None, and
+ * `selectAll`/`selectNone` are already keyed by section name.
  */
 function isChecked(section: FilterSection, member: string) {
   return (store.selected[section.name] ?? []).includes(member);
@@ -55,6 +59,7 @@ function toggle(section: FilterSection, member: string, checked: boolean) {
       v-for="section in store.sections"
       :key="section.name"
       :data-testid="`filter-${section.name}`"
+      :data-dimension="section.dimension"
     >
       <header class="mb-1 flex h-5 items-center gap-1">
         <span

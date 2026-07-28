@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "deny": [
+      "Read(~/.ssh/**)",
+      "Read(~/.aws/**)",
+      "Read(~/.config/gh/**)",
+      "Read(~/.gnupg/**)",
+      "Read(~/.claude/.credentials.json)",
+      "Read(//**/.env)",
+      "Read(//**/.env.*)",
+      "Edit(~/.ssh/**)",
+      "Edit(~/.aws/**)",
+      "Edit(~/.config/gh/**)"
+    ]
+  },
+  "sandbox": {
+    "enabled": true,
+    "filesystem": {
+      "denyRead": ["~/"],
+      "allowRead": [
+        ".",
+        "~/Library/Caches/rattler",
+        "~/Library/Caches/pixi",
+        "~/Library/pnpm",
+        "~/Library/Application Support/pnpm",
+        "~/.gitconfig",
+        "~/.config/git",
+        "~/.cache/rattler",
+        "~/.cache/pixi",
+        "~/.local/share/pnpm"
+      ],
+      "allowWrite": [
+        "~/Library/Caches/rattler",
+        "~/Library/Caches/pixi",
+        "~/Library/pnpm",
+        "~/Library/Application Support/pnpm",
+        "~/.cache/rattler",
+        "~/.cache/pixi",
+        "~/.local/share/pnpm"
+      ]
+    },
+    "credentials": {
+      "files": [
+        { "path": "~/.ssh", "mode": "deny" },
+        { "path": "~/.aws/credentials", "mode": "deny" },
+        { "path": "~/.config/gh", "mode": "deny" }
+      ],
+      "envVars": [
+        { "name": "GITHUB_TOKEN", "mode": "deny" },
+        { "name": "GH_TOKEN", "mode": "deny" },
+        { "name": "NPM_TOKEN", "mode": "deny" },
+        { "name": "ANTHROPIC_API_KEY", "mode": "deny" }
+      ]
+    },
+    "network": {
+      "allowedDomains": [
+        "registry.npmjs.org",
+        "conda.anaconda.org",
+        "repo.prefix.dev",
+        "pypi.org",
+        "files.pythonhosted.org",
+        "github.com",
+        "api.github.com",
+        "objects.githubusercontent.com",
+        "raw.githubusercontent.com"
+      ]
+    },
+    "excludedCommands": ["gh *"]
+  }
+}

@@ -1,5 +1,6 @@
 /**
- * The one shape correction every consumer of Calliope's schema needs.
+ * The one shape correction every consumer of Calliope's schema needs, and the
+ * matching of schemas to files.
  *
  * The server generates the schemas from the installed Calliope rather than
  * checking them in, and the payload's top level is the *model definition*
@@ -11,6 +12,13 @@
  * be, a property of the model-definition schema. Both consumers were affected
  * and neither said so: the config editor rendered no fields at all, and Monaco
  * offered no completion for the block a user edits most.
+ *
+ * `schemaEntries` is the second half. Calliope has four schemas and a workspace
+ * has many files, and the editor used to hand Monaco a single association
+ * matching `*.yaml` — so a math file was validated against the model-definition
+ * schema and every key in it read as unknown. Which schema applies is a question
+ * about how Calliope *reaches* a file, so the server answers it
+ * (`modeldef/filekinds.py`) and this turns the answer into associations.
  */
 
 export interface CalliopeSchema extends Record<string, any> {
@@ -51,4 +59,92 @@ export function withSiblingSchemas(payload: CalliopeSchema): CalliopeSchema {
   }
 
   return { ...payload, properties };
+}
+
+/**
+ * Which schema describes a file.
+ *
+ * Mirrors `modeldef/filekinds.py`; `unknown` means nothing refers to the file,
+ * so no schema is applied and it is simply left alone.
+ */
+export type FileKind = "model" | "math" | "unknown";
+
+export const FILE_KINDS: readonly FileKind[] = ["model", "math", "unknown"];
+
+/** A monaco-yaml schema association, structurally — the fields we set. */
+export interface SchemaEntry {
+  uri: string;
+  fileMatch: string[];
+  schema?: Record<string, any>;
+}
+
+const MODEL_URI = "https://calliope.readthedocs.io/schema";
+const MATH_URI = "https://calliope.readthedocs.io/schema/math";
+
+/**
+ * Every section and entry tab is a model-definition fragment.
+ *
+ * Those editors give Monaco a `virtual:///{tabId}.yaml` URI rather than a path,
+ * because they hold one section of a file rather than a file. The tab id is
+ * percent-encoded and so contains no `/`, which is what lets one `*` cover all
+ * of them.
+ */
+const VIRTUAL_MATCH = "virtual:///*";
+
+/**
+ * The effective kind of a file: what the user said, else what we detected.
+ *
+ * Keyed on path rather than on a detected kind, so that an override survives the
+ * file being re-detected — adding it to an `import:` list changes what we think
+ * it is, and must not silently discard what the user told us.
+ */
+export function effectiveKind(
+  path: string,
+  detected: Record<string, FileKind | string>,
+  overrides: Record<string, FileKind>,
+): FileKind {
+  const chosen = overrides[path];
+  if (chosen) return chosen;
+  const found = detected[path];
+  return found === "model" || found === "math" ? found : "unknown";
+}
+
+/**
+ * Builds monaco-yaml's schema associations from a workspace's file kinds.
+ *
+ * One entry per schema rather than per file: `fileMatch` takes a list, and
+ * monaco-yaml re-resolves all of them on every `update`, so a hundred-file model
+ * is two entries and not a hundred.
+ *
+ * A file whose kind is `unknown` appears in no `fileMatch` at all. That is the
+ * point of having the kind — assigning it an empty schema would validate it
+ * against "nothing is allowed", which is worse than the model schema it used to
+ * get, not better.
+ */
+export function schemaEntries(
+  payload: CalliopeSchema | null,
+  detected: Record<string, FileKind | string>,
+  overrides: Record<string, FileKind> = {},
+): SchemaEntry[] {
+  if (!payload) return [];
+
+  const paths = new Set([...Object.keys(detected), ...Object.keys(overrides)]);
+  const byKind: Record<FileKind, string[]> = { model: [], math: [], unknown: [] };
+  for (const path of paths) {
+    byKind[effectiveKind(path, detected, overrides)].push(`file:///${path}`);
+  }
+
+  const entries: SchemaEntry[] = [
+    {
+      uri: MODEL_URI,
+      fileMatch: [...byKind.model.sort(), VIRTUAL_MATCH],
+      schema: withSiblingSchemas(payload),
+    },
+  ];
+
+  const math = payload["x-calliope"]?.schemas?.math;
+  if (math && byKind.math.length) {
+    entries.push({ uri: MATH_URI, fileMatch: byKind.math.sort(), schema: math });
+  }
+  return entries;
 }

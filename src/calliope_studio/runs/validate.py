@@ -14,8 +14,19 @@ Validation comes in tiers of increasing cost, none of which needs a solver:
 
 The last two import Calliope and can take seconds to minutes, so they run in the
 same worker subprocess machinery as a real run — which is why turning what that
-worker reported into a problem list belongs here.
+worker reported into a problem list belongs here. They are one step to the user
+and to the API: a build-only run is started, and only after the syntax tier has
+come back clean.
 """
+
+#: What this tier stamps on the problems it reports, so that a list holding both
+#: tiers can say which found what. `modeldef.validate` has the counterpart.
+TIER = "build"
+
+#: Outcomes that are not a validation failure. `infeasible` means the model built
+#: and the solver could not satisfy it, which says nothing about the definition;
+#: `cancelled` means nobody waited for an answer, so there is none to report.
+CLEAN_STATUSES = ("success", "infeasible", "cancelled")
 
 
 def errors_from_outcome(outcome: dict, model_file: str) -> dict:
@@ -26,7 +37,7 @@ def errors_from_outcome(outcome: dict, model_file: str) -> dict:
     becomes a single file-level problem. Splitting the aggregate into its bullet
     points is the most we can honestly recover.
     """
-    if outcome.get("status") in ("success", "infeasible"):
+    if outcome.get("status") in CLEAN_STATUSES:
         return {"errors": []}
 
     message = outcome.get("error") or "Validation failed."
@@ -41,6 +52,7 @@ def errors_from_outcome(outcome: dict, model_file: str) -> dict:
                 "column": None,
                 "message": part,
                 "severity": "error",
+                "tier": TIER,
             }
             for part in parts
         ]

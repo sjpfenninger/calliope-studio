@@ -18,7 +18,7 @@
  * are what replace it.
  */
 import { ref, watch } from "vue";
-import { BarChart3 } from "@lucide/vue";
+import { BarChart3, ShieldCheck } from "@lucide/vue";
 import { X } from "@lucide/vue";
 
 import {
@@ -66,8 +66,11 @@ watch(
   { flush: "post" },
 );
 
+// The fallthrough reads `tab.section`, so every kind without one has to be
+// handled before it or it resolves `sectionIcon(undefined)`.
 function iconFor(tab: TabEntry) {
   if (tab.kind === "run") return BarChart3;
+  if (tab.kind === "validation") return ShieldCheck;
   if (tab.kind === "file") return fileIcon(tab.fileType);
   return sectionIcon(tab.section);
 }

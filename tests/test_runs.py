@@ -117,7 +117,7 @@ class TestWorkspaceIsUntouchedUntilYouRun:
         """
         before = sorted(path.name for path in national_scale.iterdir())
 
-        task_id = client.post(f"/api/versions/{ws}/validate/deep/").json()["task_id"]
+        task_id = client.post(f"/api/versions/{ws}/validate/").json()["task_id"]
         wait_for_task(client, task_id)
 
         assert sorted(path.name for path in national_scale.iterdir()) == before
@@ -817,14 +817,15 @@ class TestCancellation:
 
 
 class TestDeepValidation:
-    def test_valid_model_reports_no_errors(self, client, ws):
-        task_id = client.post(f"/api/versions/{ws}/validate/deep/").json()["task_id"]
-        assert wait_for_task(client, task_id) == {"errors": []}
+    """The build tier: `read_yaml` plus `build()`, in the worker subprocess.
 
-    def test_deep_validation_is_accepted_asynchronously(self, client, ws):
-        response = client.post(f"/api/versions/{ws}/validate/deep/")
-        assert response.status_code == 202
-        assert response.json()["task_id"]
+    Reached only through the one validate endpoint, and only when the syntax
+    tier came back clean.
+    """
+
+    def test_valid_model_reports_no_errors(self, client, ws):
+        task_id = client.post(f"/api/versions/{ws}/validate/").json()["task_id"]
+        assert wait_for_task(client, task_id) == {"errors": []}
 
     def test_semantically_broken_model_reports_errors(self, client, ws, national_scale):
         # Syntactically fine, but not a technology Calliope will accept.
@@ -833,13 +834,28 @@ class TestDeepValidation:
             techs.read_text().replace("base_tech: supply", "base_tech: nonsense", 1)
         )
 
-        task_id = client.post(f"/api/versions/{ws}/validate/deep/").json()["task_id"]
+        task_id = client.post(f"/api/versions/{ws}/validate/").json()["task_id"]
         result = wait_for_task(client, task_id)
         assert result["errors"], "expected an invalid base_tech to be reported"
         assert result["errors"][0]["severity"] == "error"
+        assert result["errors"][0]["tier"] == "build"
+        # Calliope reports no line numbers, and saying otherwise would make the
+        # frontend offer a jump that goes nowhere.
+        assert result["errors"][0]["line"] is None
+
+    def test_cancelling_reports_no_problems(self, client, ws):
+        """A cancelled validation has no answer, which is not a clean one.
+
+        Reporting the kill as an error would tell the user their model is broken
+        because they stopped waiting for it.
+        """
+        task_id = client.post(f"/api/versions/{ws}/validate/").json()["task_id"]
+        assert client.post(f"/api/tasks/{task_id}/cancel/").status_code == 200
+        assert wait_for_task(client, task_id) == {"errors": []}
 
     def test_unknown_task_is_404(self, client):
         assert client.get("/api/tasks/nope/").status_code == 404
+        assert client.post("/api/tasks/nope/cancel/").status_code == 404
 
 
 class TestStdioCapture:

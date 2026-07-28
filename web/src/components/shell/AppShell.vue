@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/resizable";
 import { initMonacoYaml } from "@/monacoSetup";
 import { useProjectStore } from "@/stores/project";
+import { useSchemaKindsStore } from "@/stores/schemaKinds";
 import { useTabsStore } from "@/stores/tabs";
 import { useUiStore } from "@/stores/ui";
 
@@ -33,6 +34,7 @@ const route = useRoute();
 const router = useRouter();
 const tabs = useTabsStore();
 const project = useProjectStore();
+const schemaKinds = useSchemaKindsStore();
 const ui = useUiStore();
 
 const projectId = computed(() => (route.params.projectId as string) ?? null);
@@ -49,6 +51,10 @@ watch(
     if (!nextVersion || nextVersion === previous?.[1]) return;
 
     tabs.setVersion(nextVersion);
+    // Which schema describes which of this model's files. Fetched per model
+    // because it depends on the `import:` graph, and before any editor opens so
+    // that the first file to be shown is validated against the right one.
+    void schemaKinds.load(nextVersion);
     // What this model had open last time. A `?tab=` in the URL wins over it —
     // a link to a specific tab has to beat whatever the last session left
     // behind — which is why `restore` hands the id back instead of activating.

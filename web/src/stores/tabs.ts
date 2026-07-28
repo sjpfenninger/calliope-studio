@@ -9,6 +9,7 @@ import {
   parseTabId,
   runTabId,
   sectionTabId,
+  validationTabId,
   type TabKind,
   type TabSpec,
 } from "../lib/tabId";
@@ -81,10 +82,41 @@ export interface RunTab extends TabCommon {
   isDirty: false;
 }
 
-export type TabEntry = FileTab | SectionTab | EntryTab | RunTab;
+export interface ValidationTab extends TabCommon {
+  kind: "validation";
+  /**
+   * Validation results are a statement about the model, not a buffer over it,
+   * so this tab can never be dirty. Literal-typed for the same reason `RunTab`
+   * is: `markDirty` on it should not compile.
+   */
+  isDirty: false;
+}
+
+export type TabEntry = FileTab | SectionTab | EntryTab | RunTab | ValidationTab;
 
 /** The three kinds that have a buffer and can therefore be saved. */
 export type EditableTab = FileTab | SectionTab | EntryTab;
+
+/**
+ * Whether a tab has a buffer behind it.
+ *
+ * A predicate rather than a `kind !== "run"` test at each call site: the kinds
+ * that *cannot* be dirty are the growing half of the union — a run is frozen,
+ * validation results are a statement about the model — and enumerating them by
+ * exclusion means every new one has to remember to add itself to two guards or
+ * silently become writable.
+ */
+export function isEditableTab(
+  tab: TabEntry | null | undefined,
+): tab is EditableTab {
+  return tab != null && EDITABLE_KINDS.has(tab.kind);
+}
+
+const EDITABLE_KINDS: ReadonlySet<TabKind> = new Set<TabKind>([
+  "file",
+  "section",
+  "entry",
+]);
 
 export interface JumpTarget {
   path: string;
@@ -123,6 +155,8 @@ function titleFor(spec: TabSpec, hint?: string): string {
       return spec.entryName;
     case "run":
       return hint ?? (spec.runId ? `Run ${spec.runId.slice(0, 8)}` : "Results");
+    case "validation":
+      return "Validation";
   }
 }
 
@@ -430,6 +464,32 @@ export const useTabsStore = defineStore("tabs", () => {
   }
 
   /**
+   * Opens the validation tab, always permanently.
+   *
+   * Deliberately takes no `OpenOptions`. Validating is an explicit action, and
+   * the preview slot is emptied by the next plain click in the model tree —
+   * which is exactly what a user does while working through the problems this
+   * tab lists. A previewed validation tab would close itself on the first click
+   * it caused.
+   */
+  function openValidation(): string {
+    const id = validationTabId();
+    const existed = openTabs.has(id);
+    if (!existed) {
+      openTabs.set(id, {
+        id,
+        kind: "validation",
+        title: titleFor({ kind: "validation" }),
+        isDirty: false,
+        mounted: false,
+      });
+    }
+    activate(id);
+    settlePreview(id, existed, false);
+    return id;
+  }
+
+  /**
    * Folds a run's current state into its tab, if it has one open.
    *
    * Called by the runs store on every poll. A run tab is opened the instant the
@@ -465,6 +525,8 @@ export const useTabsStore = defineStore("tabs", () => {
         return openEntry(spec.section, spec.filePath, spec.entryName);
       case "run":
         return openRun({ id: spec.runId, handle: spec.handle });
+      case "validation":
+        return openValidation();
     }
   }
 
@@ -472,7 +534,7 @@ export const useTabsStore = defineStore("tabs", () => {
 
   function markDirty(id: string) {
     const tab = openTabs.get(id);
-    if (tab && tab.kind !== "run") {
+    if (isEditableTab(tab)) {
       tab.isDirty = true;
       // Editing is intent to keep: a previewed file the user has started typing
       // in must not be evicted by the next click in the tree.
@@ -482,7 +544,7 @@ export const useTabsStore = defineStore("tabs", () => {
 
   function markClean(id: string) {
     const tab = openTabs.get(id);
-    if (tab && tab.kind !== "run") tab.isDirty = false;
+    if (isEditableTab(tab)) tab.isDirty = false;
   }
 
   function setEditorMode(id: string, mode: EditorMode) {
@@ -572,6 +634,7 @@ export const useTabsStore = defineStore("tabs", () => {
     openSection,
     openEntry,
     openRun,
+    openValidation,
     openFromId,
     promote,
     updateRun,

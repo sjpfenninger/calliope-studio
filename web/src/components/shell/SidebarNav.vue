@@ -49,7 +49,7 @@ const items = computed(() => [
     enabled: props.editable,
     // Visible from any section, so a validation error is not hidden behind a
     // section the user is not currently looking at.
-    count: validation.errors.length || null,
+    count: validation.problems.length || null,
   },
   { name: "files" as const, label: "Files", icon: Folder, enabled: props.editable, count: null },
   { name: "runs" as const, label: "Runs", icon: BarChart3, enabled: true, count: null },

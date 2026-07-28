@@ -1,7 +1,13 @@
 import { createPinia, setActivePinia } from "pinia";
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { entryTabId, fileTabId, runTabId, sectionTabId } from "../lib/tabId";
+import {
+  entryTabId,
+  fileTabId,
+  runTabId,
+  sectionTabId,
+  validationTabId,
+} from "../lib/tabId";
 import { useTabsStore } from "./tabs";
 
 /**
@@ -256,6 +262,19 @@ describe("useTabsStore", () => {
       const tabs = useTabsStore();
       tabs.openFromId(fileTabId("a.yaml"));
       expect(tabs.previewId).toBeNull();
+    });
+
+    it("never previews the validation tab", () => {
+      // It lists the problems the user is about to go and fix, and fixing one
+      // means clicking a file in the tree — which empties the preview slot. A
+      // previewed validation tab would close itself on the first click it
+      // caused.
+      const tabs = useTabsStore();
+      tabs.openValidation();
+      expect(tabs.previewId).toBeNull();
+
+      tabs.openFile("a.yaml", { preview: true });
+      expect(tabs.has(validationTabId())).toBe(true);
     });
   });
 

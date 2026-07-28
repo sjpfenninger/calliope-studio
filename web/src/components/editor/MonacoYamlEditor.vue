@@ -19,8 +19,11 @@ import {
   monacoLineHeight,
   MONACO_THEME,
 } from "../../editor/monacoTheme";
+import PanelHeader from "../app/PanelHeader.vue";
+import SchemaKindPicker from "./SchemaKindPicker.vue";
 import { fileTabId } from "../../lib/tabId";
 import {
+  isEditableTab,
   useTabsStore,
   type EditableTab,
   type EntryTab,
@@ -168,15 +171,21 @@ async function saveVirtualTab(tab: SectionTab | EntryTab) {
 // The tab whose Monaco model should be showing, or null when Monaco is not the
 // right editor for it. Reacts to both tab switches and raw/structured toggles.
 //
-// A run tab returns null, so `setModel` is never called for one and the last
-// YAML buffer simply stays attached behind `display: none` — which is why
-// switching to a run and back does not refetch or lose undo history.
+// A tab with no buffer — a run, a validation — returns null, so `setModel` is
+// never called for one and the last YAML buffer simply stays attached behind
+// `display: none`, which is why switching away and back does not refetch or
+// lose undo history.
 const activeMonacoTab = computed<EditableTab | null>(() => {
   const tab = tabsStore.activeTab;
-  if (!tab || tab.kind === "run") return null;
+  if (!isEditableTab(tab)) return null;
   if (tab.kind === "file") return tab.fileType === "csv" ? null : tab;
   return tab.editorMode === "raw" ? tab : null;
 });
+
+/** The workspace path being edited, or null for a virtual section/entry tab. */
+const filePath = computed(() =>
+  activeMonacoTab.value?.kind === "file" ? activeMonacoTab.value.path : null,
+);
 
 onMounted(() => {
   if (!containerRef.value) return;
@@ -259,13 +268,19 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div ref="containerRef" class="monaco-container" />
+  <div class="flex min-h-0 flex-col">
+    <!-- Only for a real file. A section or entry tab is a model-definition
+         fragment by construction, so it has nothing to choose. -->
+    <PanelHeader v-if="filePath" size="sm">
+      <SchemaKindPicker :path="filePath" />
+    </PanelHeader>
+    <div ref="containerRef" class="monaco-container min-h-0 flex-1" />
+  </div>
 </template>
 
 <style scoped>
 .monaco-container {
   width: 100%;
-  height: 100%;
   overflow: hidden;
 }
 </style>

@@ -1,17 +1,21 @@
 <script setup lang="ts">
 /**
- * The model definition: its component tree, and whether it is valid.
+ * The model definition: its component tree, and the button that checks it.
  *
- * Validation lives here rather than in a panel of its own because an error is a
- * statement *about* the model definition — and putting it in the same column as
- * the tree lets the third splitter panel disappear entirely, which is what gives
- * a run's charts the full width they need.
+ * Validation is *started* here, because it is an act on the model as a whole and
+ * this is the model's column, but its results are a tab. They used to be a list
+ * pinned under this tree, which put them one navigation away from being gone —
+ * and going to Files is precisely what a user does about a validation error.
+ *
+ * One button, not two. "Validate" and "Deep" looked like two settings of one
+ * knob and were a millisecond YAML parse and a minutes-long Calliope build; the
+ * server now runs the first and escalates to the second only on a clean parse.
  */
 import { computed, ref, watch } from "vue";
 import { Badge } from "@/components/ui/badge";
 import PanelHeader from "@/components/app/PanelHeader.vue";
-import { ICON_BUTTON } from "@/lib/formClasses";
-import { Network, RefreshCw, ShieldCheck } from "@lucide/vue";
+import { GHOST_BUTTON, ICON_BUTTON } from "@/lib/formClasses";
+import { Loader2, Network, RefreshCw, ShieldCheck } from "@lucide/vue";
 
 import ImportGraphDialog from "@/components/layout/ImportGraphDialog.vue";
 import { Tree } from "@/components/ui/tree";
@@ -60,12 +64,16 @@ function open(node: ModelTreeNode, event: MouseEvent | KeyboardEvent) {
   else tabs.openSection(node.section, node.file, intent);
 }
 
-function validate() {
-  if (tabs.versionId) validation.validate(tabs.versionId);
-}
+const validating = computed(
+  () => validation.phase === "syntax" || validation.phase === "build",
+);
 
-function validateDeep() {
-  if (tabs.versionId) validation.validateDeep(tabs.versionId);
+// The tab opens first, so that the build tier — which can run for minutes — has
+// somewhere to report from for the whole of that time rather than at the end.
+function validate() {
+  if (!tabs.versionId) return;
+  tabs.openValidation();
+  validation.validate(tabs.versionId);
 }
 </script>
 
@@ -74,22 +82,18 @@ function validateDeep() {
     <PanelHeader>
       <button
         type="button"
-        title="Validate"
+        title="Parse the YAML, then ask Calliope to build the model"
         data-testid="validate"
-        class="inline-flex h-6 items-center gap-1.5 rounded-sm px-2 text-sm text-text-dim hover:bg-hover hover:text-foreground"
+        :class="GHOST_BUTTON"
+        :disabled="validating || !tabs.versionId"
         @click="validate"
       >
-        <ShieldCheck class="size-3.5" />
-        Validate
-      </button>
-      <button
-        type="button"
-        title="Ask Calliope to build the model"
-        data-testid="validate-deep"
-        class="inline-flex h-6 items-center rounded-sm px-2 text-sm text-text-dim hover:bg-hover hover:text-foreground"
-        @click="validateDeep"
-      >
-        Deep
+        <component
+          :is="validating ? Loader2 : ShieldCheck"
+          class="size-3.5"
+          :class="validating && 'animate-spin'"
+        />
+        {{ validating ? "Validating…" : "Validate" }}
       </button>
       <div class="flex-1" />
       <button
@@ -143,27 +147,6 @@ function validateDeep() {
         </span>
       </template>
     </Tree>
-
-    <!-- Problems, below the tree: both are narrow lists and belong in one column. -->
-    <div
-      v-if="validation.errors.length"
-      data-testid="validation-errors"
-      class="max-h-64 shrink-0 overflow-auto border-t border-border"
-    >
-      <button
-        v-for="(problem, index) in validation.errors"
-        :key="index"
-        type="button"
-        class="flex w-full flex-col items-start gap-0.5 border-b border-border-subtle px-2 py-1 text-left hover:bg-hover"
-        @click="problem.line != null && tabs.jumpTo(problem.file, problem.line, 1)"
-      >
-        <span class="flex w-full items-center gap-1 text-2xs text-text-faint">
-          <span class="truncate">{{ problem.file }}</span>
-          <span v-if="problem.line != null">:{{ problem.line }}</span>
-        </span>
-        <span class="text-sm text-danger-text">{{ problem.message }}</span>
-      </button>
-    </div>
 
     <ImportGraphDialog
       v-if="tabs.versionId"

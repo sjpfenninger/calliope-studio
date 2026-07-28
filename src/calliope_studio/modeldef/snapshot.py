@@ -71,12 +71,16 @@ def _import_entries(document: Any) -> list[str]:
     return [str(entry) for entry in imports if entry]
 
 
-def _math_paths(document: Any) -> list[str]:
+def math_paths(document: Any) -> list[str]:
     """Math files named in `config.init.math_paths`.
 
     These are *not* reachable through `import:`, so the import graph cannot see
     them. `urban_scale` refers to `additional_math.yaml` this way, and a snapshot
     missing it is not a model that builds.
+
+    Public because it is the only implementation of this route in the package,
+    and `filekinds` needs the same answer for a different reason: a file Calliope
+    reads as math must not be validated against the model-definition schema.
     """
     config = document.get("config") if isinstance(document, dict) else None
     init = config.get("init") if isinstance(config, dict) else None
@@ -152,7 +156,7 @@ def collect(workspace: Path) -> Collected:
         # already captured above and skipped here as duplicates.
         for name in _import_entries(document):
             add(path.parent / name, path, "import")
-        for name in _math_paths(document):
+        for name in math_paths(document):
             add(path.parent / name, path, "math")
         for _, config, directory in collect_data_tables(path):
             for name in _data_files(config):

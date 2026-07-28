@@ -24,7 +24,7 @@ import { health, open, requireMode, results } from "./harness.mjs";
 
 const BASE = process.argv[2] ?? "http://127.0.0.1:8000";
 
-const { check, finish } = results("monaco");
+const { check, skip, finish } = results("monaco");
 const payload = requireMode(await health(BASE), "workspace", BASE);
 const { browser, page, testId, consoleErrors, until } = await open();
 
@@ -124,5 +124,52 @@ const cleared = await until(
 );
 check("a valid model validates clean, once the edit is taken back", cleared);
 check("and the edit really is gone", !(await typed()));
+
+// Which schema a file is checked against.
+//
+// One association matching `*.yaml` is all a single `fileMatch` can say, and it
+// meant every file was checked against the model-definition schema — so a math
+// file, which shares none of its keys, reported all of them as unknown. The kind
+// is detected from how Calliope *reaches* the file, and is correctable, because
+// a file drafted before it is imported is reachable from nothing.
+const kindLabel = async () => (await testId("schema-kind-trigger").textContent()).trim();
+
+await testId("schema-kind").waitFor({ timeout: 20000 });
+check(
+  "the entry point is checked against the model definition",
+  /Model definition/i.test(await kindLabel()),
+  await kindLabel(),
+);
+
+// `urban_scale` names its math in `config.init.math_paths`, which the import
+// graph cannot see; `national_scale` has no math file, so it is skipped rather
+// than asserted on the wrong model.
+const mathFile = page.getByText("additional_math.yaml", { exact: true }).first();
+if (await mathFile.count()) {
+  await mathFile.click();
+  const isMath = await until(async () => /Math/i.test(await kindLabel()), {
+    timeout: 20000,
+  });
+  check("a math file is checked against the math schema", isMath, await kindLabel());
+
+  await testId("schema-kind-trigger").click();
+  await page.getByRole("option", { name: "Model definition" }).click();
+  const overridden = await until(
+    async () => /Model definition/i.test(await kindLabel()),
+    { timeout: 20000 },
+  );
+  check("the user can correct a kind we got wrong", overridden);
+  check("and it is marked as theirs", (await testId("schema-kind-reset").count()) === 1);
+
+  await testId("schema-kind-reset").click();
+  const reset = await until(async () => /Math/i.test(await kindLabel()), {
+    timeout: 20000,
+  });
+  check("resetting hands it back to detection", reset);
+} else {
+  // `national_scale` has no math file. Run this against `urban_scale` for the
+  // case the whole classifier exists for.
+  skip("a math file is checked against the math schema — no math file here");
+}
 
 await finish(browser);

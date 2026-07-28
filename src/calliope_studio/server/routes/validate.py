@@ -1,8 +1,20 @@
-"""Validation, in two tiers.
+"""Validation: one action, two tiers, one envelope.
 
-`POST /validate/` is the cheap in-process YAML syntax check. `POST
-/validate/deep/` asks Calliope itself, which needs a subprocess and takes long
-enough to warrant the accepted-then-poll shape the frontend already implements.
+There used to be two endpoints, and to a user they looked like two settings of
+one knob rather than what they are — a millisecond YAML parse and a full Calliope
+build that takes seconds to minutes. Deep subsumed syntax in coverage anyway: a
+file that will not parse also fails `read_yaml`, just with a worse message and no
+line number. So there is one entry point, and it escalates.
+
+The syntax tier runs in-process first. If it finds anything, that is the answer:
+spawning a worker to fail the same parse would cost a subprocess to produce a
+vaguer version of a problem already located to the line. Only a clean parse is
+worth a build.
+
+Both paths return the same keys, so a client can read one shape and poll only
+when there is something to poll:
+
+    {"task_id": str | None, "status": ..., "phase": ..., "result": ... | None}
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -18,23 +30,22 @@ from calliope_studio.server.storage import LocalStorage, Workspace
 router = APIRouter(tags=["validate"])
 
 
-@router.post("/versions/{id}/validate/")
-def validate_syntax(workspace: Workspace = Depends(get_workspace)) -> dict:
-    return check_syntax(workspace.path)
-
-
-@router.post("/versions/{id}/validate/deep/", status_code=status.HTTP_202_ACCEPTED)
-def validate_deep(
+@router.post("/versions/{id}/validate/", status_code=status.HTTP_202_ACCEPTED)
+def validate(
     workspace: Workspace = Depends(get_workspace),
     storage: LocalStorage = Depends(get_storage),
     runs: RunManager = Depends(get_runs),
 ) -> dict:
-    """Starts a build-only run and returns a task handle to poll.
+    """Checks syntax, and starts a build-only run if the syntax is clean.
 
     Building without solving exercises the whole definition and all of the math
     while needing no solver, which makes it the most thorough check available
     cheaply.
     """
+    syntax = check_syntax(workspace.path)
+    if syntax["errors"]:
+        return {"task_id": None, "status": "done", "phase": "syntax", "result": syntax}
+
     model_yaml = find_model_yaml(workspace.path)
     if model_yaml is None:
         raise HTTPException(
@@ -52,12 +63,12 @@ def validate_deep(
             workspace=str(workspace.path), model_file=model_yaml.name, build_only=True
         ),
     )
-    return {"task_id": record.id}
+    return {"task_id": record.id, "status": "running", "phase": "build", "result": None}
 
 
 @router.get("/tasks/{task_id}/")
 def task_status(task_id: str, runs: RunManager = Depends(get_runs)) -> dict:
-    """Polls a deep-validation task."""
+    """Polls a validation's build tier."""
     try:
         run_dir = runs.run_dir(task_id)
     except KeyError:
@@ -68,19 +79,46 @@ def task_status(task_id: str, runs: RunManager = Depends(get_runs)) -> dict:
     outcome = protocol.read_outcome(run_dir)
     if outcome is None:
         record = runs.get(task_id)
-        if record.status == "failed":
-            # Died without writing an outcome; report it rather than polling
-            # forever.
+        if record.status in ("failed", "cancelled"):
+            # Terminal without an outcome: killed, or died before it could write
+            # one. Report it rather than polling forever.
             return {
+                "task_id": task_id,
                 "status": "done",
+                "phase": "build",
                 "result": errors_from_outcome(
-                    {"status": "failed", "error": record.error}, "model.yaml"
+                    {"status": record.status, "error": record.error}, "model.yaml"
                 ),
             }
-        return {"status": "running", "result": None}
+        return {
+            "task_id": task_id,
+            "status": "running",
+            "phase": "build",
+            "result": None,
+        }
 
     request = protocol.RunRequest.read(run_dir)
     return {
+        "task_id": task_id,
         "status": "done",
+        "phase": "build",
         "result": errors_from_outcome(outcome, request.model_file),
     }
+
+
+@router.post("/tasks/{task_id}/cancel/")
+async def cancel_task(task_id: str, runs: RunManager = Depends(get_runs)) -> dict:
+    """Stops a validation's build by killing its process group.
+
+    A build on a large model takes long enough that leaving no way out of it is
+    its own defect. Same mechanism as cancelling a run, because a validation *is*
+    a run — Calliope has no interrupt API, so the process group is the only
+    lever.
+    """
+    try:
+        await runs.cancel(task_id)
+    except KeyError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Task not found."
+        ) from None
+    return {"task_id": task_id, "status": "done", "phase": "build", "result": None}

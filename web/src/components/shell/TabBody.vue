@@ -23,6 +23,7 @@ import StateMessage from "@/components/app/StateMessage.vue";
 import CsvGridEditor from "@/components/editor/CsvGridEditor.vue";
 import MonacoYamlEditor from "@/components/editor/MonacoYamlEditor.vue";
 import RunTabView from "@/components/runs/RunTabView.vue";
+import ValidationTabView from "@/components/validation/ValidationTabView.vue";
 import StructuredEditorHost from "./StructuredEditorHost.vue";
 import { useTabsStore } from "@/stores/tabs";
 
@@ -75,6 +76,14 @@ const structuredTab = computed(() => {
       :tab="structuredTab"
       :versionId="tabs.versionId"
       class="absolute inset-0"
+    />
+
+    <!-- Plain `v-if`: no canvas, no Monaco model, and the store behind it is a
+         singleton, so there is nothing here that a remount would have to rebuild. -->
+    <ValidationTabView
+      v-if="active?.kind === 'validation'"
+      :tab="active"
+      class="absolute inset-0 flex"
     />
 
     <!-- One live pane per run tab that has ever been fronted, so switching back

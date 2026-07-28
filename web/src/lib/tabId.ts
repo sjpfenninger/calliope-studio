@@ -19,13 +19,19 @@
  *     entry:{section}:{filePath}:{entryName}
  *     run:{runId}          a run started in this workspace
  *     run:~{handle}        a bare results file, which has no run
+ *     validation           this model's validation results
+ *
+ * `validation` carries no segment. A window holds one model version, and its
+ * results are about that model as a whole rather than about anything in it, so
+ * there is nothing to name — which makes it the one id with an empty tail.
  */
 
 export type TabSpec =
   | { kind: "file"; path: string }
   | { kind: "section"; section: string; filePath: string }
   | { kind: "entry"; section: string; filePath: string; entryName: string }
-  | { kind: "run"; runId: string | null; handle: string | null };
+  | { kind: "run"; runId: string | null; handle: string | null }
+  | { kind: "validation" };
 
 export type TabKind = TabSpec["kind"];
 
@@ -48,6 +54,8 @@ export function tabId(spec: TabSpec): string {
       return spec.runId
         ? `run:${encode(spec.runId)}`
         : `run:~${encode(spec.handle ?? "")}`;
+    case "validation":
+      return "validation";
   }
 }
 
@@ -88,6 +96,11 @@ export function parseTabId(id: string): TabSpec | null {
         : { kind: "run", runId: decode(reference), handle: null };
     }
 
+    // The one kind with no segments: `"validation".split(":")` leaves `rest`
+    // empty, so the length check that guards every other kind reads `0` here.
+    case "validation":
+      return rest.length === 0 ? { kind: "validation" } : null;
+
     default:
       return null;
   }
@@ -108,3 +121,5 @@ export const entryTabId = (
 
 export const runTabId = (runId: string | null, handle: string | null = null): string =>
   tabId({ kind: "run", runId, handle });
+
+export const validationTabId = (): string => tabId({ kind: "validation" });

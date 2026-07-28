@@ -355,15 +355,47 @@ class TestComponentUnits:
 
 
 class TestValidation:
-    def test_clean_model_has_no_syntax_errors(self, client, ws):
-        assert client.post(f"/api/versions/{ws}/validate/").json() == {"errors": []}
+    """One endpoint, which escalates.
+
+    The syntax tier runs in-process and, only if it finds nothing, a build-only
+    run is started and its id returned to poll. Both paths answer with the same
+    keys so a client reads one shape.
+    """
 
     def test_broken_yaml_is_reported_with_a_line_number(
         self, client, ws, national_scale
     ):
         (national_scale / "broken.yaml").write_text("a: 1\n  b: [unclosed\n")
-        errors = client.post(f"/api/versions/{ws}/validate/").json()["errors"]
+        body = client.post(f"/api/versions/{ws}/validate/").json()
+
+        assert body["phase"] == "syntax"
+        assert body["status"] == "done"
+        errors = body["result"]["errors"]
         assert len(errors) == 1
         assert errors[0]["file"] == "broken.yaml"
         assert errors[0]["line"] is not None
         assert errors[0]["severity"] == "error"
+        assert errors[0]["tier"] == "syntax"
+
+    def test_a_syntax_error_starts_no_worker(self, client, ws, national_scale):
+        """The whole point of keeping the cheap tier.
+
+        A file that will not parse also fails `read_yaml`, so a build would cost
+        a subprocess to produce a vaguer version of a problem already located to
+        the line.
+        """
+        (national_scale / "broken.yaml").write_text("a: 1\n  b: [unclosed\n")
+        body = client.post(f"/api/versions/{ws}/validate/").json()
+
+        assert body["task_id"] is None
+        assert not (national_scale / "calliope-studio").exists()
+
+    def test_clean_syntax_escalates_to_a_build(self, client, ws):
+        response = client.post(f"/api/versions/{ws}/validate/")
+
+        assert response.status_code == 202
+        body = response.json()
+        assert body["phase"] == "build"
+        assert body["status"] == "running"
+        assert body["task_id"]
+        assert body["result"] is None

@@ -30,6 +30,7 @@ const specs: TabSpec[] = [
   },
   { kind: "run", runId: "0d1e2f34-5678-4abc-8def-000000000000", handle: null },
   { kind: "run", runId: null, handle: "2d3f9a1b4c5d6e7f" },
+  { kind: "validation" },
 ];
 
 describe("tabId", () => {
@@ -68,6 +69,14 @@ describe("tabId", () => {
 
   it("keeps a section tab distinct from the file it came from", () => {
     expect(sectionTabId("techs", "techs.yaml")).not.toBe(fileTabId("techs.yaml"));
+  });
+
+  it("parses the one id with no segments", () => {
+    // `"validation".split(":")` leaves an empty tail, so the length check that
+    // guards every other kind has to read 0 here rather than 1.
+    expect(parseTabId("validation")).toEqual({ kind: "validation" });
+    // And a tail it should not have is still rejected, like any other kind.
+    expect(parseTabId("validation:extra")).toBeNull();
   });
 
   it("keeps a run and a bare results file distinct", () => {

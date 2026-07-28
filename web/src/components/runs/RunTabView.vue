@@ -33,11 +33,16 @@ const runs = useRunsStore();
 
 const run = computed(() => (props.tab.runId ? runs.get(props.tab.runId) : undefined));
 
-// The table sits beside the results rather than at the end: both are the solved
+// The tables sit beside the graphs rather than at the end: both are the solved
 // model, and both need only a handle, where the other two need a run.
+//
+// The labels say what each one *is*, which "Results" did not — everything under
+// this bar is the results, so it named the tab bar rather than the tab. The ids
+// stay `results` and `table`: they are the API into the store, the `data-testid`
+// suffixes and the sub-view a `?tab=` URL names.
 const VIEWS: Array<{ id: RunSubView; label: string }> = [
-  { id: "results", label: "Results" },
-  { id: "table", label: "Table" },
+  { id: "results", label: "Graphs" },
+  { id: "table", label: "Tables" },
   { id: "config", label: "Config" },
   { id: "log", label: "Log" },
 ];

@@ -34,7 +34,7 @@ import { Switch } from "@/components/ui/switch";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useResultFrame } from "@/composables/useResultFrame";
 import { RESOLUTION_LABELS, SUM_LABELS, keepOne } from "@/lib/chartControls";
-import { downloadText } from "@/lib/download";
+import { saveText } from "@/lib/download";
 import { csvFilename, frameToCsv } from "@/lib/frameCsv";
 import { frameToGrid } from "@/lib/tableRows";
 import {
@@ -82,12 +82,11 @@ const isEmpty = computed(
 );
 
 function exportCsv() {
+  // Built before anything is awaited: `saveText` opens a file picker, and that
+  // needs the click's user gesture still to be live.
   const csv = frameToCsv([{ frame: table.frame.value }], store.techLabels);
   if (!csv) return;
-  downloadText(
-    csvFilename(store.catalog?.name, store.variableTable ?? "table"),
-    csv,
-  );
+  void saveText(csvFilename(store.catalog?.name, store.variableTable ?? "table"), csv);
 }
 
 /** `keepOne` for the sum-by toggle, refusing a locked option. See SUM_OPTIONS. */

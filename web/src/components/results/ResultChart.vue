@@ -69,9 +69,16 @@ function separator(): string {
   return resolvedColor("--cg-surface", "#ffffff");
 }
 
-/** Whether the index is real time, and so deserves a time axis. */
+/**
+ * Whether the index is real time, and so deserves a time axis.
+ *
+ * The Arrow column's declared type rather than its name, which is the same
+ * answer arriving by a better route: a duration curve's `period` index and a
+ * category axis are both plainly not timestamps, and nothing has to remember
+ * that the time dimension is spelled `timesteps`.
+ */
 function isTimeIndex(frame: ResultFrame): boolean {
-  return frame.indexName === "timesteps";
+  return frame.indexIsTime;
 }
 
 function axisValues(frame: ResultFrame): (string | number)[] {

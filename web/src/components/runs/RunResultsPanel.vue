@@ -48,7 +48,7 @@ import type { ResultFrame } from "@/api/results";
 import { useResultFrame } from "@/composables/useResultFrame";
 import { RESOLUTION_LABELS, SUM_LABELS, keepOne } from "@/lib/chartControls";
 import { resolvedColor } from "@/lib/cssColor";
-import { downloadText } from "@/lib/download";
+import { saveText } from "@/lib/download";
 import { csvFilename, frameToCsv, type CsvSource } from "@/lib/frameCsv";
 import { nodeSlices, nodeTotals, valueExtent } from "@/lib/mapValues";
 import {
@@ -508,9 +508,11 @@ function chooseSum(next: unknown, current: SumBy, variable: string | null): SumB
  * load-duration curve. That is not a quirk to work around; it is the figure.
  */
 function exportFrames(sources: CsvSource[], variable: string) {
+  // Built before anything is awaited: `saveText` opens a file picker, and that
+  // needs the click's user gesture still to be live.
   const csv = frameToCsv(sources, store.techLabels);
   if (!csv) return;
-  downloadText(csvFilename(store.catalog?.name, variable), csv);
+  void saveText(csvFilename(store.catalog?.name, variable), csv);
 }
 
 function hasData(frame: ResultFrame | null): boolean {
@@ -821,7 +823,11 @@ const mapVariableName = computed(() =>
                   </InfoTip>
                 </ToggleGroup>
 
-                <div class="flex-1" />
+                <!-- Inline, with no spacer before it. A `flex-1` would right-align
+                     it, and in a wrapping header that means it takes a second row
+                     of its own — making this title bar half as tall again as the
+                     two beside it, which is what RESOLUTION_LABELS exists to
+                     prevent and what a collapsed figure is measured by. -->
                 <TooltipButton
                   label="Export this chart's data as CSV"
                   :icon="Download"
@@ -936,7 +942,6 @@ const mapVariableName = computed(() =>
                   </InfoTip>
                 </ToggleGroup>
 
-                <div class="flex-1" />
                 <TooltipButton
                   label="Export this chart's data as CSV"
                   :icon="Download"

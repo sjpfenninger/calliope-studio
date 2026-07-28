@@ -465,13 +465,32 @@ if (await testId("run-subtab-log").isEnabled()) {
 // the figure is already holding, which is what makes "the file is the chart"
 // true rather than merely intended.
 
-/** Clicks something that downloads, and returns the file. */
+// An export asks where to go rather than landing silently in the downloads
+// folder. The picker is native UI with nothing for a headless browser to click,
+// so it is stubbed with one that records what it was *asked* and what would have
+// been written — which is the thing worth asserting anyway.
+await page.evaluate(() => {
+  window.__cgSaved = [];
+  window.showSaveFilePicker = async (options) => ({
+    createWritable: async () => ({
+      write: async (text) => {
+        window.__cgSaved.push({ name: options.suggestedName, text });
+      },
+      close: async () => {},
+    }),
+  });
+});
+
+/** Clicks something that exports, and returns the file it would have written. */
 const capture = async (trigger) => {
-  const [event] = await Promise.all([page.waitForEvent("download"), trigger()]);
-  const stream = await event.createReadStream();
-  let text = "";
-  for await (const chunk of stream) text += chunk;
-  return { name: event.suggestedFilename(), text };
+  const before = await page.evaluate(() => window.__cgSaved.length);
+  await trigger();
+  await page.waitForFunction(
+    (count) => window.__cgSaved.length > count,
+    before,
+    { timeout: 10000 },
+  );
+  return page.evaluate(() => window.__cgSaved.at(-1));
 };
 
 const rows = (csv) => csv.trimEnd().split("\n");
@@ -492,6 +511,13 @@ check(
 check(
   "every row has as many fields as the header",
   new Set(rows(seriesChart.text).map((line) => line.split(",").length)).size === 1,
+);
+// apache-arrow hands a timestamp column back as a plain number of epoch
+// milliseconds, so this used to read `1104537600000`.
+check(
+  "timesteps are written as ISO datetimes, not epoch integers",
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2},/.test(rows(seriesChart.text)[1]),
+  rows(seriesChart.text)[1].slice(0, 40),
 );
 
 // A duration curve is a different figure over the same variable: the index stops
@@ -603,6 +629,39 @@ check(
 check(
   "a number is never locale-formatted",
   !/\d\.\d{3},\d/.test(table.text),
+);
+
+// Cancelling the dialog has to mean the file is not written. Falling back to an
+// ordinary download here would save the export the user just declined to save.
+await page.evaluate(() => {
+  window.showSaveFilePicker = async () => {
+    throw Object.assign(new Error("aborted"), { name: "AbortError" });
+  };
+});
+const savedBefore = await page.evaluate(() => window.__cgSaved.length);
+let sneaked = false;
+page.once("download", () => {
+  sneaked = true;
+});
+await testId("table-download").click();
+await page.waitForTimeout(2000);
+check(
+  "cancelling the save dialog writes nothing, by either route",
+  !sneaked && (await page.evaluate(() => window.__cgSaved.length)) === savedBefore,
+);
+
+// A browser with no picker at all — Firefox, Safari — still gets its file.
+await page.evaluate(() => {
+  delete window.showSaveFilePicker;
+});
+const [fallback] = await Promise.all([
+  page.waitForEvent("download", { timeout: 10000 }),
+  testId("table-download").click(),
+]);
+check(
+  "a browser without the picker falls back to a download",
+  /\.csv$/.test(fallback.suggestedFilename()),
+  fallback.suggestedFilename(),
 );
 
 await testId("run-subtab-results").click();

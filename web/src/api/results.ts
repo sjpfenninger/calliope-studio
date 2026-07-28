@@ -1,4 +1,9 @@
-import { RecordBatchReader, type RecordBatch, type Table } from "apache-arrow";
+import {
+  DataType,
+  RecordBatchReader,
+  type RecordBatch,
+  type Table,
+} from "apache-arrow";
 import client from "./client";
 
 /** How a chart asks for data. Changing any field re-fetches the chart. */
@@ -26,6 +31,16 @@ export interface ResultFrame {
   /** Index values: timestamps, category labels, or period numbers. */
   index: unknown[];
   indexName: string;
+  /**
+   * Whether the index is an instant in time.
+   *
+   * Read off the Arrow column's own type rather than guessed from `indexName`.
+   * It matters because apache-arrow hands a `Timestamp` column back as a plain
+   * *number* of epoch milliseconds — not a `Date` — so nothing about the value
+   * itself says it is a date, and an export wrote `1104537600000` where it meant
+   * `2005-01-01T00:00:00`.
+   */
+  indexIsTime: boolean;
   series: Series[];
   variable: string;
   order: "time" | "duration";
@@ -146,6 +161,7 @@ export async function* streamFrame(
 const EMPTY_FRAME: ResultFrame = {
   index: [],
   indexName: "index",
+  indexIsTime: false,
   series: [],
   variable: "",
   order: "time",
@@ -155,7 +171,15 @@ const EMPTY_FRAME: ResultFrame = {
 function toFrame(batches: RecordBatch[], schema: Table["schema"]): ResultFrame {
   const meta = decodeMetadata(schema.metadata);
   const seriesDims: string[] = JSON.parse(meta.series_dims ?? "[]");
-  const indexName = meta.index ?? schema.fields[0]?.name ?? "index";
+  const indexField = schema.fields[0];
+  const indexName = meta.index ?? indexField?.name ?? "index";
+  // The column's declared type, not its name and not the shape of a value:
+  // pandas writes `timestamp[ns]`, and apache-arrow returns those as ordinary
+  // numbers of epoch milliseconds.
+  const indexIsTime = Boolean(
+    indexField &&
+      (DataType.isTimestamp(indexField.type) || DataType.isDate(indexField.type)),
+  );
 
   const index: unknown[] = [];
   const columns: unknown[][] = schema.fields.slice(1).map(() => []);
@@ -190,6 +214,7 @@ function toFrame(batches: RecordBatch[], schema: Table["schema"]): ResultFrame {
   return {
     index,
     indexName,
+    indexIsTime,
     series,
     variable: meta.variable ?? "",
     order: (meta.order as "time" | "duration") ?? "time",

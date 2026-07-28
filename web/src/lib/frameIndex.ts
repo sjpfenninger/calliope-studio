@@ -29,6 +29,13 @@ export function normaliseIndexValue(value: unknown): IndexValue {
 /**
  * An index value as text, for a CSV or a grid cell.
  *
+ * `isTime` has to be passed rather than sniffed. apache-arrow hands a
+ * `Timestamp` column back as a plain **number** of epoch milliseconds — not a
+ * `Date` — so a timestep is indistinguishable from a period count by looking at
+ * it, and an export wrote `1104537600000` where it meant `2005-01-01T00:00:00`.
+ * `ResultFrame.indexIsTime` carries the column's declared Arrow type, which is
+ * the only thing that actually knows.
+ *
  * Timestamps are written in **UTC**, and deliberately: Calliope's timesteps are
  * naive local time and Arrow carries them as an instant, so reading them back
  * with the browser's local getters would shift every timestep by whatever the
@@ -38,20 +45,27 @@ export function normaliseIndexValue(value: unknown): IndexValue {
  * The seconds are kept and the milliseconds and zone marker dropped, which is
  * the form Calliope's own files use.
  */
-export function indexToText(value: unknown): string {
+export function indexToText(value: unknown, isTime = false): string {
   const normalised = normaliseIndexValue(value);
-  if (!(normalised instanceof Date)) return String(normalised);
+  const at =
+    normalised instanceof Date
+      ? normalised
+      : isTime && typeof normalised === "number"
+        ? new Date(normalised)
+        : null;
+  if (at === null) return String(normalised);
+  if (Number.isNaN(at.getTime())) return String(normalised);
 
   const pad = (part: number, width = 2) => String(part).padStart(width, "0");
   const date = [
-    pad(normalised.getUTCFullYear(), 4),
-    pad(normalised.getUTCMonth() + 1),
-    pad(normalised.getUTCDate()),
+    pad(at.getUTCFullYear(), 4),
+    pad(at.getUTCMonth() + 1),
+    pad(at.getUTCDate()),
   ].join("-");
   const time = [
-    pad(normalised.getUTCHours()),
-    pad(normalised.getUTCMinutes()),
-    pad(normalised.getUTCSeconds()),
+    pad(at.getUTCHours()),
+    pad(at.getUTCMinutes()),
+    pad(at.getUTCSeconds()),
   ].join(":");
   return `${date}T${time}`;
 }
@@ -65,12 +79,15 @@ export function indexToText(value: unknown): string {
  * as it does in a legend, rather than reverting to its generated `a_to_b` name.
  * `techs` is the only dimension with display names, and the only one substituted,
  * so a node sharing a name with a technology is not renamed along with it.
+ *
+ * Takes the *text*, not the raw value: the CSV writer joins its sources on the
+ * canonical text and can only label on the way out, so both callers have it
+ * already and neither should be able to format it a second, different way.
  */
 export function indexToLabel(
-  value: unknown,
+  text: string,
   indexName: string,
   labels: Record<string, string>,
 ): string {
-  const text = indexToText(value);
   return indexName === "techs" ? (labels[text] ?? text) : text;
 }

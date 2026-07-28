@@ -10,7 +10,7 @@
 import type { ColDef } from "ag-grid-community";
 
 import type { ResultFrame } from "../api/results";
-import { indexToLabel } from "./frameIndex";
+import { indexToLabel, indexToText } from "./frameIndex";
 import { seriesLabel } from "./seriesLabel";
 
 export interface GridShape {
@@ -73,7 +73,11 @@ export function frameToGrid(
 
   const rows = frame.index.map((value, row) => {
     const entry: Record<string, unknown> = {
-      [fieldFor(0)]: indexToLabel(value, indexName, labels),
+      [fieldFor(0)]: indexToLabel(
+        indexToText(value, frame.indexIsTime),
+        indexName,
+        labels,
+      ),
     };
     frame.series.forEach((series, position) => {
       const cell = series.values[row];

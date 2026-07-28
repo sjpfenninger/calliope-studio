@@ -11,6 +11,7 @@ function frame(overrides: Partial<ResultFrame> = {}): ResultFrame {
   return {
     index: ["2005-01-01T00:00:00", "2005-01-01T01:00:00"],
     indexName: "timesteps",
+    indexIsTime: false,
     series: [series("ccgt", { techs: "ccgt" }, [1, 2])],
     variable: "flow_cap",
     order: "time",
@@ -18,6 +19,9 @@ function frame(overrides: Partial<ResultFrame> = {}): ResultFrame {
     ...overrides,
   };
 }
+
+/** What a real timesteps column looks like: epoch milliseconds, as numbers. */
+const EPOCH = [1104537600000, 1104541200000];
 
 const LINES = (csv: string) => csv.trimEnd().split("\n");
 
@@ -64,6 +68,36 @@ describe("frameToCsv", () => {
       { region1_to_region2: "region1 → region2" },
     );
     expect(LINES(csv)).toEqual(["techs,value", "region1 → region2,1", "ccgt,2"]);
+  });
+
+  it("writes a timestamp column as ISO, not as epoch milliseconds", () => {
+    const csv = frameToCsv([
+      { frame: frame({ index: EPOCH, indexIsTime: true }) },
+    ]);
+    expect(LINES(csv)).toEqual([
+      "timesteps,ccgt",
+      "2005-01-01T00:00:00,1",
+      "2005-01-01T01:00:00,2",
+    ]);
+  });
+
+  it("joins two timestamp frames on the instant, not on the raw value", () => {
+    const asNumbers = frame({ index: EPOCH, indexIsTime: true });
+    const asDates = frame({
+      index: EPOCH.map((ms) => new Date(ms)),
+      indexIsTime: true,
+      series: [series("csp", { techs: "csp" }, [3, 4])],
+    });
+    const csv = frameToCsv([
+      { label: "a", frame: asNumbers },
+      { label: "b", frame: asDates },
+    ]);
+    // Two rows, not four: the same instant written two ways is one row.
+    expect(LINES(csv)).toEqual([
+      "timesteps,a · ccgt,b · csp",
+      "2005-01-01T00:00:00,1,3",
+      "2005-01-01T01:00:00,2,4",
+    ]);
   });
 
   it("writes NaN as an empty field, not the text NaN", () => {

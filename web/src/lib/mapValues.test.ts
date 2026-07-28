@@ -16,6 +16,7 @@ function frame(index: string[], columns: Series[]): ResultFrame {
   return {
     index,
     indexName: "nodes",
+    indexIsTime: false,
     series: columns,
     variable: "flow_cap",
     order: "time",

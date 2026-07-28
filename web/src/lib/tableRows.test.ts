@@ -11,6 +11,7 @@ function frame(overrides: Partial<ResultFrame> = {}): ResultFrame {
   return {
     index: ["2005-01-01T00:00:00", "2005-01-01T01:00:00"],
     indexName: "timesteps",
+    indexIsTime: false,
     series: [series("region1 | ccgt", { nodes: "region1", techs: "ccgt" }, [1, 2])],
     variable: "flow_cap",
     order: "time",
@@ -60,6 +61,16 @@ describe("frameToGrid", () => {
       { region1_to_region2: "region1 → region2" },
     );
     expect(rows[0].c0).toBe("region1 → region2");
+  });
+
+  it("shows a timestamp column as ISO, exactly as the CSV writes it", () => {
+    const { rows } = frameToGrid(
+      frame({ index: [1104537600000, 1104541200000], indexIsTime: true }),
+    );
+    expect(rows.map((row) => row.c0)).toEqual([
+      "2005-01-01T00:00:00",
+      "2005-01-01T01:00:00",
+    ]);
   });
 
   it("puts the raw number in the row and leaves formatting to the column", () => {

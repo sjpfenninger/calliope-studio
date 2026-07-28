@@ -89,7 +89,7 @@ export function frameToCsv(
   const spine: string[] = [];
   for (const { frame } of present) {
     for (const value of frame.index) {
-      const key = indexToText(value);
+      const key = indexToText(value, frame.indexIsTime);
       if (rowOf.has(key)) continue;
       rowOf.set(key, spine.length);
       spine.push(key);
@@ -103,7 +103,9 @@ export function frameToCsv(
   for (const { frame, label } of present) {
     // Where each of this frame's rows lands in the spine, computed once rather
     // than per series: a frame has a handful of series and up to a year of hours.
-    const positions = frame.index.map((value) => rowOf.get(indexToText(value))!);
+    const positions = frame.index.map(
+      (value) => rowOf.get(indexToText(value, frame.indexIsTime))!,
+    );
 
     for (const series of frame.series) {
       const name = seriesLabel(series, frame.seriesDims, labels);

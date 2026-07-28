@@ -49,6 +49,31 @@ describe("indexToText", () => {
   it("writes a category index as itself", () => {
     expect(indexToText("region1")).toBe("region1");
   });
+
+  /**
+   * The case the export got wrong. apache-arrow hands a `Timestamp` column back
+   * as a plain number of epoch milliseconds, so nothing about the value says it
+   * is a date — the file said `1104537600000` where it meant midnight on New
+   * Year's Day 2005.
+   */
+  it("reads epoch milliseconds as a date when told the column is one", () => {
+    expect(indexToText(1104537600000, true)).toBe("2005-01-01T00:00:00");
+    expect(indexToText(1104541200000, true)).toBe("2005-01-01T01:00:00");
+  });
+
+  it("leaves the same number alone when the column is not temporal", () => {
+    // A period count is a number and must stay one.
+    expect(indexToText(1104537600000)).toBe("1104537600000");
+    expect(indexToText(8759, false)).toBe("8759");
+  });
+
+  it("reads a bigint epoch as a date too", () => {
+    expect(indexToText(1104537600000n, true)).toBe("2005-01-01T00:00:00");
+  });
+
+  it("falls back to the raw value rather than writing 'Invalid Date'", () => {
+    expect(indexToText(Number.NaN, true)).toBe("NaN");
+  });
 });
 
 describe("indexToLabel", () => {
@@ -65,6 +90,14 @@ describe("indexToLabel", () => {
   it("does not relabel a node that shares a technology's name", () => {
     expect(indexToLabel("region1_to_region2", "nodes", labels)).toBe(
       "region1_to_region2",
+    );
+  });
+
+  it("takes text, so it cannot format a value a second way", () => {
+    // Composed with `indexToText` by its callers rather than calling it itself:
+    // the CSV writer joins on the canonical text and labels only on the way out.
+    expect(indexToLabel(indexToText(1104537600000, true), "timesteps", labels)).toBe(
+      "2005-01-01T00:00:00",
     );
   });
 });

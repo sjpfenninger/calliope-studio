@@ -2,6 +2,21 @@ import { computed, ref, watch } from "vue";
 import { defineStore } from "pinia";
 
 import { KEY_PREFIX } from "../lib/storageKeys";
+import {
+  DEFAULT_RESULTS_LAYOUT,
+  RESULTS_FIGURES,
+  defaultGeometries,
+  defaultGeometry,
+  isGeometry,
+  isLayoutId,
+  sameGeometry,
+  type ResultsFigure,
+  type ResultsGeometry,
+  type ResultsGroup,
+  type ResultsLayoutId,
+} from "../lib/resultsLayouts";
+
+export type { ResultsFigure } from "../lib/resultsLayouts";
 
 export type ThemePreference = "system" | "light" | "dark";
 export type ThemeMode = "light" | "dark";
@@ -16,8 +31,12 @@ const THEME_KEY = `${KEY_PREFIX}theme`;
 const SPLITTER_KEY = `${KEY_PREFIX}splitter.sizes`;
 const DATA_TABLE_SPLIT_KEY = `${KEY_PREFIX}dataTable.split`;
 const MAP_SPLIT_KEY = `${KEY_PREFIX}map.split`;
-const RESULTS_SPLIT_KEY = `${KEY_PREFIX}results.split`;
-const RESULTS_COLLAPSED_KEY = `${KEY_PREFIX}results.collapsed`;
+const RESULTS_LAYOUT_KEY = `${KEY_PREFIX}results.layout`;
+const RESULTS_GEOMETRY_KEY = `${KEY_PREFIX}results.geometry`;
+
+/** The single-geometry keys this replaced, read once and then removed. */
+const LEGACY_RESULTS_SPLIT_KEY = `${KEY_PREFIX}results.split`;
+const LEGACY_RESULTS_COLLAPSED_KEY = `${KEY_PREFIX}results.collapsed`;
 
 /** Explorer | editor | side panel. Replaced by a 2-panel shell later. */
 const DEFAULT_SPLITTER = [20, 55, 25];
@@ -27,26 +46,6 @@ const DEFAULT_DATA_TABLE_SPLIT = [40, 60];
 
 /** Map above, the selected entry's form below. */
 const DEFAULT_MAP_SPLIT = [72, 28];
-
-/**
- * Map, then the timeseries chart, then the static chart.
- *
- * Three panels rather than two: the charts used to share one panel and a scroll
- * bar, so shrinking the map could only give them both the room at once. Keyed by
- * how many panels are on screen, because a model with no geography mounts two and
- * a layout of the wrong length is not a smaller version of the right one — it is
- * the previous split, transposed. The old two-entry array under this key fails the
- * shape check below and is simply replaced.
- */
-const DEFAULT_RESULTS_SPLIT: Record<number, number[]> = {
-  2: [58, 42],
-  3: [34, 40, 26],
-};
-
-/** Which of the three results figures are collapsed to their title bar. */
-export type ResultsFigure = "map" | "timeseries" | "static";
-
-const RESULTS_FIGURES: ResultsFigure[] = ["map", "timeseries", "static"];
 
 const DARK_QUERY = "(prefers-color-scheme: dark)";
 
@@ -209,85 +208,145 @@ export const useUiStore = defineStore("ui", () => {
     localStorage.setItem(MAP_SPLIT_KEY, JSON.stringify(sizes));
   }
 
+  // ── The results view's layouts ───────────────────────────────────────────
+
   /**
-   * How the results view divides its three figures, per panel count.
+   * Which named arrangement the results view is showing.
    *
-   * The map was a fixed 300px, which on a model spanning a country is not enough
-   * to see it by. Stored per count because a model with no geography mounts two
-   * panels and one with geography mounts three, and the splitter emits whichever
-   * it has: writing a two-element layout over a three-element one wipes the split
-   * the user set on a model that does have a map.
+   * Global rather than per results handle, like the geometry beside it — two run
+   * tabs open on the same question want the same shape. Persisted for the reason
+   * the collapsed flags always were: it says what the user is working on, not
+   * what they did during one visit to a tab.
    */
-  const resultsSplit = ref<Record<number, number[]>>(readResultsSplit());
+  const resultsLayout = ref<ResultsLayoutId>(readResultsLayout());
 
-  function readResultsSplit(): Record<number, number[]> {
-    const defaults = { ...DEFAULT_RESULTS_SPLIT };
-    try {
-      const stored = localStorage.getItem(RESULTS_SPLIT_KEY);
-      if (!stored) return defaults;
-      const parsed = JSON.parse(stored) as unknown;
-      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-        return defaults;
-      }
-      for (const [count, sizes] of Object.entries(parsed)) {
-        // Only a layout of the right length for its own key is kept, so a stale
-        // or hand-edited entry cannot leave a panel group short of a size.
-        if (Array.isArray(sizes) && sizes.length === Number(count)) {
-          defaults[Number(count)] = sizes as number[];
-        }
-      }
-      return defaults;
-    } catch {
-      return defaults;
-    }
+  function readResultsLayout(): ResultsLayoutId {
+    const stored = localStorage.getItem(RESULTS_LAYOUT_KEY);
+    return isLayoutId(stored) ? stored : DEFAULT_RESULTS_LAYOUT;
   }
 
-  /** The layout for a group of `sizes.length` panels, or its default. */
-  function resultsSplitFor(count: number): number[] {
-    return resultsSplit.value[count] ?? DEFAULT_RESULTS_SPLIT[count] ?? [];
-  }
-
-  function setResultsSplit(sizes: number[]) {
-    if (!DEFAULT_RESULTS_SPLIT[sizes.length]) return;
-    resultsSplit.value = { ...resultsSplit.value, [sizes.length]: sizes };
-    localStorage.setItem(RESULTS_SPLIT_KEY, JSON.stringify(resultsSplit.value));
+  function setResultsLayout(id: ResultsLayoutId) {
+    if (!isLayoutId(id) || resultsLayout.value === id) return;
+    resultsLayout.value = id;
+    localStorage.setItem(RESULTS_LAYOUT_KEY, id);
   }
 
   /**
-   * Which results figures are collapsed to their title bar.
+   * The sizes and collapsed figures of **each** layout, kept apart.
    *
-   * Persisted, unlike `sectionView`: collapsing a figure is a statement about
-   * what the user is working on rather than about one visit to a tab, and having
-   * it come back expanded after a reload is the behaviour that made this worth
-   * storing at all. Global rather than per results handle, like the split beside
-   * it — two run tabs open on the same question want the same shape.
+   * This is the whole fix. There was one geometry before, and the splitter
+   * rewrites it on every drag *and* on every collapse-driven redistribution — so
+   * folding a figure away destroyed the sizes of the arrangement it was folded
+   * out of, and unfolding it never restored them. Giving each layout its own
+   * copy means switching between them, in either direction, disturbs nothing.
    */
-  const resultsCollapsed = ref<Record<ResultsFigure, boolean>>(
-    readResultsCollapsed(),
+  const resultsGeometry = ref<Record<ResultsLayoutId, ResultsGeometry>>(
+    readResultsGeometry(),
   );
 
-  function readResultsCollapsed(): Record<ResultsFigure, boolean> {
-    const none = { map: false, timeseries: false, static: false };
+  function readResultsGeometry(): Record<ResultsLayoutId, ResultsGeometry> {
+    const geometries = defaultGeometries();
     try {
-      const stored = localStorage.getItem(RESULTS_COLLAPSED_KEY);
-      if (!stored) return none;
+      const stored = localStorage.getItem(RESULTS_GEOMETRY_KEY);
+      if (!stored) return migrateLegacyResultsGeometry(geometries);
       const parsed = JSON.parse(stored) as Record<string, unknown>;
-      for (const figure of RESULTS_FIGURES) {
-        if (typeof parsed?.[figure] === "boolean") none[figure] = parsed[figure];
+      for (const id of Object.keys(geometries) as ResultsLayoutId[]) {
+        // Whole-entry validation: a group handed an array of the wrong length
+        // leaves a panel with no size, and reka's answer to that is a
+        // redistribution nobody asked for.
+        if (isGeometry(parsed?.[id])) geometries[id] = parsed[id];
       }
-      return none;
+      return geometries;
     } catch {
-      return none;
+      return geometries;
     }
+  }
+
+  /**
+   * Folds the pre-layout keys into the `stacked` layout, once.
+   *
+   * `results.split` held `{3: [map, timeseries, static]}` against a flat group of
+   * three panels; the same arrangement is now the map against a charts *column*,
+   * so the two chart shares are renormalised inside it. Done here rather than in
+   * `migrateLegacyStorageKeys`, which renames prefixes and knows nothing about
+   * what a value means. The old keys are removed, so this runs at most once per
+   * browser — and only when nothing has been written under the new key, so it can
+   * never overwrite a layout the user has since set up.
+   */
+  function migrateLegacyResultsGeometry(
+    geometries: Record<ResultsLayoutId, ResultsGeometry>,
+  ): Record<ResultsLayoutId, ResultsGeometry> {
+    try {
+      const split = JSON.parse(
+        localStorage.getItem(LEGACY_RESULTS_SPLIT_KEY) ?? "null",
+      ) as Record<string, unknown> | null;
+      const three = split?.["3"];
+      if (Array.isArray(three) && three.length === 3) {
+        const [map, timeseries, unchanging] = three as number[];
+        const charts = timeseries + unchanging;
+        if (charts > 0 && map >= 0) {
+          geometries.stacked.sizes.main = [map, 100 - map];
+          geometries.stacked.sizes.charts = [
+            (timeseries / charts) * 100,
+            (unchanging / charts) * 100,
+          ];
+        }
+      }
+
+      const collapsed = JSON.parse(
+        localStorage.getItem(LEGACY_RESULTS_COLLAPSED_KEY) ?? "null",
+      ) as Record<string, unknown> | null;
+      for (const figure of RESULTS_FIGURES) {
+        if (typeof collapsed?.[figure] === "boolean") {
+          geometries.stacked.collapsed[figure] = collapsed[figure];
+        }
+      }
+    } catch {
+      // A corrupt legacy value is not worth reporting: the defaults are right.
+    }
+    localStorage.removeItem(LEGACY_RESULTS_SPLIT_KEY);
+    localStorage.removeItem(LEGACY_RESULTS_COLLAPSED_KEY);
+    return geometries;
+  }
+
+  /** The geometry of the layout on screen. */
+  const resultsGeometryNow = computed<ResultsGeometry>(
+    () => resultsGeometry.value[resultsLayout.value],
+  );
+
+  /** Whether the layout on screen is still exactly as it ships. */
+  const resultsLayoutIsDefault = computed(() =>
+    sameGeometry(resultsGeometryNow.value, defaultGeometry(resultsLayout.value)),
+  );
+
+  function writeResultsGeometry(next: ResultsGeometry) {
+    resultsGeometry.value = { ...resultsGeometry.value, [resultsLayout.value]: next };
+    localStorage.setItem(RESULTS_GEOMETRY_KEY, JSON.stringify(resultsGeometry.value));
+  }
+
+  /** Records a drag, against the current layout alone. */
+  function setResultsSizes(group: ResultsGroup, sizes: number[]) {
+    if (sizes.length !== 2) return;
+    const current = resultsGeometryNow.value;
+    if (current.sizes[group].every((size, index) => size === sizes[index])) return;
+    writeResultsGeometry({
+      ...current,
+      sizes: { ...current.sizes, [group]: [...sizes] },
+    });
   }
 
   function setResultsCollapsed(figure: ResultsFigure, collapsed: boolean) {
-    if (resultsCollapsed.value[figure] === collapsed) return;
-    resultsCollapsed.value = { ...resultsCollapsed.value, [figure]: collapsed };
-    localStorage.setItem(
-      RESULTS_COLLAPSED_KEY,
-      JSON.stringify(resultsCollapsed.value),
-    );
+    const current = resultsGeometryNow.value;
+    if (current.collapsed[figure] === collapsed) return;
+    writeResultsGeometry({
+      ...current,
+      collapsed: { ...current.collapsed, [figure]: collapsed },
+    });
+  }
+
+  /** Puts the layout on screen back the way it ships. */
+  function resetResultsLayout() {
+    writeResultsGeometry(defaultGeometry(resultsLayout.value));
   }
 
   /**
@@ -341,11 +400,14 @@ export const useUiStore = defineStore("ui", () => {
     setDataTableSplit,
     mapSplit,
     setMapSplit,
-    resultsSplit,
-    resultsSplitFor,
-    setResultsSplit,
-    resultsCollapsed,
+    resultsLayout,
+    setResultsLayout,
+    resultsGeometry,
+    resultsGeometryNow,
+    resultsLayoutIsDefault,
+    setResultsSizes,
     setResultsCollapsed,
+    resetResultsLayout,
     sectionView,
     setSectionView,
     toggleSectionView,

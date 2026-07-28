@@ -11,7 +11,9 @@
  * A disabled segment with a tooltip gets a focusable wrapper, because neither a
  * native `title` nor a tooltip trigger fires on a disabled element — the sidebar
  * has exactly that case ("Not available for a results file") and it silently did
- * nothing before.
+ * nothing before. An enabled one gets an ordinary tooltip: `tip` used to be read
+ * only when the segment was disabled, so a strip whose labels are short enough to
+ * need explaining — the results view's layouts — had nowhere to put it.
  */
 import { computed, type Component, type HTMLAttributes } from "vue";
 import type { RouteLocationRaw } from "vue-router";
@@ -105,26 +107,30 @@ function isActive(item: SegmentItem<T>): true | undefined {
         </span>
       </InfoTip>
 
-      <component
-        :is="item.to ? 'RouterLink' : 'button'"
-        v-else
-        v-bind="item.to ? { to: item.to } : { type: 'button' }"
-        :data-testid="item.testid"
-        :data-active="isActive(item)"
-        :disabled="item.to ? undefined : item.disabled"
-        :class="cn(segmentClass, fill && 'flex-auto')"
-        @click="item.to ? undefined : (model = item.value)"
-      >
-        <component :is="item.icon" v-if="item.icon" class="size-3.5 shrink-0" />
-        <span class="truncate">{{ item.label }}</span>
-        <Badge
-          v-if="item.badge !== undefined"
-          :variant="item.badgeVariant ?? 'destructive'"
-          class="h-4 px-1 tabular-nums"
+      <!-- An enabled segment may carry a tip too. `InfoTip` passes its slot
+           straight through when the label is empty, so this is one branch rather
+           than a third copy of the button. -->
+      <InfoTip v-else :label="item.tip ?? ''">
+        <component
+          :is="item.to ? 'RouterLink' : 'button'"
+          v-bind="item.to ? { to: item.to } : { type: 'button' }"
+          :data-testid="item.testid"
+          :data-active="isActive(item)"
+          :disabled="item.to ? undefined : item.disabled"
+          :class="cn(segmentClass, fill && 'flex-auto')"
+          @click="item.to ? undefined : (model = item.value)"
         >
-          {{ item.badge }}
-        </Badge>
-      </component>
+          <component :is="item.icon" v-if="item.icon" class="size-3.5 shrink-0" />
+          <span class="truncate">{{ item.label }}</span>
+          <Badge
+            v-if="item.badge !== undefined"
+            :variant="item.badgeVariant ?? 'destructive'"
+            class="h-4 px-1 tabular-nums"
+          >
+            {{ item.badge }}
+          </Badge>
+        </component>
+      </InfoTip>
     </template>
   </div>
 </template>

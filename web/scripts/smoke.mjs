@@ -26,11 +26,14 @@ const { browser, page, testId, consoleErrors, frames } = await open({
 console.log(`Results view at ${BASE}`);
 await health(BASE);
 
-// The browser profile outlives a run, so a split dragged by the *last* one would
+// The browser profile outlives a run, so a layout dragged by the *last* one would
 // otherwise decide where this one starts from — and a drag that begins at the
-// minimum proves nothing.
+// minimum proves nothing. The two pre-layout keys go too, or the migration would
+// seed this run's stacked layout from the last one's split.
 await page.goto(BASE, { waitUntil: "domcontentloaded" });
 await page.evaluate(() => {
+  localStorage.removeItem("calliope-studio.results.layout");
+  localStorage.removeItem("calliope-studio.results.geometry");
   localStorage.removeItem("calliope-studio.results.split");
   localStorage.removeItem("calliope-studio.results.collapsed");
 });
@@ -166,13 +169,13 @@ await page.waitForTimeout(800);
 const afterDrag = await mapBox();
 check("dragging the border resizes the map", afterDrag.height > beforeDrag.height + 60);
 
-const storedSplit = () =>
+const storedGeometry = () =>
   page.evaluate(() =>
-    JSON.parse(localStorage.getItem("calliope-studio.results.split") ?? "null"),
+    JSON.parse(localStorage.getItem("calliope-studio.results.geometry") ?? "null"),
   );
 check(
-  "the split is remembered, keyed by panel count",
-  (await storedSplit())?.["3"]?.length === 3,
+  "the drag is remembered, against the layout on screen",
+  (await storedGeometry())?.stacked?.sizes?.main?.length === 2,
 );
 
 // The two charts used to share one panel and a scrollbar, so the splitter could
@@ -267,6 +270,105 @@ check(
 await testId("collapse-static").click();
 await page.waitForTimeout(600);
 check("expanding brings it back", (await figureBox("static")).section > 60);
+
+// ── Layouts ────────────────────────────────────────────────────────────────
+//
+// The reason the whole thing exists: one stored geometry meant folding a figure
+// away destroyed the sizes of the arrangement it was folded out of, so switching
+// figures on and off repeatedly meant re-dragging the boundaries every time.
+check("the layouts have a strip of their own", (await testId("results-layout-bar").count()) === 1);
+
+const isCollapsedCard = (box) => Math.abs(box.section - (box.strip + 2)) <= 1;
+
+// Stamped so a *rearranged* map can be told from a rebuilt one. Flipping the
+// direction of a mounted splitter is the whole reason this is one panel tree and
+// not two behind a `v-if`: a rebuild would lose the viewport the user panned to,
+// and it would not throw or log anything to say so.
+await page.evaluate(() => {
+  window.__cgMap.__smokeStamp = "kept";
+});
+
+const stackedBefore = await storedGeometry();
+
+await testId("results-layout-beside").click();
+await page.waitForTimeout(1500);
+
+// The cards, not the map canvas: the canvas sits below a header that wraps to
+// two rows at half the width, so its top is not the figure's.
+const beside = await page.evaluate(() => {
+  const map = document
+    .querySelector('[data-testid="figure-map"]')
+    .getBoundingClientRect();
+  const chart = document
+    .querySelector('[data-testid="figure-timeseries"]')
+    .getBoundingClientRect();
+  return {
+    mapRight: map.right,
+    chartLeft: chart.left,
+    mapTop: map.top,
+    chartTop: chart.top,
+  };
+});
+check(
+  "beside puts the map next to the charts, not above them",
+  beside.mapRight <= beside.chartLeft + 2 && Math.abs(beside.mapTop - beside.chartTop) < 24,
+  `map ends at ${Math.round(beside.mapRight)}, charts start at ${Math.round(beside.chartLeft)}`,
+);
+check(
+  "the map is rearranged, not rebuilt",
+  await page.evaluate(() => window.__cgMap?.__smokeStamp === "kept"),
+);
+// A horizontally collapsed card would need a horizontal title bar, which is not
+// a thing; side by side the map is put away by choosing another layout.
+check(
+  "side by side, the map offers no chevron",
+  (await testId("collapse-map").count()) === 0,
+);
+
+await testId("results-layout-stacked").click();
+await page.waitForTimeout(1500);
+check(
+  "switching away and back leaves a layout exactly as it was",
+  JSON.stringify((await storedGeometry())?.stacked) ===
+    JSON.stringify(stackedBefore?.stacked),
+);
+
+await testId("results-layout-totals").click();
+await page.waitForTimeout(1500);
+check(
+  "the totals layout folds the other two away",
+  isCollapsedCard(await figureBox("map")) &&
+    isCollapsedCard(await figureBox("timeseries")) &&
+    !isCollapsedCard(await figureBox("static")),
+);
+check(
+  "an untouched layout offers no reset",
+  (await testId("results-layout-reset").count()) === 0,
+);
+
+await testId("collapse-map").click();
+await page.waitForTimeout(800);
+check(
+  "a layout that has been changed offers to go back",
+  (await testId("results-layout-reset").count()) === 1,
+);
+await testId("results-layout-reset").click();
+await page.waitForTimeout(1000);
+check(
+  "reset puts it back",
+  isCollapsedCard(await figureBox("map")) &&
+    (await testId("results-layout-reset").count()) === 0,
+);
+
+// Back to stacked, with all three open, for everything below.
+await testId("results-layout-stacked").click();
+await page.waitForTimeout(1500);
+check(
+  "the stacked layout still has all three open",
+  !isCollapsedCard(await figureBox("map")) &&
+    !isCollapsedCard(await figureBox("timeseries")) &&
+    !isCollapsedCard(await figureBox("static")),
+);
 
 // ── The map's encoding channels ────────────────────────────────────────────
 const pickChannel = async (channel, option) => {

@@ -185,97 +185,157 @@ describe("useUiStore", () => {
     });
   });
 
-  describe("the results view's split", () => {
-    it("gives each panel count its own default", () => {
+  describe("the results view's layouts", () => {
+    it("opens stacked, with all three figures showing", () => {
       stubMatchMedia(false);
       const ui = useUiStore();
-      expect(ui.resultsSplitFor(3)).toEqual([34, 40, 26]);
-      expect(ui.resultsSplitFor(2)).toEqual([58, 42]);
-    });
-
-    it("round-trips through localStorage", () => {
-      stubMatchMedia(false);
-      useUiStore().setResultsSplit([50, 30, 20]);
-
-      setActivePinia(createPinia());
-      expect(useUiStore().resultsSplitFor(3)).toEqual([50, 30, 20]);
-    });
-
-    it("keeps the two- and three-panel layouts apart", () => {
-      // A model with no geography mounts two panels and one with geography
-      // mounts three. Storing them in one place means opening a map-less model
-      // silently rewrites the split the user set on a model that has a map.
-      stubMatchMedia(false);
-      const ui = useUiStore();
-      ui.setResultsSplit([50, 30, 20]);
-      ui.setResultsSplit([70, 30]);
-
-      expect(ui.resultsSplitFor(3)).toEqual([50, 30, 20]);
-      expect(ui.resultsSplitFor(2)).toEqual([70, 30]);
-    });
-
-    it("refuses a one-panel layout", () => {
-      stubMatchMedia(false);
-      const ui = useUiStore();
-      ui.setResultsSplit([100]);
-      expect(ui.resultsSplitFor(1)).toEqual([]);
-    });
-
-    it("drops an entry whose length contradicts its key", () => {
-      localStorage.setItem(
-        "calliope-studio.results.split",
-        JSON.stringify({ 3: [50, 50], 2: [70, 30] }),
-      );
-      stubMatchMedia(false);
-      const ui = useUiStore();
-      expect(ui.resultsSplitFor(3)).toEqual([34, 40, 26]);
-      expect(ui.resultsSplitFor(2)).toEqual([70, 30]);
-    });
-
-    it("ignores corrupt stored geometry", () => {
-      // Including the two-element array the previous version of this key held.
-      localStorage.setItem("calliope-studio.results.split", "not json");
-      stubMatchMedia(false);
-      expect(useUiStore().resultsSplitFor(3)).toEqual([34, 40, 26]);
-
-      setActivePinia(createPinia());
-      localStorage.setItem("calliope-studio.results.split", "[35, 65]");
-      expect(useUiStore().resultsSplitFor(3)).toEqual([34, 40, 26]);
-    });
-  });
-
-  describe("the results view's collapsed figures", () => {
-    it("opens with all three showing", () => {
-      stubMatchMedia(false);
-      expect(useUiStore().resultsCollapsed).toEqual({
+      expect(ui.resultsLayout).toBe("stacked");
+      expect(ui.resultsGeometryNow.collapsed).toEqual({
         map: false,
         timeseries: false,
         static: false,
       });
     });
 
-    it("survives a reload", () => {
-      // Unlike `sectionView`: collapsing a figure says what the user is working
-      // on, and having it come back expanded is what made this worth storing.
+    it("remembers which layout is on screen", () => {
       stubMatchMedia(false);
-      useUiStore().setResultsCollapsed("static", true);
+      useUiStore().setResultsLayout("beside");
 
       setActivePinia(createPinia());
-      expect(useUiStore().resultsCollapsed.static).toBe(true);
-      expect(useUiStore().resultsCollapsed.map).toBe(false);
+      expect(useUiStore().resultsLayout).toBe("beside");
     });
 
-    it("ignores anything that is not a boolean", () => {
+    it("ignores a layout it does not have", () => {
+      localStorage.setItem("calliope-studio.results.layout", "kaleidoscope");
+      stubMatchMedia(false);
+      expect(useUiStore().resultsLayout).toBe("stacked");
+    });
+
+    it("keeps each layout's geometry to itself", () => {
+      // The whole point. One geometry meant folding a figure away destroyed the
+      // sizes of the arrangement it was folded out of, and unfolding it never
+      // brought them back.
+      stubMatchMedia(false);
+      const ui = useUiStore();
+      ui.setResultsSizes("main", [20, 80]);
+      ui.setResultsCollapsed("static", true);
+
+      ui.setResultsLayout("beside");
+      expect(ui.resultsGeometryNow.sizes.main).toEqual([52, 48]);
+      expect(ui.resultsGeometryNow.collapsed.static).toBe(false);
+      ui.setResultsSizes("main", [70, 30]);
+
+      ui.setResultsLayout("stacked");
+      expect(ui.resultsGeometryNow.sizes.main).toEqual([20, 80]);
+      expect(ui.resultsGeometryNow.collapsed.static).toBe(true);
+    });
+
+    it("survives a reload", () => {
+      // Unlike `sectionView`: how the figures are arranged says what the user is
+      // working on, and having it come back flat is what made this worth storing.
+      stubMatchMedia(false);
+      const ui = useUiStore();
+      ui.setResultsSizes("charts", [80, 20]);
+      ui.setResultsCollapsed("map", true);
+
+      setActivePinia(createPinia());
+      const reloaded = useUiStore();
+      expect(reloaded.resultsGeometryNow.sizes.charts).toEqual([80, 20]);
+      expect(reloaded.resultsGeometryNow.collapsed.map).toBe(true);
+    });
+
+    it("refuses a group layout that is not two panels", () => {
+      stubMatchMedia(false);
+      const ui = useUiStore();
+      ui.setResultsSizes("main", [100]);
+      expect(ui.resultsGeometryNow.sizes.main).toEqual([34, 66]);
+    });
+
+    it("drops a stored entry of the wrong shape, layout by layout", () => {
       localStorage.setItem(
-        "calliope-studio.results.collapsed",
-        JSON.stringify({ map: "yes", static: true, nonsense: true }),
+        "calliope-studio.results.geometry",
+        JSON.stringify({
+          stacked: {
+            sizes: { main: [10, 20, 70], charts: [50, 50] },
+            collapsed: { map: false, timeseries: false, static: false },
+          },
+          beside: {
+            sizes: { main: [30, 70], charts: [50, 50] },
+            collapsed: { map: false, timeseries: false, static: true },
+          },
+        }),
       );
       stubMatchMedia(false);
-      expect(useUiStore().resultsCollapsed).toEqual({
-        map: false,
-        timeseries: false,
-        static: true,
-      });
+      const ui = useUiStore();
+      // A group handed three sizes for two panels leaves a panel without one,
+      // so the whole entry falls back rather than being half-applied.
+      expect(ui.resultsGeometryNow.sizes.main).toEqual([34, 66]);
+      ui.setResultsLayout("beside");
+      expect(ui.resultsGeometryNow.sizes.main).toEqual([30, 70]);
+    });
+
+    it("ignores corrupt stored geometry", () => {
+      localStorage.setItem("calliope-studio.results.geometry", "not json");
+      stubMatchMedia(false);
+      expect(useUiStore().resultsGeometryNow.sizes.charts).toEqual([61, 39]);
+    });
+
+    it("resets the layout on screen and no other", () => {
+      stubMatchMedia(false);
+      const ui = useUiStore();
+      ui.setResultsSizes("main", [20, 80]);
+      ui.setResultsLayout("totals");
+      ui.setResultsSizes("charts", [10, 90]);
+
+      ui.resetResultsLayout();
+      expect(ui.resultsGeometryNow.sizes.charts).toEqual([12, 88]);
+      ui.setResultsLayout("stacked");
+      expect(ui.resultsGeometryNow.sizes.main).toEqual([20, 80]);
+    });
+
+    it("knows when a layout is still as it ships", () => {
+      stubMatchMedia(false);
+      const ui = useUiStore();
+      expect(ui.resultsLayoutIsDefault).toBe(true);
+
+      ui.setResultsCollapsed("static", true);
+      expect(ui.resultsLayoutIsDefault).toBe(false);
+
+      ui.resetResultsLayout();
+      expect(ui.resultsLayoutIsDefault).toBe(true);
+    });
+
+    it("folds the pre-layout keys into the stacked layout, once", () => {
+      // `results.split` divided three sibling panels; the same arrangement is
+      // now the map against a charts *column*, so the two chart shares are
+      // renormalised inside it.
+      localStorage.setItem(
+        "calliope-studio.results.split",
+        JSON.stringify({ 3: [50, 30, 20], 2: [70, 30] }),
+      );
+      localStorage.setItem(
+        "calliope-studio.results.collapsed",
+        JSON.stringify({ map: false, timeseries: false, static: true }),
+      );
+      stubMatchMedia(false);
+      const ui = useUiStore();
+
+      expect(ui.resultsGeometryNow.sizes.main).toEqual([50, 50]);
+      expect(ui.resultsGeometryNow.sizes.charts).toEqual([60, 40]);
+      expect(ui.resultsGeometryNow.collapsed.static).toBe(true);
+      // Only the stacked layout: the others never existed before.
+      ui.setResultsLayout("beside");
+      expect(ui.resultsGeometryNow.sizes.main).toEqual([52, 48]);
+
+      // And gone, so it can never overwrite what the user does next.
+      expect(localStorage.getItem("calliope-studio.results.split")).toBeNull();
+      expect(localStorage.getItem("calliope-studio.results.collapsed")).toBeNull();
+    });
+
+    it("leaves a corrupt legacy value to the defaults", () => {
+      localStorage.setItem("calliope-studio.results.split", "not json");
+      stubMatchMedia(false);
+      expect(useUiStore().resultsGeometryNow.sizes.main).toEqual([34, 66]);
     });
   });
 

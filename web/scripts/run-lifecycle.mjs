@@ -18,13 +18,14 @@
  *
  * Solves for real, so it takes as long as the model does.
  */
-import { health, open, requireMode, results } from "./harness.mjs";
+import { health, open, quiet, requireMode, results, until } from "./harness.mjs";
 
 const BASE = process.argv[2] ?? "http://127.0.0.1:8000";
 
-const { check, finish } = results();
+const { check, finish } = results("run-lifecycle");
 const payload = requireMode(await health(BASE), "workspace", BASE);
-const { browser, page, testId, consoleErrors, frames } = await open();
+const { browser, page, testId, consoleErrors, frames, framesIdle, mapReady } =
+  await open();
 
 console.log(`Run lifecycle at ${BASE}`);
 
@@ -40,7 +41,7 @@ page.on("request", (request) => {
   }
 });
 
-await page.goto(`${BASE}${payload.landing}`, { waitUntil: "networkidle" });
+await page.goto(`${BASE}${payload.landing}`, { waitUntil: "domcontentloaded" });
 await page.getByRole("link", { name: "Runs" }).click();
 await testId("start-run").waitFor();
 
@@ -54,35 +55,44 @@ check("the run's tab opens immediately, on the log", page.url().includes("tab=ru
 // pass on the two lines a run emits before the solver starts, which is exactly
 // what it did while all of the solver's own output was being dropped on the wire.
 const lines = () => page.locator('[data-testid="run-log"] p').count();
-await page.waitForTimeout(3000);
+// Bounded rather than timed: what matters is that lines arrive at all, and the
+// second sample below is what shows they keep arriving.
+await until(async () => (await lines()) > 1, { timeout: 60000, interval: 100 });
 const early = await lines();
 check("log lines arrive as soon as the run starts", early > 1);
 
 // The stages Calliope reports passing, sampled as the run goes: they are gone
 // from the display the moment the next one starts.
 const seenStages = new Set();
-for (let i = 0; i < 90; i += 1) {
-  const progress = testId("run-progress");
-  if (await progress.count()) {
-    const stage = await progress.first().getAttribute("data-stage");
-    if (stage) seenStages.add(stage);
-  }
-  if (seenStages.has("solve")) break;
-  await page.waitForTimeout(1000);
-}
+await until(
+  async () => {
+    const progress = testId("run-progress");
+    if (await progress.count()) {
+      const stage = await progress.first().getAttribute("data-stage");
+      if (stage) seenStages.add(stage);
+    }
+    return seenStages.has("solve");
+  },
+  // A quarter-second: a stage is gone from the display the moment the next one
+  // starts, so a coarse poll can miss one entirely on a fast model.
+  { timeout: 120000, interval: 250 },
+);
 check("progress reports the backend build", seenStages.has("build"));
 check("progress reports the solve", seenStages.has("solve"));
 
-await page.waitForTimeout(3000);
+await until(async () => (await lines()) > early, { timeout: 120000, interval: 100 });
 const later = await lines();
 check(
   "the log keeps growing while the solver runs",
   later > early,
-  `${early} lines at 3s, ${later} later`,
+  `${early} lines early, ${later} later`,
 );
 // The tab moves itself to the charts when the results handle arrives.
 await testId("run-results").waitFor({ timeout: 300000 });
-await page.waitForTimeout(5000);
+await page.locator("canvas").first().waitFor({ timeout: 60000 });
+await until(() => frames.length >= 2, { timeout: 60000 });
+await mapReady().catch(() => false);
+await framesIdle();
 
 check("charts and map rendered", (await page.locator("canvas").count()) >= 2);
 check("frames were fetched", frames.length >= 2);
@@ -95,7 +105,7 @@ check("no console errors through the whole loop", consoleErrors.length === 0);
 // Going to the log and back must not rebuild the panes.
 const settled = frames.length;
 await testId("run-subtab-log").click();
-await page.waitForTimeout(500);
+await testId("run-log").waitFor({ timeout: 30000 });
 
 // Asserted here rather than mid-solve: Pyomo buffers a subprocess solver's
 // output and hands Calliope the lot at the end, so CBC's arrives in two chunks
@@ -110,10 +120,10 @@ check(
 const shown = () => page.locator('[data-testid="run-log"] p[data-level]').count();
 const everything = await shown();
 await testId("log-filter").selectOption("errors");
-await page.waitForTimeout(200);
+await until(async () => (await shown()) < everything, { timeout: 15000, interval: 50 });
 const onlyErrors = await shown();
 await testId("log-filter").selectOption("all");
-await page.waitForTimeout(200);
+await until(async () => (await shown()) === everything, { timeout: 15000, interval: 50 });
 check(
   "the log filter narrows the view and gives it back",
   onlyErrors < everything && (await shown()) === everything,
@@ -121,14 +131,15 @@ check(
 );
 
 await testId("run-subtab-results").click();
-await page.waitForTimeout(2000);
+// Nothing to wait for — the assertion is that no request goes out.
+await quiet(500);
 check("returning to the charts issues no new frame request", frames.length === settled);
 
 // The frozen configuration, which only exists because the run was snapshotted
 // before the worker started.
 await testId("run-subtab-config").click();
 await testId("snapshot-tree").waitFor({ timeout: 10000 });
-await page.waitForTimeout(1000);
+await testId("snapshot-tree").getByText("model.yaml").first().waitFor({ timeout: 20000 }).catch(() => {});
 check(
   "the frozen tree lists the model",
   (await testId("snapshot-tree").getByText("model.yaml").count()) > 0,
@@ -140,7 +151,9 @@ check(
 
 await testId("config-view-solved").click();
 await testId("run-summary").waitFor({ timeout: 30000 });
-await page.waitForTimeout(2000);
+await until(async () => (await testId("run-summary").locator("dt").count()) > 5, {
+  timeout: 30000,
+});
 check(
   "the as-solved summary renders",
   (await testId("run-summary").locator("dt").count()) > 5,
@@ -166,23 +179,34 @@ check(
   ((await testId("run-scenario").textContent()) ?? "").includes(PICK),
 );
 
+const startsBefore = starts.length;
+const runRows = () => page.locator('[data-testid="run-list"] > *').count();
+const rowsBefore = await runRows();
 await testId("start-run").click();
-await page.waitForTimeout(2000);
+await until(() => starts.length > startsBefore, { timeout: 30000 });
 check(
   "the picked scenario reaches the request",
   starts.at(-1)?.scenario === PICK,
   JSON.stringify(starts.at(-1)),
 );
 
+// The list has to have gained the new run before "the newest" means it — the
+// previous one is already sitting at the top, and already `success`, so polling
+// its status returns the moment it is asked and every assertion below is about
+// the wrong run. The old 2-second sleep here was covering exactly this.
+await until(async () => (await runRows()) > rowsBefore, { timeout: 30000 });
+
 const newest = page
   .locator('[data-testid="run-list"] [data-testid="run-status"]')
   .first();
 let outcome = null;
-for (let i = 0; i < 300; i += 1) {
-  outcome = await newest.getAttribute("data-status");
-  if (["success", "infeasible", "failed", "cancelled"].includes(outcome)) break;
-  await page.waitForTimeout(1000);
-}
+await until(
+  async () => {
+    outcome = await newest.getAttribute("data-status");
+    return ["success", "infeasible", "failed", "cancelled"].includes(outcome);
+  },
+  { timeout: 300000, interval: 250 },
+);
 check("the scenario run finishes", outcome === "success", `status ${outcome}`);
 check(
   "the history says which scenario the run used",
@@ -197,7 +221,10 @@ await visible("run-subtab-config").click();
 await visible("config-view-solved").waitFor({ timeout: 10000 });
 await visible("config-view-solved").click();
 await visible("run-summary").waitFor({ timeout: 30000 });
-await page.waitForTimeout(2000);
+await until(
+  async () => ((await visible("run-summary").textContent()) ?? "").includes(PICK),
+  { timeout: 30000 },
+);
 check(
   "Calliope reports the override as applied",
   ((await visible("run-summary").textContent()) ?? "").includes(PICK),

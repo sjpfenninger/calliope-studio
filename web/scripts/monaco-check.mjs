@@ -24,16 +24,25 @@ import { health, open, requireMode, results } from "./harness.mjs";
 
 const BASE = process.argv[2] ?? "http://127.0.0.1:8000";
 
-const { check, finish } = results();
+const { check, finish } = results("monaco");
 const payload = requireMode(await health(BASE), "workspace", BASE);
-const { browser, page, testId, consoleErrors } = await open();
+const { browser, page, testId, consoleErrors, until } = await open();
 
 console.log(`Monaco at ${BASE}`);
-await page.goto(`${BASE}${payload.landing}`, { waitUntil: "networkidle" });
+await page.goto(`${BASE}${payload.landing}`, { waitUntil: "domcontentloaded" });
 await page.getByRole("link", { name: "Files" }).click();
 await testId("file-tree").waitFor({ timeout: 20000 });
 await page.getByText("model.yaml", { exact: true }).first().click();
-await page.waitForTimeout(4000);
+
+// The editor, then its content: Monaco mounts before the file has been fetched
+// into it, so waiting on `.monaco-editor` alone is waiting for the wrong thing.
+await page.locator(".monaco-editor").first().waitFor({ timeout: 30000 });
+await page
+  .locator(".view-lines")
+  .first()
+  .locator("text=config")
+  .first()
+  .waitFor({ timeout: 30000 });
 
 check("the editor mounts", (await page.locator(".monaco-editor").count()) > 0);
 check(
@@ -52,16 +61,33 @@ check(
 
 // Nothing in `model.yaml` should be wrong, so a squiggle here means the schema
 // and the file disagree — which is what a broken schema graft looks like.
+//
+// The wait below is what makes this assertion mean anything: a document that has
+// not been validated *yet* has no squiggles either, so asserting on it too early
+// passes for the wrong reason — and would go on passing with the worker dead.
+// So the clean case is checked only after the broken one has proved the worker
+// is answering, and the file is put back in between.
 const squiggles = () => page.locator(".squiggly-error, .squiggly-warning").count();
-check("a valid model validates clean", (await squiggles()) === 0);
 
-// And then something that genuinely is wrong. `techs` is a mapping of tech
-// name to definition, so a string there is a type error the schema can see.
+/**
+ * Monaco's own bindings, which are not the same on every platform.
+ *
+ * The undo below used to be `Control+Z` unconditionally, and on macOS that is
+ * not undo — Monaco binds `Cmd+Z`. Nothing asserted the edit had been taken
+ * back, so it never came up: the check simply left a dirty editor behind, which
+ * is exactly the state the *next* check's "opening does not mark the tab dirty"
+ * is about.
+ */
+const MOD = process.platform === "darwin" ? "Meta" : "Control";
+const END = process.platform === "darwin" ? "Meta+ArrowDown" : "Control+End";
+
+// Something that genuinely is wrong, first. `techs` is a mapping of tech name to
+// definition, so a string there is a type error the schema can see.
 await page.locator(".view-lines").first().click();
-await page.keyboard.press("Control+End");
+await page.keyboard.press(END);
 await page.keyboard.type("\ntechs: not-a-mapping\n");
-await page.waitForTimeout(4000);
-check("a schema violation is marked", (await squiggles()) > 0);
+const marked = await until(async () => (await squiggles()) > 0, { timeout: 30000 });
+check("a schema violation is marked", marked);
 
 await page.screenshot({ path: "/tmp/calliope-studio-monaco.png" });
 console.log("screenshot: /tmp/calliope-studio-monaco.png");
@@ -69,7 +95,34 @@ console.log("screenshot: /tmp/calliope-studio-monaco.png");
 // Undo, so the file is left as it was found. The editor never saved it, but a
 // dirty tab would make the next check's "opening does not mark the tab dirty"
 // assertion fail for reasons that have nothing to do with it.
-await page.keyboard.press("Control+Z");
-await page.keyboard.press("Control+Z");
+//
+// Until the markers clear, rather than a fixed number of presses. Two things
+// make a count wrong: Monaco decides for itself how to group an edit into undo
+// steps, and monaco-yaml re-validates on a change rather than on a timer, so the
+// squiggle outlives the text by one edit. Undoing to a condition covers both.
+//
+// This *is* the clean-file assertion, which is why it comes after the broken one
+// rather than before. On a freshly opened file "no squiggles" is also what a
+// document that has not been validated yet looks like, so asserting it up front
+// passed for the wrong reason and would have gone on passing with the worker
+// dead. Undo cannot go back past the file as it was loaded, so a model that
+// genuinely did not validate would never reach zero.
+const typed = () =>
+  page
+    .locator(".view-lines")
+    .first()
+    .textContent()
+    .then((text) => text?.includes("not-a-mapping") ?? false);
+
+const cleared = await until(
+  async () => {
+    if ((await squiggles()) === 0) return true;
+    await page.keyboard.press(`${MOD}+Z`);
+    return false;
+  },
+  { timeout: 20000, interval: 200 },
+);
+check("a valid model validates clean, once the edit is taken back", cleared);
+check("and the edit really is gone", !(await typed()));
 
 await finish(browser);

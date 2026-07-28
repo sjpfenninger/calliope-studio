@@ -21,8 +21,8 @@ import { open, results } from "./harness.mjs";
 
 const BASE = process.argv[2] ?? "http://127.0.0.1:8000";
 
-const { check, failed, finish } = results();
-const { browser, page } = await open();
+const { check, failed, finish } = results("tokens");
+const { browser, page, mapReady } = await open();
 
 /** Reads the theme plumbing without the app running at all. */
 async function withoutTheBundle({ colorScheme, stored }) {
@@ -67,29 +67,44 @@ await page.goto(
   workspaceMode
     ? `${BASE}/projects/${health.workspace_id}/versions/${health.workspace_id}`
     : `${BASE}/results`,
-  { waitUntil: "networkidle" },
+  { waitUntil: "domcontentloaded" },
 );
-await page.waitForTimeout(2500);
+
+/** Waits for something, and shrugs if it never comes. */
+const appears = (locator, timeout = 30000) =>
+  locator
+    .first()
+    .waitFor({ timeout })
+    .then(
+      () => true,
+      () => false,
+    );
 
 if (workspaceMode) {
   // Open a YAML file and a CSV, so Monaco and AG Grid both mount. Selected on
   // roles and test ids rather than on component class names: the previous
   // selectors named PrimeVue's internals and died with it.
+  //
+  // Each step waits for the renderer it is there to mount rather than for a
+  // guessed duration — which is also what makes the `skip`s below honest: a
+  // renderer that is absent because it was slow reports the same as one that is
+  // absent because it is broken.
   await page.getByRole("link", { name: "Files" }).click().catch(() => {});
-  await page.locator('[data-testid="file-tree"]').waitFor().catch(() => {});
-  await page.waitForTimeout(600);
+  await appears(page.locator('[data-testid="file-tree"]'));
   await page.getByText("model.yaml", { exact: true }).first().click().catch(() => {});
-  await page.waitForTimeout(2000);
+  await appears(page.locator(".monaco-editor"));
 
   // CSVs live in a folder, which has to be expanded before they can be clicked.
   const folder = page
     .locator('[data-testid="file-tree"] [role="treeitem"][aria-expanded="false"]')
     .first();
   if (await folder.count()) await folder.click().catch(() => {});
-  await page.waitForTimeout(600);
   await page.getByText(/\.csv$/).first().click().catch(() => {});
+  await appears(page.locator(".ag-root"));
+} else {
+  await appears(page.locator("canvas"));
+  await mapReady().catch(() => false);
 }
-await page.waitForTimeout(2500);
 
 function readTokens() {
   return page.evaluate(async () => {

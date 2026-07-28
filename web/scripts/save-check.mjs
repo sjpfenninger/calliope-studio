@@ -27,7 +27,7 @@
  */
 import { parse } from "yaml";
 
-import { health, open, requireMode, results } from "./harness.mjs";
+import { health, open, requireMode, results, trackRequests } from "./harness.mjs";
 
 const BASE = process.argv[2] ?? "http://127.0.0.1:8000";
 
@@ -52,7 +52,7 @@ const SECTIONS = [
  */
 const MAPPABLE = new Set(["nodes", "links"]);
 
-const { check, finish } = results();
+const { check, finish } = results("save");
 
 const comments = (text) =>
   text
@@ -68,6 +68,11 @@ const read = async (path) =>
 
 const { browser, page, testId, consoleErrors } = await open();
 
+// Every call the editor makes, so a click can be waited on rather than slept
+// after: opening a section fetches it, and Save writes it back. Both are
+// observable, and neither takes a predictable amount of time.
+const calls = trackRequests(page, (request) => request.url().includes("/api/"));
+
 // A save that has nothing to write must not write. Watched rather than inferred
 // from the file, because `serialize_csv` round-trips most files unchanged and a
 // spurious PUT would otherwise pass unnoticed until it met one that it does not.
@@ -78,19 +83,24 @@ page.on("request", (request) => {
   }
 });
 
+/** Saves, and waits for the write to land rather than for a guessed second. */
+const save = () => calls.settle(() => testId("save").click(), { timeout: 30000 });
+
 console.log(`No-op save at ${BASE}`);
-await page.goto(`${BASE}${payload.landing}`, { waitUntil: "networkidle" });
+await page.goto(`${BASE}${payload.landing}`, { waitUntil: "domcontentloaded" });
 await testId("model-tree").waitFor({ timeout: 20000 });
-await page.waitForTimeout(1500);
+await calls.idle();
 
 for (const [section, file] of SECTIONS) {
   const before = await read(file);
 
-  await page
-    .getByRole("treeitem", { name: new RegExp(`^${section}$`, "i") })
-    .first()
-    .click();
-  await page.waitForTimeout(2000);
+  await calls.settle(() =>
+    page
+      .getByRole("treeitem", { name: new RegExp(`^${section}$`, "i") })
+      .first()
+      .click(),
+  );
+  await testId("save").waitFor({ timeout: 20000 });
 
   // Opening alone must not mark the tab dirty, or the shell warns about unsaved
   // changes on the way out of a file nobody edited.
@@ -103,7 +113,7 @@ for (const [section, file] of SECTIONS) {
   if (MAPPABLE.has(section)) {
     check(`${section}: opens on the map`, (await testId("editor-map").count()) === 1);
     await testId("view-toggle").click();
-    await page.waitForTimeout(750);
+    await testId("editor-map").waitFor({ state: "detached", timeout: 20000 }).catch(() => {});
     check(
       `${section}: the toggle reaches the list`,
       (await testId("editor-map").count()) === 0,
@@ -115,8 +125,7 @@ for (const [section, file] of SECTIONS) {
     );
   }
 
-  await testId("save").click();
-  await page.waitForTimeout(1500);
+  await save();
   const after = await read(file);
 
   const lostComments = comments(before).filter(
@@ -149,20 +158,19 @@ const yamlBefore = await read("model.yaml");
 const csvBefore = await read(TABLE_CSV);
 
 const dataTables = page.getByRole("treeitem", { name: /^data tables$/i }).first();
-await dataTables.click();
-await page.waitForTimeout(1000);
+await calls.settle(() => dataTables.click(), { expect: 0 });
 
 const entry = page.getByRole("treeitem", { name: new RegExp(`^${TABLE}$`) }).first();
 if ((await entry.count()) === 0) {
   await dataTables.press("ArrowRight");
-  await page.waitForTimeout(500);
+  await entry.waitFor({ timeout: 20000 });
 }
-await entry.click();
-await page.waitForTimeout(1000);
+await calls.settle(() => entry.click());
 
 // The grid has to have arrived before Save, or "no CSV write" is trivially true.
 await testId("csv-grid").waitFor({ timeout: 20000 });
-await page.waitForTimeout(1500);
+await page.locator('[data-testid="csv-grid"] .ag-row').first().waitFor({ timeout: 30000 });
+await calls.idle();
 
 check(
   `${TABLE}: only the clicked table is shown`,
@@ -173,8 +181,7 @@ check(
   (await page.locator('[data-testid^="tab-"][data-active] [data-testid="tab-dirty"]').count()) === 0,
 );
 
-await testId("save").click();
-await page.waitForTimeout(1500);
+await save();
 
 const yamlAfter = await read("model.yaml");
 const csvAfter = await read(TABLE_CSV);

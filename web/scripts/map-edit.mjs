@@ -22,7 +22,7 @@
  */
 import { parse } from "yaml";
 
-import { api, health, open, requireMode, results } from "./harness.mjs";
+import { api, health, open, quiet, requireMode, results, trackRequests, until } from "./harness.mjs";
 
 const BASE = process.argv[2] ?? "http://127.0.0.1:8000";
 
@@ -36,7 +36,7 @@ const LINK_TO = "region1_2";
 /** Whose latitude is taken away, to see the map grey itself out. */
 const UNPLACED = "region1_3";
 
-const { check, finish } = results();
+const { check, finish } = results("map-edit");
 
 const payload = requireMode(await health(BASE), "workspace", BASE);
 const ws = payload.workspace_id;
@@ -76,7 +76,11 @@ async function nodeCoordinates() {
 
 let coordinates = await nodeCoordinates();
 
-const { browser, page, testId, consoleErrors } = await open();
+const { browser, page, testId, consoleErrors, mapReady } = await open();
+
+// Every call the editor makes, so opening a section and saving one can be waited
+// on rather than slept after.
+const calls = trackRequests(page, (request) => request.url().includes("/api/"));
 
 /** Where a longitude/latitude pair currently sits on screen. */
 async function screenPoint(lngLat) {
@@ -107,27 +111,33 @@ async function waitForResolvedGeo(timeout = 60000) {
   while (Date.now() < deadline) {
     const geo = await (await api(`${BASE}/api/versions/${ws}/geo/`)).json();
     if (geo.source === "resolved" && !geo.resolve_error) return geo;
-    await page.waitForTimeout(500);
+    await quiet(250);
   }
   throw new Error("the model never resolved");
 }
 
 async function openSection(name) {
-  await page
-    .getByRole("treeitem", { name: new RegExp(`^${name}$`, "i") })
-    .first()
-    .click();
+  await calls.settle(() =>
+    page
+      .getByRole("treeitem", { name: new RegExp(`^${name}$`, "i") })
+      .first()
+      .click(),
+  );
   await testId("editor-map").waitFor({ timeout: 20000 });
-  await page.waitForTimeout(2000);
+  // The element exists before MapLibre has a style, and `map.project()` on a map
+  // that has not loaded returns a point for a viewport that is about to change —
+  // which is how a drag lands somewhere nobody asked for.
+  await mapReady();
+  await calls.idle();
 }
 
 const before = await readFile(NODES_FILE);
 
 try {
   console.log(`Editing on the map at ${BASE}`);
-  await page.goto(`${BASE}${payload.landing}`, { waitUntil: "networkidle" });
+  await page.goto(`${BASE}${payload.landing}`, { waitUntil: "domcontentloaded" });
   await testId("model-tree").waitFor({ timeout: 20000 });
-  await page.waitForTimeout(1500);
+  await calls.idle();
 
   // ---------------------------------------------------------------------------
   // Nodes: the map is there, has a size, and a node can be dragged.
@@ -151,14 +161,18 @@ try {
     (await testId("map-overlay").count()) === 0,
   );
 
+  // The pauses either side of the press are the one place a duration is still
+  // the right instrument: MapLibre decides drag-versus-click from the *timing* of
+  // the pointer events, so these are part of the gesture rather than a wait for
+  // work to finish. Short, and the form appearing is what is actually awaited.
   const start = await screenPoint(coordinates[DRAGGED]);
   await page.mouse.move(start.x, start.y);
-  await page.waitForTimeout(300);
+  await quiet(120);
   await page.mouse.down();
   await page.mouse.move(start.x + 40, start.y - 30, { steps: 12 });
-  await page.waitForTimeout(200);
+  await quiet(120);
   await page.mouse.up();
-  await page.waitForTimeout(500);
+  await testId("node-latitude").waitFor({ timeout: 20000 });
 
   const latitude = Number(await testId("node-latitude").inputValue());
   const longitude = Number(await testId("node-longitude").inputValue());
@@ -198,8 +212,7 @@ try {
     JSON.stringify(endpoints),
   );
 
-  await testId("save").click();
-  await page.waitForTimeout(2000);
+  await calls.settle(() => testId("save").click(), { timeout: 30000 });
 
   const after = await readFile(NODES_FILE);
   const saved = parse(after).nodes[DRAGGED];
@@ -246,9 +259,9 @@ try {
     });
     // Reloaded rather than re-clicked: the sections are cached client-side, and
     // the point is what a user opening this model would see.
-    await page.reload({ waitUntil: "networkidle" });
+    await page.reload({ waitUntil: "domcontentloaded" });
     await testId("model-tree").waitFor({ timeout: 20000 });
-    await page.waitForTimeout(1500);
+    await calls.idle();
     await openSection("nodes");
     await testId(expect).waitFor({ timeout: 30000 });
   }
@@ -272,7 +285,7 @@ try {
   );
 
   await testId("map-show-list").click();
-  await page.waitForTimeout(750);
+  await testId("editor-map").waitFor({ state: "detached", timeout: 20000 }).catch(() => {});
   check("the overlay's button reaches the list", (await testId("editor-map").count()) === 0);
 
   // Half a coordinate pair is something Calliope rejects outright, and the map says
@@ -301,9 +314,9 @@ try {
   // none` — so every link click below would land on it and do nothing at all.
   await waitForResolvedGeo();
 
-  await page.reload({ waitUntil: "networkidle" });
+  await page.reload({ waitUntil: "domcontentloaded" });
   await testId("model-tree").waitFor({ timeout: 20000 });
-  await page.waitForTimeout(1500);
+  await calls.idle();
 
   // ---------------------------------------------------------------------------
   // Links: click a line to edit it, click two nodes to draw one.
@@ -323,7 +336,7 @@ try {
   const [toLng, toLat] = coordinates["region1"];
   const middle = await screenPoint([(fromLng + toLng) / 2, (fromLat + toLat) / 2]);
   await page.mouse.click(middle.x, middle.y);
-  await page.waitForTimeout(600);
+  await testId("link-name").waitFor({ timeout: 20000 });
 
   check(
     "clicking a line opens that link's form",
@@ -338,16 +351,15 @@ try {
 
   // Two clicks draw a link, from the template the picker names.
   await testId("new-link-template").selectOption("free_transmission");
-  await page.waitForTimeout(200);
 
   const first = await screenPoint(coordinates[LINK_FROM]);
   await page.mouse.click(first.x, first.y);
-  await page.waitForTimeout(500);
+  await testId("pending-link").waitFor({ timeout: 20000 }).catch(() => {});
   check("the first click starts a link", (await testId("pending-link").count()) === 1);
 
   const second = await screenPoint(coordinates[LINK_TO]);
   await page.mouse.click(second.x, second.y);
-  await page.waitForTimeout(600);
+  await until(async () => (await testId("pending-link").count()) === 0, { timeout: 20000 });
 
   check("the second click finishes it", (await testId("pending-link").count()) === 0);
   check(

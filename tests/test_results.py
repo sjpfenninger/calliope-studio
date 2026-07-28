@@ -201,9 +201,9 @@ class TestCatalog:
         expected = results.dataset.flow_out.fillna(0) - results.dataset.flow_in.fillna(
             0
         )
-        assert np.allclose(
-            computed.values, expected.values, equal_nan=True
-        ), "flow* must stay net flow, with missing sides treated as zero"
+        assert np.allclose(computed.values, expected.values, equal_nan=True), (
+            "flow* must stay net flow, with missing sides treated as zero"
+        )
 
     def test_synthetic_unavailable_without_its_inputs(self, results):
         stripped = results.dataset.drop_vars(["flow_in"])

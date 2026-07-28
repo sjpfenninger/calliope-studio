@@ -365,9 +365,9 @@ class TestRunLifecycle:
         wait_for_terminal(client, run_id)
 
         logs = [e["data"] for e in read_stream(client, run_id) if e["event"] == "log"]
-        assert any(
-            log["logger"].endswith("<solve>") for log in logs
-        ), "the solver's own output never reached the event stream"
+        assert any(log["logger"].endswith("<solve>") for log in logs), (
+            "the solver's own output never reached the event stream"
+        )
 
     def test_stream_replays_history_for_a_late_subscriber(self, client, ws):
         """Connecting after a run finished still yields its whole log."""

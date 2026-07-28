@@ -24,7 +24,7 @@ jobs:
       - name: Lint
         run: pixi run lint
       - name: Check formatting
-        run: pixi run -- black --check src/ tests/
+        run: pixi run format-check
       - name: Test
         # The sample .nc files are not in the repository, so tests that need a
         # solved model skip here. Keep it that way: CI covers logic, and the

@@ -34,9 +34,11 @@ needs a clone of the upstream repository.
 ## Rules
 
 **Do not edit these files, and do not reformat them.** Their whole value is
-being what was tagged. `tests/oracle/` is excluded from ruff and black in
-`pyproject.toml` for exactly that reason — a stray `pixi run format` would
-otherwise break the provenance claim above without changing any behaviour.
+being what was tagged. `tests/oracle/` is excluded from ruff in
+`pyproject.toml` — `extend-exclude` plus `force-exclude`, which covers
+`ruff format` as well as `ruff check` — for exactly that reason: a stray
+`pixi run format` would otherwise break the provenance claim above without
+changing any behaviour.
 
 Their internal `calligraph.data` imports are left alone too. The test fixture
 rewrites that prefix to a private package name when it copies them to a temp

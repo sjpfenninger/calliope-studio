@@ -186,9 +186,7 @@ class TestTimeseriesMatch:
                 ).columns
                 if c != variable
             ]
-        )[
-            variable
-        ]
+        )[variable]
 
         query = Query(
             variable=variable, resample=resample, sum_by=sum_by, drop_zeros=False

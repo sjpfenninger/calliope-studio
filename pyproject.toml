@@ -93,7 +93,6 @@ gurobi = { features = ["dev", "gurobi"] }
 
 [tool.pixi.feature.dev.dependencies]
 ruff = "*"
-black = "*"
 pytest = "*"
 
 [tool.pixi.feature.build.dependencies]
@@ -120,7 +119,8 @@ testpaths = ["tests"]
 
 [tool.pixi.tasks]
 lint = "ruff check src/ tests/"
-format = "black src/ tests/"
+format = "ruff format src/ tests/"
+format-check = "ruff format --check src/ tests/"
 test = "pytest"
 
 # Frontend. `web-build` compiles the Vue bundle into the Python package so that
@@ -147,49 +147,39 @@ build = { cmd = "python -m build && python scripts/check_wheel.py", depends-on =
   "web-build",
 ] }
 
-[tool.black]
-line-length = 88
-skip-magic-trailing-comma = true
-target-version = ['py310', 'py311', 'py312']
-include = '\.pyi?$'
-exclude = '''
-/(
-    \.eggs
-  | \.git
-  | \.github
-  | \.mypy_cache
-  | \.pytest_cache
-  | \.vscode
-  | _build
-  | build
-  | dist
-  | .*\.egg-info
-)/
-'''
-# The frozen v0.2.0 sources. Their value is being byte-identical to the tag, so
-# reformatting them would quietly break the provenance claim in their README
-# without changing any behaviour. `force-exclude` because `format` passes
-# `tests/` explicitly.
-force-exclude = 'tests/oracle/'
-
+# Ruff is both the linter and the formatter; there is deliberately no second
+# formatter to keep in step with it.
 [tool.ruff]
 line-length = 88
-# Frozen v0.2.0 sources; see the note on black's `force-exclude` above.
+# Spelled out rather than inferred from `requires-python`, so that raising the
+# floor there does not silently change how code is formatted.
+target-version = "py310"
+# The frozen v0.2.0 sources. Their value is being byte-identical to the tag, so
+# reformatting them would quietly break the provenance claim in their README
+# without changing any behaviour. `force-exclude` because `format` and `lint`
+# pass `tests/` explicitly; it covers `ruff format` as well as `ruff check`.
 extend-exclude = ["tests/oracle"]
 force-exclude = true
 
+[tool.ruff.format]
+# Carried over from black, which was configured this way. Ruff defaults to the
+# opposite, and leaving it out would reflow every call site that a trailing
+# comma is currently holding open.
+skip-magic-trailing-comma = true
+
 [tool.ruff.lint]
 select = ["E", "F", "I", "Q", "W"]
-# line too long; Black will handle these
+# line too long; the formatter handles these
 ignore = ["E501"]
-
-[tool.ruff.lint.mccabe]
-# Unlike Flake8, default to a complexity level of 10.
-max-complexity = 10
 
 # Ignore `E402` (import violations) and `F401` (unused imports) in all `__init__.py` files
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["E402", "F401"]
+
+[tool.ruff.lint.isort]
+# Must match `format.skip-magic-trailing-comma`; ruff warns when they disagree,
+# because the linter would then split an import the formatter would rejoin.
+split-on-trailing-comma = false
 
 [tool.ruff.lint.flake8-quotes]
 docstring-quotes = "double"

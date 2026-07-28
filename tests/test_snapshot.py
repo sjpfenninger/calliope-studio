@@ -49,9 +49,9 @@ class TestCompleteness:
         """
         manifest, paths = captured(urban_scale, tmp_path / "snapshot")
 
-        assert (
-            "additional_math.yaml" in paths
-        ), "math_paths file missing; the snapshot is not buildable"
+        assert "additional_math.yaml" in paths, (
+            "math_paths file missing; the snapshot is not buildable"
+        )
         assert manifest["complete"] is True
 
     def test_data_tables_inside_overrides_are_captured(self, national_scale, tmp_path):

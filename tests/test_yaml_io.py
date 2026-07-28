@@ -139,9 +139,9 @@ def assert_faithful_rewrite(before: str, after: str, context: str) -> None:
     comments, or the shape of the file.
     """
     assert _comments(before) == _comments(after), f"comments changed in {context}"
-    assert len(before.splitlines()) == len(
-        after.splitlines()
-    ), f"line count changed in {context} — content was reflowed"
+    assert len(before.splitlines()) == len(after.splitlines()), (
+        f"line count changed in {context} — content was reflowed"
+    )
 
     before_doc = _round_trip_yaml().load(before)
     after_doc = _round_trip_yaml().load(after)
@@ -179,15 +179,15 @@ class TestGoldenCorpus:
             write_section(path, section, read_section(path, section))
             settled = path.read_text()
             write_section(path, section, read_section(path, section))
-            assert (
-                path.read_text() == settled
-            ), f"rewriting '{section}' in {path.name} is not a fixed point"
+            assert path.read_text() == settled, (
+                f"rewriting '{section}' in {path.name} is not a fixed point"
+            )
 
     def test_long_expressions_are_not_wrapped(self, urban_scale):
         """Math expressions must not be folded across lines by the emitter."""
         path = urban_scale / "additional_math.yaml"
         write_section(path, "constraints", read_section(path, "constraints"))
         for line in path.read_text().splitlines():
-            assert not line.rstrip().endswith(
-                "=="
-            ), f"expression was wrapped mid-operator: {line!r}"
+            assert not line.rstrip().endswith("=="), (
+                f"expression was wrapped mid-operator: {line!r}"
+            )

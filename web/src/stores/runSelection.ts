@@ -175,6 +175,32 @@ function defineRunSelection(handle: string) {
      */
     const staticSumBy = ref<SumBy>("none");
 
+    /**
+     * What the table shows, and how.
+     *
+     * Its variable comes from the `all` catalogue rather than one of the plotting
+     * categories — inputs included, as v0.2.0's table did, since reading a
+     * parameter back is half of why anyone opens a table.
+     *
+     * It defaults to the *original* resolution where the charts default to daily:
+     * a chart resamples so a year of hours can be seen at once, and a table exists
+     * precisely so the numbers can be read as they are. Resampling by default
+     * would be a silent average presented as a value.
+     */
+    const variableTable = ref<string | null>(null);
+    const tableResolution = ref<string>("Original resolution");
+    const tableSumBy = ref<SumBy>("none");
+
+    /**
+     * Whether the table hides series with nothing in them.
+     *
+     * The successor to v0.2.0's "Drop N/A values?" switch, mapped onto the query's
+     * `drop_zeros`. On by default because that is what the charts show, and
+     * because a model defines every variable over the full cross product of its
+     * dimensions — turned off on a real model, most of the columns are empty.
+     */
+    const tableDropEmpty = ref(true);
+
     /** The variable on each of the map's three encoding channels, or none. */
     const mapVariables = ref<Record<MapChannel, string | null>>({
       size: null,
@@ -328,6 +354,7 @@ function defineRunSelection(handle: string) {
         variableStatic.value,
         "static",
       );
+      variableTable.value = pickVariable(variables.all, variableTable.value, "all");
 
       // The map only offers variables that carry node data, which the catalogue
       // has always computed and nothing used. A channel pointing at something the
@@ -368,6 +395,26 @@ function defineRunSelection(handle: string) {
       return dims.includes(option)
         ? ""
         : `${variable} has no ${option} dimension to sum.`;
+    }
+
+    /**
+     * Why `variable` cannot be resampled, or "" when it can.
+     *
+     * `sumLock`'s counterpart, and it exists for the table alone: the time series
+     * chart is offered only variables from the `timeseries` catalogue, which all
+     * have timesteps by construction, while the table offers everything. The
+     * server drops a `resample` on an array with no `timesteps` dimension just as
+     * silently as it drops a `sum_by`, so the same rule applies — the option stays
+     * and says why it is locked. Fails open on an unknown variable, for the reason
+     * `sumLock` does.
+     */
+    function resampleLock(variable: string | null): string {
+      if (!variable) return "";
+      const dims = catalog.value?.variables.dims?.[variable];
+      if (!dims) return "";
+      return dims.includes("timesteps")
+        ? ""
+        : `${variable} is not a time series, so it cannot be resampled.`;
     }
 
     /**
@@ -523,6 +570,14 @@ function defineRunSelection(handle: string) {
     const effectiveStaticSum = computed(() =>
       effectiveSum(variableStatic.value, staticSumBy.value),
     );
+    const effectiveTableSum = computed(() =>
+      effectiveSum(variableTable.value, tableSumBy.value),
+    );
+
+    /** The resolution the table can actually apply, for the same reason. */
+    const effectiveTableResolution = computed(() =>
+      resampleLock(variableTable.value) ? "Original resolution" : tableResolution.value,
+    );
 
     const timeseriesQuery = computed<ResultQuery | null>(() => {
       if (!variableTimeseries.value) return null;
@@ -546,6 +601,34 @@ function defineRunSelection(handle: string) {
       return {
         variable: variableStatic.value,
         selectors: effectiveSelectors.value,
+        ...(sum === "none" ? {} : { sum_by: sum }),
+      };
+    });
+
+    /**
+     * What the table shows.
+     *
+     * Goes through `effectiveSelectors` like every other query — the sidebar and
+     * any map selection both narrow it, which is the point of the table living
+     * beside the charts rather than filtering separately. `TRANSMISSION` must
+     * never reach the server, and `filter_selectors` drops an unrecognised key in
+     * silence, so the failure would be an under-filtered table rather than an
+     * error.
+     *
+     * `drop_zeros` is always sent, unlike `sum_by` and `resample`: it is the one
+     * field here whose interesting value is `false`, and a body that omitted it
+     * would be asking for the server's default rather than saying what it wants.
+     */
+    const tableQuery = computed<ResultQuery | null>(() => {
+      if (!variableTable.value) return null;
+      const sum = effectiveTableSum.value;
+      const resample = RESOLUTIONS[effectiveTableResolution.value] ?? null;
+      return {
+        variable: variableTable.value,
+        selectors: effectiveSelectors.value,
+        time_range: timeRange.value,
+        drop_zeros: tableDropEmpty.value,
+        ...(resample ? { resample } : {}),
         ...(sum === "none" ? {} : { sum_by: sum }),
       };
     });
@@ -618,19 +701,27 @@ function defineRunSelection(handle: string) {
       resolvedSelectors,
       variableTimeseries,
       variableStatic,
+      variableTable,
       resolution,
+      tableResolution,
       plotType,
       sumBy,
       staticSumBy,
+      tableSumBy,
+      tableDropEmpty,
       sumLock,
+      resampleLock,
       effectiveSumBy,
       effectiveStaticSum,
+      effectiveTableSum,
+      effectiveTableResolution,
       mapVariables,
       timeRange,
       mapNodes,
       effectiveSelectors,
       timeseriesQuery,
       staticQuery,
+      tableQuery,
       mapSizeQuery,
       mapColorQuery,
       mapPieQuery,

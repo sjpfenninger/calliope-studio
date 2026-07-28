@@ -15,7 +15,7 @@ import {
 
 export type FileType = "yaml" | "csv" | "other";
 export type EditorMode = "raw" | "structured";
-export type RunSubView = "results" | "config" | "log";
+export type RunSubView = "results" | "table" | "config" | "log";
 
 interface TabCommon {
   /** Stable, URL-safe identity. See lib/tabId.ts. */

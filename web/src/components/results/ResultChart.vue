@@ -13,6 +13,7 @@ import {
 } from "../../charts/layout";
 import { ensureTheme } from "../../charts/theme";
 import { resolvedColor } from "../../lib/cssColor";
+import { normaliseIndexValue } from "../../lib/frameIndex";
 import StateMessage from "../app/StateMessage.vue";
 import { seriesLabel } from "../../lib/seriesLabel";
 import { useUiStore } from "../../stores/ui";
@@ -74,16 +75,18 @@ function isTimeIndex(frame: ResultFrame): boolean {
 }
 
 function axisValues(frame: ResultFrame): (string | number)[] {
-  // Arrow hands timestamps back as epoch milliseconds, a Date, or a BigInt
-  // depending on the column type; period indices come through as integers.
+  // What Arrow hands back — a Date, a BigInt, a string or a number — is settled
+  // by `normaliseIndexValue`, which the CSV export shares, so a timestep cannot
+  // be one thing on the axis and another in the file. Only the presentation is
+  // this component's: a time axis wants epoch milliseconds.
   return frame.index.map((value) => {
-    if (value instanceof Date) return value.getTime();
-    if (typeof value === "bigint") return Number(value);
+    const index = normaliseIndexValue(value);
+    if (index instanceof Date) return index.getTime();
     // The index carries identity, so it gets the same display names the legend
     // gives it — a link reads `A → B` on the axis exactly as it does everywhere
     // else, rather than reverting to its generated `a_to_b` technology name.
-    if (props.indexColors) return props.labels[String(value)] ?? (value as string);
-    return value as string | number;
+    if (props.indexColors) return props.labels[String(index)] ?? index;
+    return index;
   });
 }
 

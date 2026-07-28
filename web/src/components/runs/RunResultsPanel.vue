@@ -20,6 +20,8 @@
  */
 import { computed, onBeforeUnmount, onMounted, provide, ref, watch } from "vue";
 
+import { Download } from "@lucide/vue";
+
 import MapLegend from "@/components/map/MapLegend.vue";
 import ModelMap from "@/components/map/ModelMap.vue";
 import InfoTip from "@/components/app/InfoTip.vue";
@@ -28,6 +30,7 @@ import PanelHeader from "@/components/app/PanelHeader.vue";
 import ResultChart from "@/components/results/ResultChart.vue";
 import RunFilterPanel from "./RunFilterPanel.vue";
 import StateMessage from "@/components/app/StateMessage.vue";
+import TooltipButton from "@/components/app/TooltipButton.vue";
 import {
   ResizableHandle,
   ResizablePanel,
@@ -43,7 +46,10 @@ import {
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import type { ResultFrame } from "@/api/results";
 import { useResultFrame } from "@/composables/useResultFrame";
+import { RESOLUTION_LABELS, SUM_LABELS, keepOne } from "@/lib/chartControls";
 import { resolvedColor } from "@/lib/cssColor";
+import { downloadText } from "@/lib/download";
+import { csvFilename, frameToCsv, type CsvSource } from "@/lib/frameCsv";
 import { nodeSlices, nodeTotals, valueExtent } from "@/lib/mapValues";
 import {
   RESOLUTIONS,
@@ -125,26 +131,6 @@ function indexColorsFor(
 
 const PLOT_TYPES: PlotType[] = ["Bar", "Line", "Area", "Duration"];
 const resolutions = Object.keys(RESOLUTIONS);
-
-/** How each sum-by option is labelled, in the order the toggle offers them. */
-const SUM_LABELS: Record<SumBy, string> = {
-  none: "No sum",
-  nodes: "Sum nodes",
-  techs: "Sum techs",
-};
-
-/**
- * Shorter labels for the resolutions, where the key is the API into `RESOLUTIONS`
- * and not a caption.
- *
- * "Original resolution" alone is wide enough to push this header onto a second
- * row, which makes the time series' title bar half as tall again as the two
- * beside it — and a collapsed figure is exactly its title bar, so the difference
- * is not only visible while everything is open.
- */
-const RESOLUTION_LABELS: Record<string, string> = {
-  "Original resolution": "Original",
-};
 
 const timeseriesVariables = computed(
   () => store.catalog?.variables.timeseries ?? [],
@@ -494,16 +480,6 @@ function onLayout(layout: number[]) {
 onMounted(() => store.load());
 
 /**
- * Reproduces PrimeVue's `:allow-empty="false"`.
- *
- * A toggle group deselects on a second click, and "no plot type" is not a state
- * this view has — it would blank the chart with no way back except guessing.
- */
-function keepOne<T extends string>(next: unknown, current: T): T {
-  return (next as T) || current;
-}
-
-/**
  * `keepOne` for the sum-by toggles, refusing a locked option.
  *
  * The locked items carry `aria-disabled` rather than `disabled`, because a
@@ -515,6 +491,54 @@ function chooseSum(next: unknown, current: SumBy, variable: string | null): SumB
   const value = keepOne(next as SumBy, current);
   return store.sumLock(variable, value) ? current : value;
 }
+
+// ── Export ─────────────────────────────────────────────────────────────────
+
+/**
+ * Writes out exactly what a figure is drawing.
+ *
+ * From the frame the chart is holding, not a fresh request: the frame *is* the
+ * figure, already selector-narrowed, resampled, summed and stripped of its empty
+ * series by the server. A second request could come back different — the
+ * selection may have moved since the button was drawn — and then the file would
+ * not be the picture it was taken from.
+ *
+ * The time series follows `plotType` with it: in `Duration` the frame is indexed
+ * by `period` with every series sorted on its own, so the file is the
+ * load-duration curve. That is not a quirk to work around; it is the figure.
+ */
+function exportFrames(sources: CsvSource[], variable: string) {
+  const csv = frameToCsv(sources, store.techLabels);
+  if (!csv) return;
+  downloadText(csvFilename(store.catalog?.name, variable), csv);
+}
+
+function hasData(frame: ResultFrame | null): boolean {
+  return Boolean(frame && frame.series.length > 0);
+}
+
+/**
+ * What the map is showing, as one table.
+ *
+ * The map is the one figure with no single frame behind it: up to three channels
+ * are drawn at once and each is its own query. They are all indexed by node, so
+ * they join, and each column says which channel it came from — a file of three
+ * unlabelled `value` columns would be worse than useless.
+ */
+const mapSources = computed<CsvSource[]>(() =>
+  (["size", "color", "pie"] as MapChannel[])
+    .map((channel) => ({
+      label: store.mapVariables[channel] ?? undefined,
+      frame: { size: mapSizeFrame, color: mapColorFrame, pie: mapPieFrame }[channel]
+        .frame.value,
+    }))
+    .filter((source) => source.label && hasData(source.frame)),
+);
+
+/** The name to file the map's export under, when several variables are on it. */
+const mapVariableName = computed(() =>
+  mapSources.value.map((source) => source.label).join("-") || "map",
+);
 </script>
 
 <template>
@@ -630,6 +654,15 @@ function chooseSum(next: unknown, current: SumBy, variable: string | null): SumB
                 <span v-else class="shrink-0 text-2xs text-text-faint">
                   Click nodes to narrow the charts.
                 </span>
+
+                <TooltipButton
+                  label="Export the map's data as CSV"
+                  :icon="Download"
+                  size="sm"
+                  testid="export-map"
+                  :disabled="!mapSources.length"
+                  @click="exportFrames(mapSources, mapVariableName)"
+                />
               </PanelHeader>
 
               <!-- No `height`: the default is already 100%, and the panel is what
@@ -787,6 +820,21 @@ function chooseSum(next: unknown, current: SumBy, variable: string | null): SumB
                     </ToggleGroupItem>
                   </InfoTip>
                 </ToggleGroup>
+
+                <div class="flex-1" />
+                <TooltipButton
+                  label="Export this chart's data as CSV"
+                  :icon="Download"
+                  size="sm"
+                  testid="export-timeseries"
+                  :disabled="!hasData(timeseriesFrame.frame.value)"
+                  @click="
+                    exportFrames(
+                      [{ frame: timeseriesFrame.frame.value }],
+                      store.variableTimeseries ?? 'timeseries',
+                    )
+                  "
+                />
               </PanelHeader>
 
               <ResultChart
@@ -887,6 +935,21 @@ function chooseSum(next: unknown, current: SumBy, variable: string | null): SumB
                     </ToggleGroupItem>
                   </InfoTip>
                 </ToggleGroup>
+
+                <div class="flex-1" />
+                <TooltipButton
+                  label="Export this chart's data as CSV"
+                  :icon="Download"
+                  size="sm"
+                  testid="export-static"
+                  :disabled="!hasData(staticFrame.frame.value)"
+                  @click="
+                    exportFrames(
+                      [{ frame: staticFrame.frame.value }],
+                      store.variableStatic ?? 'totals',
+                    )
+                  "
+                />
               </PanelHeader>
 
               <ResultChart

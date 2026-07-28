@@ -17,7 +17,7 @@ function catalog(overrides: Partial<Catalog> = {}): Catalog {
     id: "h",
     name: "national",
     variables: {
-      all: ["flow_cap", "flow*"],
+      all: ["flow_cap", "flow*", "timestep_resolution"],
       timeseries: ["flow*", "storage"],
       static: ["flow_cap", "cost"],
       static_nodes: ["flow_cap"],
@@ -27,6 +27,8 @@ function catalog(overrides: Partial<Catalog> = {}): Catalog {
         cost: ["nodes", "techs", "costs"],
         "flow*": ["nodes", "techs", "carriers", "timesteps"],
         storage: ["nodes", "techs", "timesteps"],
+        // An input over time alone — nothing to sum, everything to resample.
+        timestep_resolution: ["timesteps"],
       },
     },
     dimensions: {
@@ -740,6 +742,127 @@ describe("useRunSelection", () => {
 
       store.resolution = "Original resolution";
       expect(store.timeseriesQuery?.resample).toBeNull();
+    });
+  });
+
+  /**
+   * The table shares the sidebar and the map selection with the charts, and
+   * differs from them only in what it defaults to and what it may aggregate.
+   */
+  describe("the table query", () => {
+    it("opens on the full catalogue, at the original resolution", async () => {
+      const store = useRunSelection("h1");
+      await store.load();
+
+      // `all` includes inputs, unlike any of the plotting categories.
+      expect(store.variableTable).toBe("flow_cap");
+      // A chart resamples so a year fits on screen; a table exists to show the
+      // numbers as they are.
+      expect(store.tableResolution).toBe("Original resolution");
+      expect(store.tableQuery?.resample).toBeUndefined();
+      expect(store.tableSumBy).toBe("none");
+      expect(store.tableQuery?.sum_by).toBeUndefined();
+    });
+
+    it("shares the sidebar selection with the charts", async () => {
+      const store = useRunSelection("h1");
+      await store.load();
+      store.setSelected("nodes", ["region1"]);
+
+      expect(store.tableQuery?.selectors).toEqual(store.effectiveSelectors);
+      expect(store.tableQuery?.selectors?.nodes).toEqual(["region1"]);
+    });
+
+    it("is narrowed by the map selection too", async () => {
+      const store = useRunSelection("h1");
+      await store.load();
+      store.mapNodes = ["region2"];
+
+      expect(store.tableQuery?.selectors?.nodes).toEqual(["region2"]);
+    });
+
+    it("never sends a section name as a selector key", async () => {
+      // `filter_selectors` drops an unrecognised key silently, so this would not
+      // fail loudly — it would quietly under-filter.
+      const store = useRunSelection("h1");
+      await store.load();
+
+      for (const key of Object.keys(store.tableQuery?.selectors ?? {})) {
+        expect(Object.keys(store.catalog!.dimensions)).toContain(key);
+      }
+    });
+
+    it("carries drop_zeros explicitly, both ways", async () => {
+      const store = useRunSelection("h1");
+      await store.load();
+      expect(store.tableQuery?.drop_zeros).toBe(true);
+
+      store.tableDropEmpty = false;
+      expect(store.tableQuery?.drop_zeros).toBe(false);
+    });
+
+    it("refuses to resample a variable that is not a time series", async () => {
+      const store = useRunSelection("h1");
+      await store.load();
+      // flow_cap has no timesteps dimension.
+      store.tableResolution = "Monthly";
+
+      expect(store.resampleLock("flow_cap")).toContain("not a time series");
+      expect(store.effectiveTableResolution).toBe("Original resolution");
+      expect(store.tableQuery?.resample).toBeUndefined();
+    });
+
+    it("resamples one that is, and gives back the standing choice", async () => {
+      const store = useRunSelection("h1");
+      await store.load();
+      store.tableResolution = "Monthly";
+      store.variableTable = "flow*";
+
+      expect(store.resampleLock("flow*")).toBe("");
+      expect(store.tableQuery?.resample).toBe("1ME");
+    });
+
+    it("drops a sum the variable cannot honour, and gives it back", async () => {
+      const store = useRunSelection("h1");
+      await store.load();
+      store.variableTable = "flow*";
+      store.tableSumBy = "nodes";
+      expect(store.tableQuery?.sum_by).toBe("nodes");
+
+      // `timestep_resolution` is indexed by time alone. The server would drop
+      // this sum in silence, leaving the control claiming an aggregation that is
+      // not happening.
+      store.variableTable = "timestep_resolution";
+      expect(store.sumLock("timestep_resolution", "nodes")).toContain("no nodes");
+      expect(store.effectiveTableSum).toBe("none");
+      expect(store.tableQuery?.sum_by).toBeUndefined();
+
+      // The user's standing choice was held, not overwritten.
+      store.variableTable = "flow*";
+      expect(store.tableQuery?.sum_by).toBe("nodes");
+    });
+
+    it("re-validates its variable when the catalogue changes", async () => {
+      const store = useRunSelection("h1");
+      await store.load();
+      store.variableTable = "flow*";
+
+      catalogFor.mockResolvedValue(
+        catalog({
+          variables: {
+            all: ["cost"],
+            timeseries: [],
+            static: ["cost"],
+            static_nodes: [],
+            static_links: [],
+            dims: { cost: ["nodes", "techs", "costs"] },
+          },
+        }),
+      );
+      await store.load(true);
+
+      // Not left pointing at a variable the model no longer has.
+      expect(store.variableTable).toBe("cost");
     });
   });
 

@@ -22,6 +22,7 @@ import StateMessage from "@/components/app/StateMessage.vue";
 import RunConfigPanel from "./RunConfigPanel.vue";
 import RunLogPanel from "./RunLogPanel.vue";
 import RunResultsPanel from "./RunResultsPanel.vue";
+import RunTablePanel from "./RunTablePanel.vue";
 import { isTerminal, useRunsStore } from "@/stores/runs";
 import { useTabsStore, type RunSubView, type RunTab } from "@/stores/tabs";
 
@@ -32,8 +33,11 @@ const runs = useRunsStore();
 
 const run = computed(() => (props.tab.runId ? runs.get(props.tab.runId) : undefined));
 
+// The table sits beside the results rather than at the end: both are the solved
+// model, and both need only a handle, where the other two need a run.
 const VIEWS: Array<{ id: RunSubView; label: string }> = [
   { id: "results", label: "Results" },
+  { id: "table", label: "Table" },
   { id: "config", label: "Config" },
   { id: "log", label: "Log" },
 ];
@@ -41,6 +45,7 @@ const VIEWS: Array<{ id: RunSubView; label: string }> = [
 /** A bare `.nc` has no run behind it, so there is no log and nothing was frozen. */
 const available = computed<Record<RunSubView, boolean>>(() => ({
   results: props.tab.handle !== null,
+  table: props.tab.handle !== null,
   config: props.tab.runId !== null,
   log: props.tab.runId !== null,
 }));
@@ -128,6 +133,16 @@ watch(
         class="absolute inset-0 flex"
       />
 
+      <!-- Latched like the rest, and for the same reason one level along: an AG
+           Grid built inside a `display: none` pane sizes its viewport to nothing
+           and renders no rows. -->
+      <RunTablePanel
+        v-if="shows('table') && tab.handle"
+        v-show="tab.subView === 'table'"
+        :handle="tab.handle"
+        class="absolute inset-0 flex"
+      />
+
       <RunConfigPanel
         v-if="!missing && shows('config') && tab.runId"
         v-show="tab.subView === 'config'"
@@ -143,7 +158,11 @@ watch(
         class="absolute inset-0 flex"
       />
 
-      <StateMessage v-if="!missing && tab.subView === 'results' && !tab.handle" variant="fill" class="absolute inset-0">
+      <StateMessage
+        v-if="!missing && !tab.handle && ['results', 'table'].includes(tab.subView)"
+        variant="fill"
+        class="absolute inset-0"
+      >
         This run has not produced results.
       </StateMessage>
     </div>

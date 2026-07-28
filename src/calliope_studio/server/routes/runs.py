@@ -20,6 +20,7 @@ from calliope_studio.modeldef.imports import (
     component_tree,
     find_model_yaml,
     import_graph,
+    scenario_catalog,
     scenario_names,
 )
 from calliope_studio.modeldef.paths import walk_files
@@ -73,13 +74,20 @@ def _with_results(record: RunRecord, runs: RunManager, store: ResultStore) -> di
     outcome, then exits, and until it does the file may still be held open. A
     handle offered any earlier makes the interface open a run's charts the
     instant the file exists, and `calliope.read_netcdf` fails on it.
+
+    A run whose directory has gone gets no handle rather than an error. History
+    is pruned when a run *starts*, so a listing already holding the records can
+    be asked about one that was deleted a moment later — and a 500 out of the
+    run list empties the whole sidebar over one run that no longer exists.
     """
     payload = record.as_dict()
+    payload["results_handle"] = None
     if record.has_results and record.status in TERMINAL_STATUSES:
-        results_file = runs.run_dir(record.id) / protocol.RESULTS_FILE
+        try:
+            results_file = runs.run_dir(record.id) / protocol.RESULTS_FILE
+        except KeyError:
+            return payload
         payload["results_handle"] = store.register(results_file)
-    else:
-        payload["results_handle"] = None
     return payload
 
 
@@ -129,6 +137,18 @@ def list_runs(
         _with_results(record, runs, store)
         for record in runs.discover(storage.runs_dir(workspace))
     ]
+
+
+@router.get("/versions/{id}/scenarios/")
+def list_scenarios(workspace: Workspace = Depends(get_workspace)) -> dict:
+    """What may be passed as `scenario` when starting a run.
+
+    Here rather than with the other structural views because that is what it is:
+    the domain of one field of `RunOptions`, read from the same function
+    `create_run` below rejects an unknown name with. The picker that consumes
+    this cannot offer something the POST would refuse.
+    """
+    return scenario_catalog(workspace.path)
 
 
 @router.post("/versions/{id}/runs/", status_code=status.HTTP_201_CREATED)

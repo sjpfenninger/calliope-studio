@@ -16,7 +16,7 @@ import time
 import pytest
 
 from calliope_studio.runs import protocol
-from calliope_studio.runs.manager import RunManager
+from calliope_studio.runs.manager import RunManager, RunRecord
 
 TERMINAL = {"success", "infeasible", "failed", "cancelled"}
 
@@ -559,6 +559,82 @@ class TestSolvingFromTheSnapshot:
         assert record["status"] == "success", record.get("error")
         assert record["solved_from"] == "snapshot"
         assert record["snapshot_complete"] is True
+
+
+class TestListingSurvivesPruning:
+    def test_a_run_deleted_mid_listing_does_not_break_the_list(self):
+        """History is capped when a run *starts*, not when one finishes.
+
+        So a listing already holding the records can be asked about one whose
+        directory has just been pruned away, and `run_dir` then raises. Observed:
+        one `KeyError` turned the whole run list into a 500, which empties the
+        sidebar over a single run that no longer exists.
+        """
+        from calliope_studio.server.routes.runs import _with_results
+
+        class Gone:
+            def run_dir(self, run_id):
+                raise KeyError(run_id)
+
+        record = RunRecord(
+            id="082faa2b-f781-477a-b5d7-6059146ffac8",
+            status="success",
+            created_at="2026-07-28T12:00:00+00:00",
+            has_results=True,
+        )
+
+        payload = _with_results(record, Gone(), store=None)
+        assert payload["results_handle"] is None
+        assert payload["status"] == "success"
+
+
+class TestScenarioCatalogEndpoint:
+    """What the Run sidebar's picker is offered. Reads only; starts nothing."""
+
+    def test_the_endpoint_lists_what_the_model_defines(self, client, ws):
+        catalog = client.get(f"/api/versions/{ws}/scenarios/").json()
+        assert "cold_fusion_with_production_share" in {
+            entry["name"] for entry in catalog["scenarios"]
+        }
+        assert "time_resampling" in {entry["name"] for entry in catalog["overrides"]}
+
+    def test_a_scenario_carries_what_it_composes(self, client, ws):
+        catalog = client.get(f"/api/versions/{ws}/scenarios/").json()
+        entry = next(
+            entry
+            for entry in catalog["scenarios"]
+            if entry["name"] == "cold_fusion_with_production_share"
+        )
+        assert entry["overrides"] == ["cold_fusion", "cold_fusion_prod_share"]
+        # Both of national_scale's scenarios name overrides that are commented
+        # out in its own file, and the picker says so rather than offering a
+        # name that cannot run.
+        assert entry["missing"] == ["cold_fusion_prod_share"]
+
+    def test_a_new_override_is_offered_and_stops_being_rejected(
+        self, client, ws, national_scale
+    ):
+        """The picker and the validator move together, on the same edit."""
+        rejected = client.post(
+            f"/api/versions/{ws}/runs/", json={"scenario": "midweek"}
+        )
+        assert rejected.status_code == 400
+
+        scenarios_yaml = national_scale / "scenarios.yaml"
+        scenarios_yaml.write_text(
+            scenarios_yaml.read_text()
+            + "\n  midweek:\n"
+            + '    config.init.subset.timesteps: ["2005-01-05", "2005-01-06"]\n'
+        )
+
+        catalog = client.get(f"/api/versions/{ws}/scenarios/").json()
+        assert "midweek" in {entry["name"] for entry in catalog["overrides"]}
+
+        accepted = client.post(
+            f"/api/versions/{ws}/runs/",
+            json={"scenario": "midweek", "build_only": True},
+        )
+        assert accepted.status_code == 201
 
 
 class TestRunOptions:

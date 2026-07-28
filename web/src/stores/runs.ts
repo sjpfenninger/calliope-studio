@@ -64,6 +64,32 @@ export interface RunOptions {
   build_only?: boolean;
 }
 
+/** One name `scenario=` accepts, and enough to say what it is. */
+export interface ScenarioEntry {
+  name: string;
+  file: string;
+  /** Scenarios: which overrides this one composes. */
+  overrides?: string[];
+  /** Scenarios: named overrides no file defines. Unrunnable as it stands. */
+  missing?: string[];
+  /** Overrides: how many settings this one makes. */
+  setting_count?: number;
+}
+
+/**
+ * What may be run, beside the model as written.
+ *
+ * Two lists rather than one because they are different things to choose
+ * between, even though Calliope's `scenario=` takes either: a scenario is a
+ * named composition, an override is one of the pieces.
+ */
+export interface ScenarioCatalog {
+  scenarios: ScenarioEntry[];
+  overrides: ScenarioEntry[];
+}
+
+const EMPTY_CATALOG: ScenarioCatalog = { scenarios: [], overrides: [] };
+
 /**
  * The stages a run passes through, in order.
  *
@@ -169,6 +195,12 @@ export const useRunsStore = defineStore("runs", () => {
   const error = ref<string | null>(null);
   /** How many runs this workspace keeps. Null means all of them. */
   const retention = ref<number | null>(null);
+  /** What this model's files offer, for the Run sidebar's picker. */
+  const scenarios = ref<ScenarioCatalog>(EMPTY_CATALOG);
+  /** Which model the catalogue is for, so a re-entry is not a reset. */
+  const scenarioVersionId = ref<string | null>(null);
+  /** The one the next run applies. Null runs the model as written. */
+  const scenario = ref<string | null>(null);
 
   // Not reactive: nothing renders a timer or an EventSource, and making them
   // reactive would mean Vue proxying objects the browser handed us.
@@ -181,6 +213,11 @@ export const useRunsStore = defineStore("runs", () => {
   );
 
   const active = computed(() => ordered.value.filter((run) => !isTerminal(run.status)));
+
+  /** Whether this model defines anything to pick between. */
+  const hasScenarios = computed(
+    () => scenarios.value.scenarios.length + scenarios.value.overrides.length > 0,
+  );
 
   const totalBytes = computed(() =>
     ordered.value.reduce((sum, run) => sum + run.size_bytes, 0),
@@ -354,6 +391,44 @@ export const useRunsStore = defineStore("runs", () => {
   }
 
   /**
+   * Loads what the model offers to run, and drops a pick that has gone.
+   *
+   * The pick is cleared on a change of *model*, not on every load: `load` runs
+   * each time the Runs section is entered, and a picker that forgot itself
+   * whenever the user glanced at Model would be worse than no picker at all.
+   *
+   * It is also cleared when the name is no longer in the catalogue — an
+   * override deleted from the file while it was selected. Leaving it would show
+   * a name the server is about to reject with a 400 nothing in the sidebar
+   * explains.
+   */
+  async function loadScenarios(versionId: string): Promise<void> {
+    if (scenarioVersionId.value !== versionId) {
+      scenario.value = null;
+      scenarioVersionId.value = versionId;
+    }
+    try {
+      const res = await client.get<Partial<ScenarioCatalog>>(
+        `/api/versions/${versionId}/scenarios/`,
+      );
+      scenarios.value = {
+        scenarios: res.data?.scenarios ?? [],
+        overrides: res.data?.overrides ?? [],
+      };
+    } catch {
+      // A viewer-mode server has no workspace to have scenarios; the strip
+      // simply does not appear.
+      scenarios.value = EMPTY_CATALOG;
+    }
+    const known = new Set(
+      [...scenarios.value.scenarios, ...scenarios.value.overrides].map(
+        (entry) => entry.name,
+      ),
+    );
+    if (scenario.value !== null && !known.has(scenario.value)) scenario.value = null;
+  }
+
+  /**
    * Changes how much history this workspace keeps.
    *
    * Nothing is deleted here — the server prunes when a run *starts*. A settings
@@ -371,6 +446,7 @@ export const useRunsStore = defineStore("runs", () => {
     isLoading.value = true;
     error.value = null;
     void loadSettings(versionId);
+    void loadScenarios(versionId);
     try {
       const res = await client.get<RunRecord[]>(`/api/versions/${versionId}/runs/`);
       records.clear();
@@ -445,6 +521,10 @@ export const useRunsStore = defineStore("runs", () => {
     isLoading,
     error,
     retention,
+    scenarios,
+    scenario,
+    hasScenarios,
+    loadScenarios,
     get,
     logsFor,
     trimmedFor,

@@ -143,7 +143,11 @@ function commitRename() {
     <!-- Labelled, not run-on: these numbers used to be four unlabelled figures
          with a native `title` as the only clue what they were, which is a missing
          label rather than a tooltip problem. -->
-    <div class="flex items-center gap-2 text-text-faint">
+    <!-- Wraps rather than squeezing: a scenario name is a fifth thing on a row
+         built for four, and in a 300px sidebar the shrink went into the *labels*
+         — "sce… t.. o." — which is the one part of this that carries no
+         information on its own. -->
+    <div class="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-text-faint">
       <InfoTip :label="formatTimestamp(run.created_at)">
         <span class="shrink-0 text-2xs">{{ formatRelativeTime(run.created_at) }}</span>
       </InfoTip>

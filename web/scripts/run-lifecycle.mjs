@@ -27,12 +27,27 @@ const payload = requireMode(await health(BASE), "workspace", BASE);
 const { browser, page, testId, consoleErrors, frames } = await open();
 
 console.log(`Run lifecycle at ${BASE}`);
+
+/** Every run request as it went out, so the picker can be checked at the wire. */
+const starts = [];
+page.on("request", (request) => {
+  const path = new URL(request.url()).pathname;
+  if (request.method() !== "POST" || !path.endsWith("/runs/")) return;
+  try {
+    starts.push(JSON.parse(request.postData() ?? "{}"));
+  } catch {
+    /* not our payload */
+  }
+});
+
 await page.goto(`${BASE}${payload.landing}`, { waitUntil: "networkidle" });
 await page.getByRole("link", { name: "Runs" }).click();
 await testId("start-run").waitFor();
 
 await testId("start-run").click();
 await testId("run-log").waitFor({ timeout: 30000 });
+// The tab is open, so the POST has been answered and its body is captured.
+check("the model as written asks for no scenario", starts.at(-1)?.scenario === null);
 check("the run's tab opens immediately, on the log", page.url().includes("tab=run"));
 
 // Sampled twice rather than counted once: a fixed wait and a `> 1` count would
@@ -129,6 +144,63 @@ await page.waitForTimeout(2000);
 check(
   "the as-solved summary renders",
   (await testId("run-summary").locator("dt").count()) > 5,
+);
+
+// --- and again, with a scenario picked --------------------------------------
+//
+// A second run rather than a scenario on the first: `time_resampling` subsets to
+// one month at 6h, and using it above would silence the two checks that need a
+// solve long enough to watch — the log growing, and the solve stage being seen.
+//
+// Every run tab stays mounted (`TabBody` uses `v-show`, deliberately), so from
+// here a bare test id matches both tabs' copies. `:visible` is the one in front.
+const PICK = "time_resampling";
+const visible = (name) => page.locator(`[data-testid="${name}"]:visible`);
+
+await page.getByRole("link", { name: "Runs" }).click();
+await testId("scenario-strip").waitFor({ timeout: 10000 });
+await testId("run-scenario").click();
+await page.getByRole("option", { name: PICK, exact: true }).click();
+check(
+  "the picker shows what was chosen",
+  ((await testId("run-scenario").textContent()) ?? "").includes(PICK),
+);
+
+await testId("start-run").click();
+await page.waitForTimeout(2000);
+check(
+  "the picked scenario reaches the request",
+  starts.at(-1)?.scenario === PICK,
+  JSON.stringify(starts.at(-1)),
+);
+
+const newest = page
+  .locator('[data-testid="run-list"] [data-testid="run-status"]')
+  .first();
+let outcome = null;
+for (let i = 0; i < 300; i += 1) {
+  outcome = await newest.getAttribute("data-status");
+  if (["success", "infeasible", "failed", "cancelled"].includes(outcome)) break;
+  await page.waitForTimeout(1000);
+}
+check("the scenario run finishes", outcome === "success", `status ${outcome}`);
+check(
+  "the history says which scenario the run used",
+  (
+    (await page.locator('[data-testid="run-list"] > *').first().textContent()) ?? ""
+  ).includes(PICK),
+);
+
+// The one assertion an echoed payload cannot fake: Calliope itself reporting,
+// out of the solved file, which overrides it applied.
+await visible("run-subtab-config").click();
+await visible("config-view-solved").waitFor({ timeout: 10000 });
+await visible("config-view-solved").click();
+await visible("run-summary").waitFor({ timeout: 30000 });
+await page.waitForTimeout(2000);
+check(
+  "Calliope reports the override as applied",
+  ((await visible("run-summary").textContent()) ?? "").includes(PICK),
 );
 
 await page.screenshot({ path: "/tmp/calliope-studio-run-lifecycle.png", fullPage: true });

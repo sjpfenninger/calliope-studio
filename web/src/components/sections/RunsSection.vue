@@ -21,7 +21,7 @@ import {
   SECONDARY_BUTTON,
 } from "@/lib/formClasses";
 import { cn } from "@/lib/utils";
-import { Check, HardDrive, Play, RefreshCw } from "@lucide/vue";
+import { Check, HardDrive, Play, RefreshCw, TriangleAlert } from "@lucide/vue";
 
 import RunListItem from "@/components/runs/RunListItem.vue";
 import RunStatusPill from "@/components/runs/RunStatusPill.vue";
@@ -40,6 +40,15 @@ import {
   DropdownMenuLabel,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { formatBytes } from "@/lib/format";
 import { ICON_STROKE_WIDTH_TIGHT } from "@/lib/icons";
 import { openIntent } from "@/lib/openIntent";
@@ -51,6 +60,19 @@ const tabs = useTabsStore();
 
 const starting = ref(false);
 const pendingDelete = ref<RunRecord | null>(null);
+
+/**
+ * The sentinel for "no scenario" — a `Select` cannot bind to null.
+ *
+ * It shares a value space with names out of the user's own model, hence the
+ * underscores: no Calliope scenario is called this.
+ */
+const NONE = "__none__";
+
+function setScenario(value: unknown) {
+  const name = String(value ?? NONE);
+  runs.scenario = name === NONE ? null : name;
+}
 
 const busy = computed(() => runs.active.length > 0);
 
@@ -82,7 +104,10 @@ async function start() {
   if (!tabs.versionId || starting.value) return;
   starting.value = true;
   try {
-    const record = await runs.startRun(tabs.versionId);
+    // Passed from here rather than read inside `startRun`: a later "run this
+    // again" on a history item has its own scenario to send, and a store field
+    // quietly overriding an argument is hard to see from the call.
+    const record = await runs.startRun(tabs.versionId, { scenario: runs.scenario });
     // Opens on the log, because there are no results to show yet.
     tabs.openRun({ id: record.id, label: record.label });
   } finally {
@@ -119,6 +144,11 @@ function setRetention(keep: number | null) {
       <button
         type="button"
         data-testid="start-run"
+        :title="
+          runs.scenario
+            ? `Solve with ${runs.scenario} applied`
+            : 'Solve the model as written'
+        "
         :disabled="starting || !tabs.versionId"
         :class="PRIMARY_BUTTON"
         @click="start"
@@ -138,6 +168,66 @@ function setRetention(keep: number | null) {
       >
         <RefreshCw class="size-3.5" />
       </button>
+    </PanelHeader>
+
+    <!-- Its own strip rather than a control in the header above: the sidebar
+         narrows to around 200px, that header already holds a button, a status
+         pill and an icon button, and a scenario name is as long as the user
+         made it. Absent entirely for a model that defines neither scenarios nor
+         overrides, which is also every viewer-mode session. -->
+    <PanelHeader v-if="runs.hasScenarios" data-testid="scenario-strip">
+      <span class="shrink-0 text-2xs text-text-faint">Scenario</span>
+      <Select :model-value="runs.scenario ?? NONE" @update:model-value="setScenario">
+        <SelectTrigger
+          size="sm"
+          class="min-w-0 flex-1"
+          aria-label="Scenario to run"
+          data-testid="run-scenario"
+        >
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <!-- A real answer rather than an empty one: the model as its files say. -->
+          <SelectItem :value="NONE">Model as written</SelectItem>
+
+          <SelectGroup v-if="runs.scenarios.scenarios.length">
+            <SelectLabel>Scenarios</SelectLabel>
+            <SelectItem
+              v-for="entry in runs.scenarios.scenarios"
+              :key="entry.name"
+              :value="entry.name"
+            >
+              {{ entry.name }}
+              <!-- Marked, not hidden or disabled: Calliope decides whether a
+                   scenario resolves, and a model saying one thing while the
+                   picker shows another is the worse failure.
+
+                   The `title` is on the span rather than the icon: it is an SVG,
+                   where `title` is an element and the attribute shows nothing. -->
+              <span
+                v-if="entry.missing?.length"
+                class="inline-flex items-center"
+                :title="`Composes overrides this model does not define: ${entry.missing.join(', ')}`"
+              >
+                <TriangleAlert class="size-3 text-warning-text" />
+              </span>
+            </SelectItem>
+          </SelectGroup>
+
+          <!-- Offered because `scenario=` takes either: a scenario name, or
+               override names. Most models define far more of the latter. -->
+          <SelectGroup v-if="runs.scenarios.overrides.length">
+            <SelectLabel>Overrides</SelectLabel>
+            <SelectItem
+              v-for="entry in runs.scenarios.overrides"
+              :key="entry.name"
+              :value="entry.name"
+            >
+              {{ entry.name }}
+            </SelectItem>
+          </SelectGroup>
+        </SelectContent>
+      </Select>
     </PanelHeader>
 
     <div class="min-h-0 flex-1 overflow-auto" data-testid="run-list">

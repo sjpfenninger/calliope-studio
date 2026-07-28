@@ -100,26 +100,6 @@ def reachable_files(base: Path) -> list[Path]:
     return unique
 
 
-def scenario_names(base: Path) -> set[str]:
-    """Every name `scenario=` will accept, across the import graph.
-
-    Calliope takes either a scenario name or a comma-joined list of override
-    names in the same argument, so both sections count. Collected up front so a
-    typo can be reported immediately, rather than costing a subprocess start, a
-    Calliope import and a stack trace before saying "no such scenario".
-    """
-    names: set[str] = set()
-    for path in reachable_files(Path(base).resolve()):
-        document = load_quietly(path)
-        if not isinstance(document, dict):
-            continue
-        for section in ("scenarios", "overrides"):
-            block = document.get(section)
-            if isinstance(block, dict):
-                names.update(str(name) for name in block)
-    return names
-
-
 def import_graph(base: Path) -> dict:
     """The `import:` DAG, as nodes and edges for the frontend's graph view."""
     base = Path(base).resolve()
@@ -162,6 +142,65 @@ def _summarise(section: str, value: Any) -> dict:
         return {"overrides": [str(value)]} if value else {}
 
     return {}
+
+
+def scenario_catalog(base: Path) -> dict:
+    """Every name `scenario=` will accept, with what each one is.
+
+    Both sections, kept apart: Calliope takes either a scenario name or a
+    comma-joined list of override names in the same argument, but they are
+    different things to choose between and the Run sidebar says which is which.
+
+    `scenario_names` below is derived from this, so the list the picker offers
+    and the list `POST /runs/` validates against are the same list by
+    construction rather than by two loops happening to agree.
+    """
+    base = Path(base).resolve()
+    found: dict[str, dict[str, dict]] = {"scenarios": {}, "overrides": {}}
+
+    for path in reachable_files(base):
+        document = load_quietly(path)
+        if not isinstance(document, dict):
+            continue
+        relative = str(path.relative_to(base))
+        for section in ("scenarios", "overrides"):
+            block = document.get(section)
+            if not isinstance(block, dict):
+                continue
+            for name in block:
+                # First definition wins, as in `component_tree`.
+                found[section].setdefault(
+                    str(name),
+                    {
+                        "name": str(name),
+                        "file": relative,
+                        **_summarise(section, block.get(name)),
+                    },
+                )
+
+    # A scenario naming an override no file defines cannot be run. Calliope says
+    # so when it reads the model; saying it here turns "the run failed" into
+    # "this scenario is incomplete" before a subprocess is spent on it. Its own
+    # bundled `national_scale` ships two of them, pointing at overrides that are
+    # commented out in the file beneath them.
+    defined = set(found["overrides"])
+    for entry in found["scenarios"].values():
+        missing = [name for name in entry.get("overrides", []) if name not in defined]
+        if missing:
+            entry["missing"] = missing
+
+    return {section: list(entries.values()) for section, entries in found.items()}
+
+
+def scenario_names(base: Path) -> set[str]:
+    """Every name `scenario=` will accept, across the import graph.
+
+    Collected up front so a typo can be reported immediately, rather than costing
+    a subprocess start, a Calliope import and a stack trace before saying "no
+    such scenario".
+    """
+    catalog = scenario_catalog(base)
+    return {entry["name"] for entries in catalog.values() for entry in entries}
 
 
 def component_tree(base: Path) -> dict:

@@ -8,7 +8,11 @@ so getting this wrong either hides links or mixes them in with everything else.
 import pytest
 
 from calliope_studio.modeldef import entities
-from calliope_studio.modeldef.imports import component_tree
+from calliope_studio.modeldef.imports import (
+    component_tree,
+    scenario_catalog,
+    scenario_names,
+)
 
 
 class TestTransmissionDetection:
@@ -106,3 +110,77 @@ class TestComponentTree:
         tree = component_tree(model)
         assert "techs" in tree
         assert "links" not in tree
+
+
+class TestScenarioCatalog:
+    """What the Run sidebar may offer, and what `POST /runs/` will accept."""
+
+    def test_both_sections_are_offered_and_kept_apart(self, national_scale):
+        catalog = scenario_catalog(national_scale)
+        scenarios = {entry["name"] for entry in catalog["scenarios"]}
+        overrides = {entry["name"] for entry in catalog["overrides"]}
+
+        assert "cold_fusion_with_production_share" in scenarios
+        assert "time_resampling" in overrides
+        assert not scenarios & overrides
+
+    def test_an_override_says_how_many_settings_it_makes(self, national_scale):
+        catalog = scenario_catalog(national_scale)
+        by_name = {entry["name"]: entry for entry in catalog["overrides"]}
+        assert by_name["capacity_factor"]["setting_count"] == 2
+
+    def test_a_scenario_says_which_overrides_it_composes(self, national_scale):
+        catalog = scenario_catalog(national_scale)
+        by_name = {entry["name"]: entry for entry in catalog["scenarios"]}
+        assert by_name["cold_fusion_with_production_share"]["overrides"] == [
+            "cold_fusion",
+            "cold_fusion_prod_share",
+        ]
+
+    def test_entries_name_the_file_that_defines_them(self, national_scale):
+        catalog = scenario_catalog(national_scale)
+        for entries in catalog.values():
+            for entry in entries:
+                assert entry["file"].endswith("scenarios.yaml")
+
+    def test_a_scenario_naming_an_undefined_override_says_so(self, national_scale):
+        """national_scale's two scenarios point at commented-out overrides.
+
+        Calliope refuses to read such a model, so the run fails a subprocess
+        later; naming it here is what makes that legible before it is spent.
+        """
+        catalog = scenario_catalog(national_scale)
+        by_name = {entry["name"]: entry for entry in catalog["scenarios"]}
+        assert by_name["cold_fusion_with_production_share"]["missing"] == [
+            "cold_fusion_prod_share"
+        ]
+
+    def test_a_complete_scenario_is_not_marked(self, tmp_path):
+        model = tmp_path / "complete"
+        model.mkdir()
+        (model / "model.yaml").write_text(
+            "overrides:\n  quick:\n    config.init.name: quick\n"
+            "scenarios:\n  both: [quick]\n"
+        )
+        entry = scenario_catalog(model)["scenarios"][0]
+        assert "missing" not in entry
+
+    def test_a_model_defining_neither_offers_nothing(self, tmp_path):
+        model = tmp_path / "bare"
+        model.mkdir()
+        (model / "model.yaml").write_text("techs:\n  solar:\n    base_tech: supply\n")
+        assert scenario_catalog(model) == {"scenarios": [], "overrides": []}
+
+    def test_a_folder_with_no_model_offers_nothing(self, tmp_path):
+        assert scenario_catalog(tmp_path) == {"scenarios": [], "overrides": []}
+
+    def test_the_names_are_exactly_what_the_catalogue_offers(self, national_scale):
+        """The picker and the validator must not be able to disagree.
+
+        This is the whole reason `scenario_names` is a derivation rather than a
+        second walk over the same files.
+        """
+        catalog = scenario_catalog(national_scale)
+        assert scenario_names(national_scale) == {
+            entry["name"] for entries in catalog.values() for entry in entries
+        }

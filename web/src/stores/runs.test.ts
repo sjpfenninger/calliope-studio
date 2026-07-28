@@ -107,18 +107,26 @@ describe("useRunsStore", () => {
   });
 
   /**
-   * Answers the settings call and routes everything else to `data`.
+   * Answers the settings and scenario calls, routing everything else to `data`.
    *
-   * `load` fetches the workspace's retention setting as well as the history, so
-   * a bare `mockResolvedValue` would hand the run list to both.
+   * `load` fetches the workspace's retention setting and its scenario catalogue
+   * as well as the history, so a bare `mockResolvedValue` would hand the run
+   * list to all three.
    */
-  function serve(data: unknown) {
-    api.get.mockImplementation((url: string) =>
-      url.includes("/settings/")
-        ? Promise.resolve({ data: { run_retention: 20 } })
-        : Promise.resolve({ data }),
-    );
+  function serve(data: unknown, catalog: unknown = { scenarios: [], overrides: [] }) {
+    api.get.mockImplementation((url: string) => {
+      if (url.includes("/settings/")) {
+        return Promise.resolve({ data: { run_retention: 20 } });
+      }
+      if (url.includes("/scenarios/")) return Promise.resolve({ data: catalog });
+      return Promise.resolve({ data });
+    });
   }
+
+  const catalog = (...names: string[]) => ({
+    scenarios: [],
+    overrides: names.map((name) => ({ name, file: "scenarios.yaml" })),
+  });
 
   afterEach(() => {
     vi.useRealTimers();
@@ -202,6 +210,63 @@ describe("useRunsStore", () => {
       await runs.setRetention("v1", 1);
 
       expect(runs.ordered.length).toBe(2);
+    });
+  });
+
+  describe("scenarios", () => {
+    it("comes back with the history", async () => {
+      const runs = useRunsStore();
+      serve([], catalog("time_resampling"));
+      await runs.load("v1");
+
+      expect(runs.hasScenarios).toBe(true);
+      expect(runs.scenarios.overrides.map((entry) => entry.name)).toEqual([
+        "time_resampling",
+      ]);
+    });
+
+    it("keeps the pick when the section is re-entered", async () => {
+      // `load` runs every time the Runs section mounts. A picker that forgot
+      // itself whenever the user glanced at Model would be worse than none.
+      const runs = useRunsStore();
+      serve([], catalog("time_resampling"));
+      await runs.load("v1");
+      runs.scenario = "time_resampling";
+
+      await runs.load("v1");
+      expect(runs.scenario).toBe("time_resampling");
+    });
+
+    it("drops the pick when the model changes", async () => {
+      const runs = useRunsStore();
+      serve([], catalog("time_resampling"));
+      await runs.load("v1");
+      runs.scenario = "time_resampling";
+
+      await runs.load("v2");
+      expect(runs.scenario).toBeNull();
+    });
+
+    it("drops a pick the model no longer defines", async () => {
+      // Deleted from `scenarios.yaml` while it was selected. Left alone, Run
+      // would 400 with nothing in the sidebar to explain it.
+      const runs = useRunsStore();
+      serve([], catalog("time_resampling"));
+      await runs.load("v1");
+      runs.scenario = "time_resampling";
+
+      serve([], catalog("profiling"));
+      await runs.load("v1");
+      expect(runs.scenario).toBeNull();
+    });
+
+    it("offers nothing when the server has none to give", async () => {
+      // Viewer mode: no workspace, so no scenarios, so no strip.
+      const runs = useRunsStore();
+      api.get.mockRejectedValue(new Error("404"));
+
+      await runs.load("v1");
+      expect(runs.hasScenarios).toBe(false);
     });
   });
 

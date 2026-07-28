@@ -15,12 +15,21 @@
 import type { ResultFrame } from "../api/results";
 import { indexToLabel, indexToText } from "./frameIndex";
 import { seriesLabel } from "./seriesLabel";
+import { unitSuffix, type DisplayUnit } from "./units";
 
 /** One frame to write, and what to call its columns when there are several. */
 export interface CsvSource {
   /** Prefixed to every column name, when more than one source is given. */
   label?: string;
   frame: ResultFrame | null;
+  /**
+   * What this frame's values are measured in, already applied to them.
+   *
+   * Per source, not per file: the map exports three channels at once and they
+   * are three different variables, so one of them may be in GWh beside another
+   * in MW.
+   */
+  unit?: DisplayUnit | null;
 }
 
 const DELIMITER = ",";
@@ -100,7 +109,7 @@ export function frameToCsv(
   // One column per series, already positioned on the spine.
   const columns: string[][] = [];
 
-  for (const { frame, label } of present) {
+  for (const { frame, label, unit } of present) {
     // Where each of this frame's rows lands in the spine, computed once rather
     // than per series: a frame has a handful of series and up to a year of hours.
     const positions = frame.index.map(
@@ -109,7 +118,14 @@ export function frameToCsv(
 
     for (const series of frame.series) {
       const name = seriesLabel(series, frame.seriesDims, labels);
-      header.push(prefixed && label ? `${label}${LABEL_SEPARATOR}${name}` : name);
+      // The values below are the figure's, scaled; naming the unit in the header
+      // is what keeps the file honest about that. It goes here rather than into
+      // `valueToText`, which stays full-precision and locale-free — a number a
+      // spreadsheet can do arithmetic on, with the unit alongside it, not in it.
+      header.push(
+        (prefixed && label ? `${label}${LABEL_SEPARATOR}${name}` : name) +
+          unitSuffix(unit),
+      );
 
       const column = new Array<string>(spine.length).fill("");
       positions.forEach((row, position) => {

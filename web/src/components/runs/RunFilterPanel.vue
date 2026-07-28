@@ -17,6 +17,7 @@ import { SECTION_HEADING } from "@/lib/formClasses";
 import { Checkbox } from "@/components/ui/checkbox";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { RUN_SELECTION, type FilterSection } from "@/stores/runSelection";
+import RunUnitsPanel from "./RunUnitsPanel.vue";
 
 const store = inject(RUN_SELECTION)!;
 
@@ -124,5 +125,10 @@ function toggle(section: FilterSection, member: string, checked: boolean) {
         @update:model-value="(value) => store.setSelected(section.name, value)"
       />
     </section>
+
+    <!-- Last, and after the filters it is not one of: what a figure is narrowed
+         to is asked far more often than what it is measured in, and a setting
+         that is right once should not sit above the controls used every time. -->
+    <RunUnitsPanel />
   </aside>
 </template>

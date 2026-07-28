@@ -28,6 +28,11 @@ MATH_SOURCES = ("base", "milp", "operate", "spores", "storage_inter_cluster")
 #: for annotating editor fields. Constraints and variables are not.
 REGISTRY_SECTIONS = ("parameters", "lookups", "dimensions")
 
+#: Sections that declare a `unit:`. Wider than `REGISTRY_SECTIONS` because a
+#: results chart plots variables and global expressions, which are not editor
+#: fields and so are deliberately absent from the registry.
+UNIT_SECTIONS = ("parameters", "lookups", "variables", "global_expressions")
+
 
 def _jsonable(value: Any) -> Any:
     """Makes a value JSON-safe.
@@ -72,6 +77,40 @@ def _parameter_registry() -> dict:
                 # only contribute names it does not already define.
                 registry[section].setdefault(str(name), _jsonable(dict(definition)))
     return registry
+
+
+@lru_cache(maxsize=1)
+def component_units() -> dict[str, str]:
+    """Each Calliope component's declared unit, as the math states it.
+
+    A *generalised* quantity — `energy`, `power`, `cost`, and LaTeX composites
+    such as `$\\frac{\\text{cost}}{\\text{hour}}$` — never a real one: Calliope
+    has no idea whether a model's flows are in kWh or GWh. Turning that into
+    "GWh" is the user's to say and the frontend's to render, so the strings are
+    passed on exactly as written, inconsistencies and all.
+
+    Solved arrays carry the same value in `attrs["unit"]`, but only patchily:
+    the sample `urban_scale` results have it on 23 of 34 *inputs* and none of
+    their 24 results, while the older flat files have it the other way round.
+    This is the source that answers for every name Calliope itself defines;
+    attrs are what answer for math a user wrote themselves.
+    """
+    from calliope.preprocess import model_math
+
+    all_math = model_math.initialise_math()
+
+    units: dict[str, str] = {}
+    for source in MATH_SOURCES:
+        block = all_math.get(source) or {}
+        for section in UNIT_SECTIONS:
+            for name, definition in (block.get(section) or {}).items():
+                unit = (definition or {}).get("unit")
+                # First definition wins, as in `_parameter_registry`: `base` is
+                # authoritative and the mode files mostly re-declare a component
+                # to add bounds, leaving `unit` unset.
+                if unit:
+                    units.setdefault(str(name), str(unit))
+    return units
 
 
 @lru_cache(maxsize=1)

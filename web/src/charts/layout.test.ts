@@ -2,11 +2,13 @@ import { describe, expect, it } from "vitest";
 
 import {
   GRID_BOTTOM,
+  GRID_TOP,
   LEGEND_H,
   ZOOM_BOTTOM,
   ZOOM_GAP,
   ZOOM_H,
   gridBottom,
+  gridTop,
   zoomBottom,
 } from "./layout";
 
@@ -27,5 +29,12 @@ describe("chart layout", () => {
     expect(gridBottom(false)).toBe(GRID_BOTTOM - LEGEND_H);
     // The slider still needs its own room and its gap, whatever is below it.
     expect(gridBottom(false) - zoomBottom(false)).toBe(ZOOM_H + ZOOM_GAP);
+  });
+
+  it("only reserves room above for an axis name when there is one", () => {
+    // The title went to the DOM and the 24px it reserved went to the plot. A
+    // unit label is the one thing that came back, and only when set.
+    expect(gridTop(false)).toBe(GRID_TOP);
+    expect(gridTop(true)).toBeGreaterThan(GRID_TOP);
   });
 });

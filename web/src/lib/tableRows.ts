@@ -12,6 +12,7 @@ import type { ColDef } from "ag-grid-community";
 import type { ResultFrame } from "../api/results";
 import { indexToLabel, indexToText } from "./frameIndex";
 import { seriesLabel } from "./seriesLabel";
+import { unitSuffix, type DisplayUnit } from "./units";
 
 export interface GridShape {
   columns: ColDef[];
@@ -49,6 +50,7 @@ export function formatCell(value: number | undefined): string {
 export function frameToGrid(
   frame: ResultFrame | null,
   labels: Record<string, string> = {},
+  unit: DisplayUnit | null = null,
 ): GridShape {
   if (!frame || !frame.series.length) return { columns: [], rows: [] };
 
@@ -62,9 +64,13 @@ export function frameToGrid(
       pinned: "left",
       minWidth: 150,
     },
+    // The unit goes on every column rather than once above them: it is what the
+    // CSV can say, and a grid that named it somewhere the file could not would
+    // be the two describing one query differently. The cells hold the scaled
+    // number, so a header that omitted it would be wrong rather than terse.
     ...frame.series.map((series, position) => ({
       field: fieldFor(position + 1),
-      headerName: seriesLabel(series, frame.seriesDims, labels),
+      headerName: seriesLabel(series, frame.seriesDims, labels) + unitSuffix(unit),
       type: "numericColumn",
       valueFormatter: (params: { value: unknown }) =>
         formatCell(params.value as number | undefined),

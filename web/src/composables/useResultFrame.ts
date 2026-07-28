@@ -1,5 +1,7 @@
-import { ref, shallowRef, watch, onScopeDispose, type Ref } from "vue";
+import { computed, ref, shallowRef, watch, onScopeDispose, type Ref } from "vue";
 import { streamFrame, type ResultFrame, type ResultQuery } from "../api/results";
+import { resolveUnit, scaleFrame, type DisplayUnit } from "../lib/units";
+import { useUnitsStore } from "../stores/units";
 
 /**
  * Keeps a chart's data in step with its query.
@@ -8,6 +10,12 @@ import { streamFrame, type ResultFrame, type ResultQuery } from "../api/results"
  * filter aborts whatever is still in flight rather than racing it, and batches
  * are surfaced as they arrive so a long timeseries paints progressively instead
  * of appearing all at once at the end.
+ *
+ * It is also where the display unit is applied, because it is the one place
+ * every frame in the application passes through — the results panel makes five
+ * here and the table one, and chart, table, CSV and map all read what they
+ * return. Applied here rather than sent with the query, so changing "energy" to
+ * GWh rescales six figures without a single request to the server.
  */
 export function useResultFrame(
   handle: Ref<string | null>,
@@ -62,5 +70,17 @@ export function useResultFrame(
   watch([handle, query], load, { immediate: true, deep: true });
   onScopeDispose(cancelInFlight);
 
-  return { frame, loading, error, reload: load };
+  const units = useUnitsStore();
+
+  // Read off the frame itself, which the server stamps with the variable's
+  // declared unit, so this needs no catalogue and cannot race one.
+  const unit = computed<DisplayUnit>(() =>
+    resolveUnit(frame.value?.unit, units.prefs),
+  );
+  const scaled = computed(() => scaleFrame(frame.value, unit.value.factor));
+
+  // `frame` is the scaled one so that no consumer can forget to apply it, and
+  // so a figure and the CSV beside it can never disagree. `raw` is there for
+  // anything that genuinely wants model values.
+  return { frame: scaled, raw: frame, unit, loading, error, reload: load };
 }

@@ -45,6 +45,15 @@ export interface ResultFrame {
   variable: string;
   order: "time" | "duration";
   seriesDims: string[];
+  /**
+   * The generalised unit Calliope declares for this variable — "energy",
+   * "power", `$\frac{\text{cost}}{\text{hour}}$` — or null.
+   *
+   * One variable per frame means one unit for the whole of it, so it is read
+   * from the schema rather than off a series. `lib/units.ts` is what turns it
+   * into something to show a reader.
+   */
+  unit: string | null;
 }
 
 /**
@@ -76,6 +85,15 @@ export interface Catalog {
      * which reads as a broken control rather than an inapplicable one.
      */
     dims: Record<string, string[]>;
+    /**
+     * Each variable's generalised unit, where Calliope declares one.
+     *
+     * Only the variables that have one appear — a postprocessed
+     * `capacity_factor` has no unit anywhere, and saying so by omission beats
+     * an empty string that has to be checked for. Absent and empty therefore
+     * mean the same thing, which is why the key itself is optional.
+     */
+    units?: Record<string, string>;
   };
   /** Every dimension's members, `techs` still including the links. */
   dimensions: Record<string, string[]>;
@@ -166,6 +184,7 @@ const EMPTY_FRAME: ResultFrame = {
   variable: "",
   order: "time",
   seriesDims: [],
+  unit: null,
 };
 
 function toFrame(batches: RecordBatch[], schema: Table["schema"]): ResultFrame {
@@ -219,5 +238,6 @@ function toFrame(batches: RecordBatch[], schema: Table["schema"]): ResultFrame {
     variable: meta.variable ?? "",
     order: (meta.order as "time" | "duration") ?? "time",
     seriesDims,
+    unit: meta.unit ?? null,
   };
 }

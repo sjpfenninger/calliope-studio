@@ -24,6 +24,7 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import type { ResultFrame } from "@/api/results";
 import { RESOLUTION_LABELS, SUM_LABELS, keepOne } from "@/lib/chartControls";
 import { exportFrames, hasData } from "@/lib/frameExport";
+import type { DisplayUnit } from "@/lib/units";
 import { indexColorsFor } from "@/lib/seriesColors";
 import {
   RESOLUTIONS,
@@ -37,6 +38,8 @@ const props = defineProps<{
   frame: ResultFrame | null;
   loading: boolean;
   error: string | null;
+  /** What `frame`'s values are already scaled to, for the axis and the export. */
+  unit: DisplayUnit | null;
 }>();
 
 const store = inject(RUN_SELECTION)!;
@@ -155,7 +158,7 @@ function chooseSum(next: unknown, current: SumBy, variable: string | null): SumB
         :disabled="!hasData(props.frame)"
         @click="
           exportFrames(
-            [{ frame: props.frame }],
+            [{ frame: props.frame, unit: props.unit }],
             store.variableTimeseries ?? 'timeseries',
             store.catalog?.name,
             store.techLabels,
@@ -171,6 +174,7 @@ function chooseSum(next: unknown, current: SumBy, variable: string | null): SumB
       :loading="props.loading"
       :error="props.error"
       :labels="store.techLabels"
+      :unit="props.unit"
       height="100%"
       class="min-h-0 flex-1"
     />

@@ -98,6 +98,45 @@ class TestCatalog:
         assert body["synthetic"]["flow*"]
 
 
+class TestCatalogUnits:
+    """Where a results chart gets a unit from, and why it takes two sources.
+
+    Calliope copies the unit its math declares onto each array, so the two agree
+    where they overlap — but the overlap is partial and reverses between files.
+    The sample `.nc`s in the repository root have units on 23 of 34 *inputs* and
+    on none of their 24 results; the older flat ones have them on the results and
+    almost nothing else. Neither source alone answers for the whole catalogue.
+    """
+
+    def test_reports_a_unit_for_the_variables_a_chart_plots(self, results_client):
+        units = results_client.get(
+            f"/api/results/{results_client.handle}/catalog/"
+        ).json()["variables"]["units"]
+
+        assert units["flow_cap"] == "power"
+        assert units["flow_out"] == "energy"
+        assert units["cost"] == "cost"
+        # Computed, so nothing but its own declaration can say.
+        assert units["flow*"] == "energy"
+
+    def test_reports_a_unit_for_input_parameters_too(self, results_client):
+        # The table plots inputs, and reading a parameter back is half of why
+        # anyone opens one.
+        units = results_client.get(
+            f"/api/results/{results_client.handle}/catalog/"
+        ).json()["variables"]["units"]
+        assert units["flow_cap_max"].startswith("power")
+
+    def test_omits_the_variables_nothing_declares_a_unit_for(self, results_client):
+        body = results_client.get(
+            f"/api/results/{results_client.handle}/catalog/"
+        ).json()["variables"]
+        # Postprocessed, and absent from Calliope's math entirely.
+        assert "capacity_factor" not in body["units"]
+        assert "capacity_factor" in body["all"]
+        assert set(body["units"]) <= set(body["dims"])
+
+
 class TestFrame:
     def test_returns_an_arrow_stream(self, results_client):
         response = results_client.post(
@@ -119,6 +158,39 @@ class TestFrame:
         field = read_arrow(response).schema.field(1)
         assert json.loads(field.metadata[b"dims"])
         assert field.metadata[b"color"].decode().startswith("#")
+
+    def test_the_frame_says_what_it_is_measured_in(self, results_client):
+        """The schema, because one variable per frame means one unit for it all.
+
+        Also on the field, which is what makes a single column self-describing
+        to anything reading the stream outside this app — one value written
+        twice, not two answers.
+        """
+        response = results_client.post(
+            f"/api/results/{results_client.handle}/frame/",
+            json={"variable": "flow_cap", "sum_by": "nodes"},
+        )
+        table = read_arrow(response)
+        assert table.schema.metadata[b"unit"] == b"power"
+        assert table.schema.field(1).metadata[b"unit"] == b"power"
+
+    def test_a_synthetic_variable_carries_the_unit_it_declares(self, results_client):
+        # `flow*` is computed, so it has no `attrs` and Calliope's math has never
+        # heard of it. `SyntheticVariable.unit` is the only thing that can answer.
+        response = results_client.post(
+            f"/api/results/{results_client.handle}/frame/",
+            json={"variable": "flow*", "resample": "1D", "sum_by": "nodes"},
+        )
+        assert read_arrow(response).schema.metadata[b"unit"] == b"energy"
+
+    def test_a_variable_with_no_declared_unit_says_nothing(self, results_client):
+        # `capacity_factor` is postprocessed and has a unit nowhere. An absent
+        # key beats an empty string that every reader has to check for.
+        response = results_client.post(
+            f"/api/results/{results_client.handle}/frame/",
+            json={"variable": "capacity_factor"},
+        )
+        assert b"unit" not in (read_arrow(response).schema.metadata or {})
 
     def test_selectors_narrow_the_result(self, results_client):
         url = f"/api/results/{results_client.handle}/frame/"

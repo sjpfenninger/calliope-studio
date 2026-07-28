@@ -71,7 +71,9 @@ const variables = computed(() => store.catalog?.variables.all ?? []);
  */
 const COLUMN_DEFAULTS = { resizable: true, sortable: true, filter: true };
 
-const grid = computed(() => frameToGrid(table.frame.value, store.techLabels));
+const grid = computed(() =>
+  frameToGrid(table.frame.value, store.techLabels, table.unit.value),
+);
 
 const rowCount = computed(() => grid.value.rows.length);
 const seriesCount = computed(() => table.frame.value?.series.length ?? 0);
@@ -84,7 +86,10 @@ const isEmpty = computed(
 function exportCsv() {
   // Built before anything is awaited: `saveText` opens a file picker, and that
   // needs the click's user gesture still to be live.
-  const csv = frameToCsv([{ frame: table.frame.value }], store.techLabels);
+  const csv = frameToCsv(
+    [{ frame: table.frame.value, unit: table.unit.value }],
+    store.techLabels,
+  );
   if (!csv) return;
   void saveText(csvFilename(store.catalog?.name, store.variableTable ?? "table"), csv);
 }

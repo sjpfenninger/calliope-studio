@@ -152,15 +152,20 @@ def build_table(
             )
         )
 
-    schema = pa.schema(
-        fields,
-        metadata={
-            b"variable": query.variable.encode(),
-            b"index": str(index or "index").encode(),
-            b"order": query.order.encode(),
-            b"series_dims": json.dumps(series_dims).encode(),
-        },
-    )
+    metadata = {
+        b"variable": query.variable.encode(),
+        b"index": str(index or "index").encode(),
+        b"order": query.order.encode(),
+        b"series_dims": json.dumps(series_dims).encode(),
+    }
+    # One variable per frame means one unit for the whole of it, so the schema is
+    # where a reader should look. It is stamped per field as well because that is
+    # what makes a single column self-describing to anything reading the stream
+    # outside this app — one value, written twice, not two answers.
+    if unit:
+        metadata[b"unit"] = unit.encode()
+
+    schema = pa.schema(fields, metadata=metadata)
     return pa.Table.from_arrays(arrays, schema=schema)
 
 

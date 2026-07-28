@@ -318,6 +318,42 @@ class TestSchema:
         assert registry["parameters"]["flow_cap_max"]["title"]
 
 
+class TestComponentUnits:
+    """The units Calliope's own math declares.
+
+    Read from the installed version rather than checked in, so they cannot drift
+    from what is actually validating and running models — and read from a wider
+    set of sections than the editor's registry, because a results chart plots
+    variables and global expressions, which are not editor fields.
+    """
+
+    def test_covers_the_sections_the_registry_deliberately_omits(self):
+        from calliope_studio.modeldef.schema import component_units
+
+        units = component_units()
+        # Variables and global expressions: exactly what a results chart draws.
+        assert units["flow_cap"] == "power"
+        assert units["flow_out"] == "energy"
+        assert units["cost"] == "cost"
+        # And parameters, which the table plots.
+        assert units["flow_cap_max"].startswith("power")
+
+    def test_the_earliest_definition_wins(self):
+        from calliope_studio.modeldef.schema import component_units
+
+        # `milp` re-declares `flow_cap` to add bounds and states no unit; `base`
+        # is authoritative and must not be overwritten by that silence.
+        assert component_units()["flow_cap"] == "power"
+
+    def test_passes_the_declarations_on_exactly_as_written(self):
+        from calliope_studio.modeldef.schema import component_units
+
+        # Inconsistent by nature — LaTeX here, a trailing full stop there, and
+        # one upstream `\{cost}` typo. Normalising is presentation, and belongs
+        # in the one place that renders it rather than here.
+        assert component_units()["cost_operation_variable"].startswith("$")
+
+
 class TestValidation:
     def test_clean_model_has_no_syntax_errors(self, client, ws):
         assert client.post(f"/api/versions/{ws}/validate/").json() == {"errors": []}

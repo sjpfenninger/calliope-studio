@@ -5,12 +5,13 @@ import type { ResultFrame } from "../../api/results";
 import {
   GRID_LEFT,
   GRID_RIGHT,
-  GRID_TOP,
   LEGEND_H,
   ZOOM_H,
   gridBottom,
+  gridTop,
   zoomBottom,
 } from "../../charts/layout";
+import { NO_UNIT, type DisplayUnit } from "../../lib/units";
 import { ensureTheme } from "../../charts/theme";
 import { resolvedColor } from "../../lib/cssColor";
 import { normaliseIndexValue } from "../../lib/frameIndex";
@@ -44,9 +45,19 @@ const props = withDefaults(
      * nothing about Calliope.
      */
     indexColors?: Record<string, string> | null;
+    /**
+     * What the values are measured in, already applied to `frame`.
+     *
+     * Only the label reaches this component — the scaling happened in
+     * `useResultFrame`, so a chart never multiplies anything. The factor is
+     * still needed, but only to tell one render from another: see `render`.
+     */
+    unit?: DisplayUnit | null;
   }>(),
-  { labels: () => ({}), indexColors: null },
+  { labels: () => ({}), indexColors: null, unit: null },
 );
+
+const unit = computed(() => props.unit ?? NO_UNIT);
 
 function nameOf(frame: ResultFrame, series: ResultFrame["series"][number]) {
   return seriesLabel(series, frame.seriesDims, props.labels);
@@ -127,7 +138,7 @@ function buildOption(frame: ResultFrame): echarts.EChartsOption {
     grid: {
       left: GRID_LEFT,
       right: GRID_RIGHT,
-      top: GRID_TOP,
+      top: gridTop(Boolean(unit.value.label)),
       bottom: gridBottom(withLegend),
       containLabel: true,
     },
@@ -138,6 +149,14 @@ function buildOption(frame: ResultFrame): echarts.EChartsOption {
       // tooltip readable when they are all in it.
       order: "valueDesc",
       confine: true,
+      // The one thing the axis label cannot do: a reader hovering a stack reads
+      // eight numbers and no unit anywhere near them.
+      ...(unit.value.label
+        ? {
+            valueFormatter: (value: unknown) =>
+              value == null ? "—" : `${value} ${unit.value.label}`,
+          }
+        : {}),
     },
     legend: withLegend
       ? { type: "scroll", bottom: 0, height: LEGEND_H }
@@ -150,10 +169,18 @@ function buildOption(frame: ResultFrame): echarts.EChartsOption {
           boundaryGap: props.kind === "bar",
           axisLabel: { hideOverlap: true },
         },
-    // No `name`: the variable is the panel header's title now. A chart's title
-    // belongs in the DOM, on the app's type scale, not painted into the canvas
-    // at ECharts' own font settings.
-    yAxis: { type: "value" },
+    // Still no title — the variable is the panel header's, because a chart's
+    // title belongs in the DOM on the app's type scale rather than painted into
+    // the canvas at ECharts' own font settings. The *unit* is the exception: it
+    // qualifies the tick numbers, so it has to sit where they are. Above the
+    // axis rather than rotated beside it, which costs 16px once instead of
+    // eating into the plot width on every chart.
+    yAxis: {
+      type: "value",
+      ...(unit.value.label
+        ? { name: unit.value.label, nameLocation: "end", nameGap: 8 }
+        : {}),
+    },
     dataZoom: [
       { type: "inside", throttle: 50 },
       { type: "slider", height: ZOOM_H, bottom: zoomBottom(withLegend) },
@@ -215,6 +242,13 @@ function render() {
     // discriminating, and it forces a replace when the labels change under an
     // unchanged set of keys, where merging would draw the new names beside the old.
     props.frame.series.map((series) => nameOf(props.frame!, series)).join("\u001f"),
+    // The label, because it changes the grid — a merge never takes an axis name
+    // away, so a chart that had one would keep the 16px after it went. The
+    // factor, because a rescale changes every value while leaving the series
+    // names identical, and a merge keyed only on names would keep drawing the
+    // old numbers. That failure looks exactly like the setting doing nothing.
+    unit.value.label,
+    unit.value.factor,
   ].join("|");
   const replace = shape !== lastShape;
   lastShape = shape;
@@ -248,6 +282,7 @@ onBeforeUnmount(() => {
 
 watch(() => props.frame, render);
 watch(() => props.kind, render);
+watch(unit, render);
 
 // A theme is bound at `echarts.init` and cannot be swapped by `setOption`, so a
 // theme change means disposing and rebuilding. `lastShape` has to be cleared

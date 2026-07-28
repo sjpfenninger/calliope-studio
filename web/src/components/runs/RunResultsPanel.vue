@@ -171,6 +171,9 @@ onMounted(() => store.load());
               :size-frame="mapSizeFrame.frame.value"
               :color-frame="mapColorFrame.frame.value"
               :pie-frame="mapPieFrame.frame.value"
+              :size-unit="mapSizeFrame.unit.value"
+              :color-unit="mapColorFrame.unit.value"
+              :pie-unit="mapPieFrame.unit.value"
             />
 
             <!-- No hairline of its own: each figure is a bordered card, so the
@@ -197,6 +200,7 @@ onMounted(() => store.load());
                     :frame="timeseriesFrame.frame.value"
                     :loading="timeseriesFrame.loading.value"
                     :error="timeseriesFrame.error.value"
+                    :unit="timeseriesFrame.unit.value"
                   />
                   <ResizableHandle
                     with-handle
@@ -207,6 +211,7 @@ onMounted(() => store.load());
                     :frame="staticFrame.frame.value"
                     :loading="staticFrame.loading.value"
                     :error="staticFrame.error.value"
+                    :unit="staticFrame.unit.value"
                   />
                 </ResizablePanelGroup>
               </div>

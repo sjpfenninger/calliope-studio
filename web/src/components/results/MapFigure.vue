@@ -26,6 +26,7 @@ import { resolvedColor } from "@/lib/cssColor";
 import type { CsvSource } from "@/lib/frameCsv";
 import { exportFrames, hasData } from "@/lib/frameExport";
 import { nodeSlices, nodeTotals, valueExtent } from "@/lib/mapValues";
+import { unitSuffix, type DisplayUnit } from "@/lib/units";
 import { RUN_SELECTION, type MapChannel } from "@/stores/runSelection";
 import { useUiStore } from "@/stores/ui";
 
@@ -33,7 +34,21 @@ const props = defineProps<{
   sizeFrame: ResultFrame | null;
   colorFrame: ResultFrame | null;
   pieFrame: ResultFrame | null;
+  /**
+   * What each channel's values are already scaled to.
+   *
+   * One per channel, not one for the map: three channels are three variables,
+   * so the sizes can be in GWh while the colours are in MW.
+   */
+  sizeUnit: DisplayUnit | null;
+  colorUnit: DisplayUnit | null;
+  pieUnit: DisplayUnit | null;
 }>();
+
+/** A channel's variable name with its unit, for the legend and the map's hover. */
+function channelLabel(name: string | null, unit: DisplayUnit | null): string | null {
+  return name ? name + unitSuffix(unit) : null;
+}
 
 const store = inject(RUN_SELECTION)!;
 const ui = useUiStore();
@@ -124,14 +139,15 @@ const pieTechs = computed(() => {
 const mapSources = computed<CsvSource[]>(() =>
   (
     [
-      { channel: "size" as MapChannel, frame: props.sizeFrame },
-      { channel: "color" as MapChannel, frame: props.colorFrame },
-      { channel: "pie" as MapChannel, frame: props.pieFrame },
+      { channel: "size" as MapChannel, frame: props.sizeFrame, unit: props.sizeUnit },
+      { channel: "color" as MapChannel, frame: props.colorFrame, unit: props.colorUnit },
+      { channel: "pie" as MapChannel, frame: props.pieFrame, unit: props.pieUnit },
     ]
   )
-    .map(({ channel, frame }) => ({
+    .map(({ channel, frame, unit }) => ({
       label: store.mapVariables[channel] ?? undefined,
       frame,
+      unit,
     }))
     .filter((source) => source.label && hasData(source.frame)),
 );
@@ -193,16 +209,23 @@ const mapVariableName = computed(
       :values="mapSizes"
       :color-values="mapColors"
       :pies="mapPies"
-      :value-label="store.mapVariables.size ?? ''"
+      :value-label="channelLabel(store.mapVariables.size, props.sizeUnit) ?? ''"
       class="h-full"
     />
+    <!-- The unit rides on the channel's name rather than being a prop of its own:
+         a legend entry already reads `Size · flow_cap`, and `Size · flow_cap (MW)`
+         is the same sentence finished. -->
     <MapLegend
-      :size-label="store.mapVariables.size"
+      :size-label="channelLabel(store.mapVariables.size, props.sizeUnit)"
       :size-extent="valueExtent(mapSizes)"
-      :color-label="store.mapVariables.pie ? null : store.mapVariables.color"
+      :color-label="
+        store.mapVariables.pie
+          ? null
+          : channelLabel(store.mapVariables.color, props.colorUnit)
+      "
       :color-extent="valueExtent(mapColors)"
       :ramp="ramp"
-      :pie-label="store.mapVariables.pie"
+      :pie-label="channelLabel(store.mapVariables.pie, props.pieUnit)"
       :pie-techs="pieTechs"
     />
   </FigurePanel>

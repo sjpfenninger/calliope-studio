@@ -175,6 +175,84 @@ check(
 );
 check("a number is never locale-formatted", !/\d\.\d{3},\d/.test(table.text));
 
+// ── Display units ──────────────────────────────────────────────────────────
+//
+// Calliope declares that `flow_cap` is "power" and stops there — nothing in a
+// model says whether that power is kW or GW. The sidebar is where the modeller
+// says so, and the whole point is that the chart, the grid and the file follow
+// together. A browser check because only a rendered page can be asked what its
+// column headers say, and only a real export can be read back.
+//
+// Scoped to the table's own sidebar for the same reason the filter check above
+// is: both panes stay mounted, so an unscoped testid matches twice.
+const unitField = (name) =>
+  page.locator(`[data-testid="run-table"] [data-testid="units-power-${name}"]`);
+
+if ((await unitField("scale").count()) === 1) {
+  const gridHeader = () =>
+    page.locator('[data-testid="run-table"] .ag-header-cell-text').nth(1).innerText();
+  /**
+   * The first value in the file that a scale factor could show up in.
+   *
+   * Not simply row 1 column 1: a model defines every variable over the full
+   * cross product of its dimensions, so the top-left cell is very often 0 —
+   * and 0 divided by a thousand is 0, which proves nothing either way.
+   */
+  const firstNonZero = (csv) => {
+    for (const line of rows(csv).slice(1)) {
+      for (const cell of line.split(",").slice(1)) {
+        const value = Number(cell);
+        if (Number.isFinite(value) && value !== 0) return value;
+      }
+    }
+    return null;
+  };
+  const before = firstNonZero(table.text);
+
+  check(
+    "an unset quantity still labels the axis with what Calliope knows",
+    (await gridHeader()).includes("(power)"),
+    await gridHeader(),
+  );
+
+  await settle(() => unitField("scale").fill("/1000"));
+  await settle(() => unitField("label").fill("GW"));
+
+  check(
+    "naming a unit renames the grid's columns",
+    (await gridHeader()).includes("(GW)"),
+    await gridHeader(),
+  );
+
+  const scaled = await capture(page, () => testId("table-download").click());
+  check(
+    "the export carries the unit in its header",
+    rows(scaled.text)[0].includes("(GW)"),
+    rows(scaled.text)[0].slice(0, 80),
+  );
+  // The file has to be the figure. Scaling the picture and exporting the raw
+  // numbers would make the two describe one query differently.
+  const after = firstNonZero(scaled.text);
+  check(
+    "and the values the figure is showing, not the model's",
+    before !== null && after !== null && Math.abs(before / after - 1000) < 1e-6,
+    `${before} → ${after}`,
+  );
+  // No round trip: the scale is applied to the frame already in the browser.
+  check("changing a unit asks the server for nothing", tableQueries().length > 0);
+
+  await settle(() =>
+    page.locator('[data-testid="run-table"] [data-testid="units-reset"]').click(),
+  );
+  check(
+    "resetting puts the model's own numbers back",
+    (await gridHeader()).includes("(power)"),
+    await gridHeader(),
+  );
+} else {
+  skip("display units on a variable measured in power");
+}
+
 // Cancelling the dialog has to mean the file is not written. Falling back to an
 // ordinary download here would save the export the user just declined to save.
 await page.evaluate(() => {

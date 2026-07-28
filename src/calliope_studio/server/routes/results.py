@@ -13,12 +13,14 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
+from calliope_studio.modeldef.schema import component_units
 from calliope_studio.results import frames, geo, summaries
 from calliope_studio.results.catalog import (
     SYNTHETIC_VARIABLES,
     build_catalog,
     dimension_members,
     tech_base_techs,
+    unit_for,
 )
 from calliope_studio.results.colors import tech_colors
 from calliope_studio.results.links import link_orientation, transmission_links
@@ -76,7 +78,11 @@ def catalog(results: ResultHandle = Depends(resolve)) -> dict:
     # partition one list and the selector it merges back into keeps that order.
     links = transmission_links(results.model, order=dimensions.get("techs"))
     variables = build_catalog(
-        results.dataset, transmission_techs=[link.tech for link in links]
+        results.dataset,
+        transmission_techs=[link.tech for link in links],
+        # `results` may not import `modeldef`, so the math's declarations are
+        # handed in here — the same reason `ResultStore` is given `candidates`.
+        declared_units=component_units(),
     )
     colors = tech_colors(results.model)
 
@@ -132,7 +138,14 @@ def frame(
         )
     array = reduce_array(results.dataset, query)
 
-    table = frames.build_table(array, query, colors=tech_colors(results.model))
+    table = frames.build_table(
+        array,
+        query,
+        colors=tech_colors(results.model),
+        # So a frame says what it is measured in without a second request, and so
+        # the stream stays readable outside this app.
+        unit=unit_for(results.dataset, query.variable, component_units()),
+    )
     return StreamingResponse(
         frames.stream_ipc(table),
         media_type=ARROW_STREAM,

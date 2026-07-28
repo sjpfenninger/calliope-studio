@@ -16,6 +16,7 @@ function frame(overrides: Partial<ResultFrame> = {}): ResultFrame {
     variable: "flow_cap",
     order: "time",
     seriesDims: ["techs"],
+    unit: null,
     ...overrides,
   };
 }
@@ -37,6 +38,24 @@ describe("frameToCsv", () => {
 
   it("ends with a newline", () => {
     expect(frameToCsv([{ frame: frame() }]).endsWith("\n")).toBe(true);
+  });
+
+  it("names the unit in the header, leaving the values full precision", () => {
+    const csv = frameToCsv([{ frame: frame(), unit: { factor: 0.001, label: "GWh" } }]);
+    // The frame arrives already scaled — `useResultFrame` did it, so the file and
+    // the figure cannot disagree. All the header has to do is say so.
+    expect(LINES(csv)[0]).toBe("timesteps,ccgt (GWh)");
+    expect(LINES(csv)[1]).toBe("2005-01-01T00:00:00,1");
+  });
+
+  it("lets each source carry its own unit", () => {
+    // The map exports three channels at once, and they are three variables: the
+    // sizes can be in GWh beside colours in MW.
+    const csv = frameToCsv([
+      { label: "size", frame: frame(), unit: { factor: 1, label: "GWh" } },
+      { label: "colour", frame: frame(), unit: { factor: 1, label: "MW" } },
+    ]);
+    expect(LINES(csv)[0]).toBe("timesteps,size · ccgt (GWh),colour · ccgt (MW)");
   });
 
   it("names a link column by its endpoints, as the legend does", () => {

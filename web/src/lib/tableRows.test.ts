@@ -16,6 +16,7 @@ function frame(overrides: Partial<ResultFrame> = {}): ResultFrame {
     variable: "flow_cap",
     order: "time",
     seriesDims: ["nodes", "techs"],
+    unit: null,
     ...overrides,
   };
 }
@@ -32,6 +33,20 @@ describe("frameToGrid", () => {
   it("puts the label in headerName", () => {
     const { columns } = frameToGrid(frame());
     expect(columns[0].headerName).toBe("timesteps");
+    expect(columns[1].headerName).toBe("region1 | ccgt");
+  });
+
+  it("names the unit on every series column, but not on the index", () => {
+    const { columns } = frameToGrid(frame(), {}, { factor: 0.001, label: "GWh" });
+    expect(columns[0].headerName).toBe("timesteps");
+    // On each column rather than once above them, because that is what the CSV
+    // can say — and the cells hold the scaled number, so a header without it
+    // would be wrong rather than merely terse.
+    expect(columns[1].headerName).toBe("region1 | ccgt (GWh)");
+  });
+
+  it("says nothing when there is no unit to name", () => {
+    const { columns } = frameToGrid(frame(), {}, { factor: 1, label: "" });
     expect(columns[1].headerName).toBe("region1 | ccgt");
   });
 

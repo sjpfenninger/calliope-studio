@@ -21,6 +21,7 @@ function frame(index: string[], columns: Series[]): ResultFrame {
     variable: "flow_cap",
     order: "time",
     seriesDims: ["techs", "carriers"],
+    unit: null,
   };
 }
 

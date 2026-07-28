@@ -7,7 +7,7 @@ exactly — those are checked against the old implementation in
 """
 
 from dataclasses import dataclass
-from typing import Callable, Iterable
+from typing import Callable, Iterable, Mapping
 
 import xarray as xr
 
@@ -21,12 +21,15 @@ class SyntheticVariable:
         requires: Variables that must be present for it to be available.
         compute: Computes it from a dataset containing `requires`.
         title: Human-readable label.
+        unit: Its generalised unit, which has to be stated: a computed array
+            carries no `attrs` and Calliope's math has never heard of it.
     """
 
     name: str
     requires: tuple[str, ...]
     compute: Callable[[xr.Dataset], xr.DataArray]
     title: str = ""
+    unit: str = ""
 
     def is_available(self, dataset: xr.Dataset) -> bool:
         return all(name in dataset.data_vars for name in self.requires)
@@ -40,6 +43,7 @@ SYNTHETIC_VARIABLES: dict[str, SyntheticVariable] = {
         # inflow at all, and NaN would erase the outflow rather than leave it.
         compute=lambda ds: ds.flow_out.fillna(0) - ds.flow_in.fillna(0),
         title="Net flow (out − in)",
+        unit="energy",
     )
 }
 
@@ -55,6 +59,8 @@ class VariableCatalog:
         static_nodes: Static variables carrying node data.
         static_links: Static variables carrying data on a transmission tech.
         dims: Each variable's dimensions, synthetic ones included.
+        units: Each variable's generalised unit, where one is known. Only the
+            variables that have one appear.
     """
 
     all: tuple[str, ...]
@@ -63,6 +69,7 @@ class VariableCatalog:
     static_nodes: tuple[str, ...]
     static_links: tuple[str, ...]
     dims: dict[str, tuple[str, ...]]
+    units: dict[str, str]
 
     def as_dict(self) -> dict:
         return {
@@ -72,6 +79,7 @@ class VariableCatalog:
             "static_nodes": list(self.static_nodes),
             "static_links": list(self.static_links),
             "dims": {name: list(dims) for name, dims in self.dims.items()},
+            "units": dict(self.units),
         }
 
 
@@ -102,14 +110,46 @@ def _synthetic_dims(
     return tuple(seen)
 
 
+def unit_for(
+    dataset: xr.Dataset, variable: str, declared: Mapping[str, str] | None = None
+) -> str:
+    """A variable's generalised unit — `energy`, `power`, `cost` — or `""`.
+
+    The array's own `attrs` first, because that is the model speaking and it is
+    the only thing that can answer for math a user wrote themselves. Calliope's
+    declarations second, because the attrs are patchy in a way that reverses
+    between files: `urban_scale_07.dev7.nc` has them on 23 of 34 inputs and none
+    of its 24 results, while the older flat files have them on the results and
+    almost nothing else.
+
+    Not two answers to one question. Calliope copies the declared unit onto the
+    array, so where both speak they say the same thing — the same relationship
+    the catalogue's `colors` already has with the Arrow field metadata.
+    """
+    synthetic = SYNTHETIC_VARIABLES.get(variable)
+    if synthetic is not None:
+        return synthetic.unit
+    if variable in dataset:
+        unit = dataset[variable].attrs.get("unit")
+        if unit:
+            return str(unit)
+    return str((declared or {}).get(variable, ""))
+
+
 def build_catalog(
-    dataset: xr.Dataset, transmission_techs: Iterable[str] = ()
+    dataset: xr.Dataset,
+    transmission_techs: Iterable[str] = (),
+    declared_units: Mapping[str, str] | None = None,
 ) -> VariableCatalog:
     """Categorises a dataset's variables.
 
     Args:
         dataset: The merged results and inputs.
         transmission_techs: Techs whose presence makes a variable link-relevant.
+        declared_units: Units Calliope's math declares, keyed by component name,
+            used where an array carries none of its own. Injected rather than
+            imported: reading the math is `modeldef`'s, and `results` may not
+            reach sideways for it.
     """
     transmission_techs = list(transmission_techs)
     variables = list(dataset.data_vars)
@@ -127,11 +167,17 @@ def build_catalog(
     dims.update(
         {variable.name: _synthetic_dims(dataset, variable) for variable in available}
     )
+    units = {
+        name: unit
+        for name in list(dims)
+        if (unit := unit_for(dataset, name, declared_units))
+    }
     return VariableCatalog(
         all=tuple(sorted(variables)),
         timeseries=tuple(sorted(timeseries + synthetic)),
         static=tuple(sorted(static)),
         dims=dims,
+        units=units,
         static_nodes=tuple(
             sorted(name for name in static if "nodes" in dataset[name].dims)
         ),

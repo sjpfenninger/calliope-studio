@@ -29,6 +29,15 @@ export default defineConfig({
     environment: "happy-dom",
     // Shims what the DOM implementation leaves missing; see the file.
     setupFiles: ["./src/test-setup.ts"],
+    // Monaco and its workers cannot be resolved outside a browser, and that
+    // stops a test *collecting* rather than failing an assertion; see the stub.
+    // Both patterns have to match the whole id — a rollup alias with a regex
+    // replaces only the part it matched, so an unanchored `/\?worker$/` would
+    // graft the stub's path onto the end of the worker's.
+    alias: [
+      { find: /^monaco-editor$/, replacement: "/src/test-stubs/browserOnly.ts" },
+      { find: /^.*\?worker$/, replacement: "/src/test-stubs/browserOnly.ts" },
+    ],
   },
   server: {
     port: 5173,

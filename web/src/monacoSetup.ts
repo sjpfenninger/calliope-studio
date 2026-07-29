@@ -46,6 +46,16 @@ import YamlWorker from "monaco-yaml/yaml.worker?worker";
  */
 let configured: MonacoYaml | null = null;
 
+/**
+ * The one construction of that configuration, so there cannot be a second.
+ *
+ * Held as the *promise* rather than as a `configured` null check, because the
+ * two mounts that cause this arrive a frame apart and the schema fetch in
+ * `start` takes far longer than that: both would pass the null check and both
+ * would then build an instance.
+ */
+let starting: Promise<void> | null = null;
+
 /** The schema payload, held so an assignment change need not refetch it. */
 let payload: CalliopeSchema | null = null;
 
@@ -61,7 +71,30 @@ let assignment: {
   overrides: Record<string, FileKind>;
 } = { detected: {}, overrides: {} };
 
-export async function initMonacoYaml(): Promise<void> {
+/**
+ * Configures monaco-yaml, once per page.
+ *
+ * Idempotent because the shell calls it from `onMounted` and the shell mounts
+ * more than once: `AppShell` is two route records, so going back to the recents
+ * list and opening a model again remounts it, as does an HMR swap in dev. Each
+ * `configureMonacoYaml` registers its own completion, hover, marker, symbol and
+ * link providers and disposes none of the previous set — monaco-yaml's own docs
+ * say there may only be one instance at a time — and Monaco *merges* providers
+ * rather than replacing them, so the second mount showed every hover twice and
+ * every suggestion twice. The orphan also kept writing diagnostics under the
+ * same `owner: "yaml"` from schema associations it would never be told about
+ * again.
+ *
+ * Not disposed on unmount, for the same reason Monaco's text models are not:
+ * they are deliberately global and outlive the shell, so tearing the language
+ * providers down and rebuilding them per mount would buy nothing.
+ */
+export function initMonacoYaml(): Promise<void> {
+  starting ??= start();
+  return starting;
+}
+
+async function start(): Promise<void> {
   ignoreMonacoCancellations();
   try {
     const res = await fetch("/api/schema/calliope/");
@@ -69,10 +102,12 @@ export async function initMonacoYaml(): Promise<void> {
   } catch {
     // Monaco works fine without a schema — just no autocompletion.
   }
-  configured = configureMonacoYaml(monaco, {
-    enableSchemaRequest: false,
-    schemas: currentSchemas(),
-  });
+  // Recorded, not left null: otherwise the first `setSchemaAssignments` after
+  // startup always differs from "nothing applied yet" and spends an `update`
+  // restating the associations this call already made.
+  const schemas = currentSchemas();
+  applied = JSON.stringify(schemas);
+  configured = configureMonacoYaml(monaco, { enableSchemaRequest: false, schemas });
 }
 
 /**

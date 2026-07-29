@@ -63,7 +63,12 @@ export const useSchemaStore = defineStore("schema", () => {
     try {
       const schema = withSiblingSchemas(await getCalliopeSchema());
       const defs: Record<string, any> = schema.$defs ?? schema.definitions ?? {};
-      resolved.value = deref(schema, defs);
+      // Nothing to resolve, in every payload this actually receives: Calliope's
+      // `model_no_ref_schema` inlines every `$ref` and then deletes `$defs`, so
+      // `deref` walked 80 KB to rebuild it unchanged. Kept behind the check
+      // rather than deleted — it is the only thing standing between a schema
+      // that does carry refs and a config editor rendering `$ref` as a field.
+      resolved.value = Object.keys(defs).length ? deref(schema, defs) : schema;
       isLoaded.value = true;
     } catch {
       // Schema unavailable — editors degrade gracefully (no auto-detected fields).

@@ -120,6 +120,11 @@ def calliope_schemas() -> dict:
     The top level keeps the shape the Monaco YAML integration expects — a JSON
     Schema for the model definition — with the additional schemas and the
     parameter registry alongside it, so consumers can adopt them incrementally.
+
+    `model` is deliberately absent from the sibling map: it *is* the top level,
+    so including it sent the same 11 KB twice in an 83 KB response. It also
+    aliased, since the copy above is shallow — the two shared their nested
+    `properties`, and a mutation of either would have reached both.
     """
     import calliope
 
@@ -127,7 +132,7 @@ def calliope_schemas() -> dict:
     payload = dict(schemas["model"])
     payload["x-calliope"] = {
         "version": calliope.__version__,
-        "schemas": schemas,
+        "schemas": {k: v for k, v in schemas.items() if k != "model"},
         "registry": _parameter_registry(),
     }
     return payload

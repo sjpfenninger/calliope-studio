@@ -72,7 +72,7 @@ const span = (extent: [number, number] | null | undefined) =>
 <template>
   <div
     v-if="showing"
-    class="pointer-events-none absolute bottom-2 left-2 z-raised flex max-w-52 flex-col gap-1.5 rounded-sm border border-border bg-surface px-2 py-1.5 shadow-1"
+    class="pointer-events-none absolute bottom-2 left-2 z-raised flex max-w-52 flex-col gap-1.5 rounded-md border border-border bg-surface px-2 py-1.5 shadow-md"
     data-testid="map-legend"
   >
     <div v-if="props.sizeLabel" class="flex flex-col gap-0.5">

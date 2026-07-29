@@ -24,7 +24,14 @@ const props = withDefaults(
     unit?: string;
     /** `stacked` for a summary strip, `inline` for a dense list row. */
     layout?: "stacked" | "inline";
-    size?: "sm" | "md" | "lg";
+    /**
+     * Two steps, because the type scale has two above body and no more.
+     *
+     * There was a third, `lg`, mapped to `text-xl` — a step `style.css` states
+     * is *deliberately absent*, so it silently fell back to Tailwind's stock
+     * 20px/28px, off the scale in both dimensions. Nothing ever asked for it.
+     */
+    size?: "sm" | "md";
     tone?: "default" | "success" | "warning" | "danger";
     /** An explanation, on the label. */
     hint?: string;
@@ -33,7 +40,7 @@ const props = withDefaults(
   { layout: "stacked", size: "md", tone: "default" },
 );
 
-const VALUE_SIZE = { sm: "text-sm", md: "text-lg", lg: "text-xl" } as const;
+const VALUE_SIZE = { sm: "text-sm", md: "text-lg" } as const;
 const TONE = {
   default: "text-foreground",
   success: "text-success-text",
@@ -45,6 +52,21 @@ const shown = computed(() =>
   props.value === null || props.value === undefined || props.value === ""
     ? "—"
     : String(props.value),
+);
+
+/**
+ * The label's class, once.
+ *
+ * It was written out twice, in the two branches of a `v-if` that differ only in
+ * whether an `InfoTip` wraps the span — so a change to one of them had to be
+ * remembered in the other, and both carried the same broken token for as long as
+ * they existed.
+ */
+const labelClass = computed(() =>
+  cn(
+    props.layout === "stacked" ? SECTION_HEADING : "text-2xs text-text-muted",
+    "truncate",
+  ),
 );
 </script>
 
@@ -60,16 +82,9 @@ const shown = computed(() =>
     "
   >
     <InfoTip v-if="hint" :label="hint">
-      <span :class="cn(layout === 'stacked' ? SECTION_HEADING : 'text-2xs text-text-muted', 'truncate')">
-        {{ label }}
-      </span>
+      <span :class="labelClass">{{ label }}</span>
     </InfoTip>
-    <span
-      v-else
-      :class="cn(layout === 'stacked' ? SECTION_HEADING : 'text-2xs text-text-muted', 'truncate')"
-    >
-      {{ label }}
-    </span>
+    <span v-else :class="labelClass">{{ label }}</span>
 
     <span
       class="flex min-w-0 items-baseline gap-1 tabular-nums"

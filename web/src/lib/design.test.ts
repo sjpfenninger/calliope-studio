@@ -81,7 +81,77 @@ const isApp = (f: string) => !f.startsWith("components/ui/");
 const isComponent = (f: string) =>
   f.startsWith("components/") && !f.startsWith("components/app/");
 
+const TOKENS_CSS = readFileSync(join(SRC, "assets/tokens.css"), "utf8");
+const STYLE_CSS = readFileSync(join(SRC, "style.css"), "utf8");
+
+/** Every `--<namespace>-<name>` declared in a stylesheet, as a set of names. */
+function declared(css: string, namespace: string): Set<string> {
+  const found = css.matchAll(new RegExp(`--${namespace}-([a-z0-9-]+)\\s*:`, "g"));
+  return new Set([...found].map((m) => m[1]));
+}
+
+/**
+ * Every colour-ish utility written in source, as `[file:line, prefix, name]`.
+ *
+ * Two boundaries do the work. The *leading* delimiter keeps this off
+ * `var(--cg-shadow-2)`, because a `-` before the prefix is not a class boundary
+ * — and variants come free with it, since a variant chain ends in `:`. The
+ * *trailing* one forbids a following `:`, which is what separates a utility from
+ * a CSS property: `border-radius:` inside a template literal is not a
+ * `border-` utility naming the `radius` token, though it reads exactly like one.
+ * A utility is never followed by `:`; a variant precedes what it modifies.
+ */
+const UTILITY =
+  /(?:^|[\s"'`:[])((?:text|bg|border|ring|fill|stroke|divide|shadow)-([a-z0-9][a-z0-9-]*))(?![a-z0-9\-:])/g;
+
+function utilities(): Array<{ where: string; prefix: string; name: string }> {
+  return LINES.filter(
+    // Prose about a rule is not a breach of it, as in `offenders`.
+    (line) => !/^\s*(\/?\*|\/\/|<!--)/.test(line.text),
+  ).flatMap((line) =>
+    [...line.text.matchAll(UTILITY)].map((m) => ({
+      where: `${line.file}:${line.no}  ${m[1]}`,
+      prefix: m[1].slice(0, m[1].indexOf("-")),
+      name: m[2],
+    })),
+  );
+}
+
 describe("design language", () => {
+  it("names a token that exists, in every colour utility", () => {
+    // The failure this exists for is silent in every direction: `text-text-muted`
+    // typechecks, lints, reviews clean and renders *nothing* — Tailwind emits no
+    // rule for a name that is not in `@theme inline`, so the element inherits
+    // whatever is above it and looks approximately right. Twelve of them survived
+    // in the tree, including one whose call site carried a comment explaining the
+    // bug and working around it locally rather than fixing the token.
+    //
+    // The test is keyed on `--cg-*` rather than on a list of valid names, which
+    // is what keeps it free of false positives: a utility is only checked when a
+    // token of that exact name exists in `tokens.css`, i.e. when the author was
+    // plainly reaching for the app's own vocabulary and the bridge in `style.css`
+    // is what is missing. `text-sm`, `border-b` and `rounded-full` name no
+    // `--cg-*` and are never considered.
+    const cg = declared(TOKENS_CSS, "cg");
+    const colours = declared(STYLE_CSS, "color");
+    const missing = utilities()
+      .filter(({ name }) => cg.has(name) && !colours.has(name))
+      .map(({ where }) => where);
+    expect([...new Set(missing)]).toEqual([]);
+  });
+
+  it("uses only the elevation steps the theme maps", () => {
+    // `shadow-` is the one namespace with no overloading at all — every use is
+    // elevation — so it can be checked as a closed set. The `--cg-shadow-0/1/2`
+    // ramp is deliberately *not* those names: it reaches the DOM only through
+    // Tailwind's seven, so a literal `shadow-1` is always wrong, and was.
+    const steps = new Set([...declared(STYLE_CSS, "shadow"), "none"]);
+    const missing = utilities()
+      .filter(({ prefix, name }) => prefix === "shadow" && !steps.has(name))
+      .map(({ where }) => where);
+    expect([...new Set(missing)]).toEqual([]);
+  });
+
   it("has no re-typed copies of a shared class string", () => {
     // The whole point of a shared constant is that it is the only copy. Four
     // files had re-typed SECTION_HEADING verbatim, each with a different margin.

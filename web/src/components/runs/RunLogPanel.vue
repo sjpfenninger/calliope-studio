@@ -55,14 +55,14 @@ const running = computed(() => (run.value ? !isTerminal(run.value.status) : fals
  */
 const LEVEL_STYLE: Record<string, string> = {
   DEBUG: "text-text-dim",
-  INFO: "text-text",
+  INFO: "text-foreground",
   WARNING: "text-warning-text",
   ERROR: "text-danger-text",
   CRITICAL: "text-danger-text",
 };
 
 function styleFor(line: LogLine): string {
-  return LEVEL_STYLE[line.level] ?? "text-text";
+  return LEVEL_STYLE[line.level] ?? "text-foreground";
 }
 
 const FILTERS: Array<{ id: LogFilter; label: string }> = [

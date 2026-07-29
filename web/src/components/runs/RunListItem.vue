@@ -134,18 +134,13 @@ function commitRename() {
            reading "a.". A `flex-1` here and a bare `shrink` there, because flex
            distributes shortfall in proportion to base size: a basis-0 item
            cannot give anything up, so whichever one carries `flex-1` is the one
-           that yields.
-
-           `text-text-faint` because `Metric`'s inline label carries the class
-           `text-text-muted`, which is not a utility this build defines — the
-           labels below are grey by inheriting it from that row, not from the
-           component. -->
+           that yields. -->
       <Metric
         v-if="run.scenario && !renaming"
         layout="inline"
         label="scenario"
         :value="run.scenario"
-        class="flex-1 justify-end text-text-faint"
+        class="flex-1 justify-end"
       />
     </div>
 

@@ -210,6 +210,13 @@
   --color-border-strong: var(--cg-border-strong);
   --color-text-dim: var(--cg-text-dim);
   --color-text-faint: var(--cg-text-faint);
+  /* The middle of the three dim tones. It was the one step of the ramp with no
+     utility, so twelve `text-text-muted` classes across the app compiled to
+     nothing at all and their elements simply inherited — a panel footer, every
+     Metric label, all three map-legend captions. `text-muted-foreground` reaches
+     the same token by shadcn's name, which is why the omission survived: half
+     the app spells it one way and half the other, and only one half rendered. */
+  --color-text-muted: var(--cg-text-muted);
   --color-accent-text: var(--cg-accent-text);
   /* The opaque hover/active ladder. These exist so nothing has to reach for
      `bg-primary/90`, whose opacity modifier compiles to a color-mix() — the very

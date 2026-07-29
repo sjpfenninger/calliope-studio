@@ -25,6 +25,7 @@ import type { ResultFrame } from "@/api/results";
 import { SUM_LABELS, keepOne } from "@/lib/chartControls";
 import { exportFrames, hasData } from "@/lib/frameExport";
 import { indexColorsFor } from "@/lib/seriesColors";
+import { useRoundingStore } from "@/stores/rounding";
 import type { DisplayUnit } from "@/lib/units";
 import { RUN_SELECTION, SUM_OPTIONS, type SumBy } from "@/stores/runSelection";
 
@@ -37,6 +38,8 @@ const props = defineProps<{
 }>();
 
 const store = inject(RUN_SELECTION)!;
+// Per model rather than per handle — see `TimeseriesFigure`.
+const rounding = useRoundingStore();
 
 const variables = computed(() => store.catalog?.variables.static ?? []);
 
@@ -114,6 +117,7 @@ function chooseSum(next: unknown, current: SumBy, variable: string | null): SumB
             store.variableStatic ?? 'totals',
             store.catalog?.name,
             store.techLabels,
+            rounding.exportPrecision,
           )
         "
       />
@@ -127,6 +131,7 @@ function chooseSum(next: unknown, current: SumBy, variable: string | null): SumB
       :error="props.error"
       :labels="store.techLabels"
       :unit="props.unit"
+      :precision="rounding.precision"
       height="100%"
       class="min-h-0 flex-1"
     />

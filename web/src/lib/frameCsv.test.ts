@@ -219,6 +219,41 @@ describe("frameToCsv", () => {
     // One source survives, so nothing is prefixed.
     expect(LINES(csv)[0]).toBe("timesteps,ccgt");
   });
+
+  /**
+   * The export is the artefact someone does arithmetic on, so it loses digits
+   * only when asked. `stores/rounding.ts::exportPrecision` is what decides, and
+   * it answers null until the user ticks "apply to downloads" — these are the
+   * two ends of that.
+   */
+  it("writes every digit by default, even a float's noise", () => {
+    const noisy = frame({ series: [series("ccgt", { techs: "ccgt" }, [0.1 + 0.2])] });
+    // Not "0.3": the grid trims that for reading, and the file must not.
+    expect(LINES(frameToCsv([{ frame: noisy }]))[1]).toBe(
+      "2005-01-01T00:00:00,0.30000000000000004",
+    );
+  });
+
+  it("rounds only when a precision is passed in", () => {
+    const values = frame({
+      series: [series("ccgt", { techs: "ccgt" }, [1234.5678, 0.0012345678])],
+    });
+    expect(LINES(frameToCsv([{ frame: values }], {}, 3)).slice(1)).toEqual([
+      "2005-01-01T00:00:00,1230",
+      "2005-01-01T01:00:00,0.00123",
+    ]);
+  });
+
+  it("stays locale-free when rounding, so the column count survives", () => {
+    const values = frame({
+      series: [series("ccgt", { techs: "ccgt" }, [1234567.8, 2])],
+    });
+    // A grouped `1,234,568` would be three columns under a European locale, and
+    // three under any locale in a comma-delimited file.
+    expect(LINES(frameToCsv([{ frame: values }], {}, 7))[1]).toBe(
+      "2005-01-01T00:00:00,1234568",
+    );
+  });
 });
 
 describe("csvFilename", () => {

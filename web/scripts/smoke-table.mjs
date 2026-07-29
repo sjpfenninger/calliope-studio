@@ -8,7 +8,7 @@
  * the figure is already holding, which is what makes "the file is the chart"
  * true rather than merely intended.
  */
-import { results } from "./harness.mjs";
+import { results, until } from "./harness.mjs";
 import {
   baseFrom,
   capture,
@@ -251,6 +251,99 @@ if ((await unitField("scale").count()) === 1) {
   );
 } else {
   skip("display units on a variable measured in power");
+}
+
+// ── Rounding ───────────────────────────────────────────────────────────────
+//
+// The setting has two halves and they must not be confused: the precision reaches
+// every *display* surface immediately, and reaches the *file* only once the user
+// has ticked "apply to downloads". A browser check because the grid formats in a
+// column definition AG Grid owns, and because the export can only be read back
+// from a real download.
+//
+// Scoped to the table's own sidebar, like the units block above: both panes stay
+// mounted, so an unscoped testid matches twice.
+const roundingField = page.locator(
+  '[data-testid="run-table"] [data-testid="rounding-digits"]',
+);
+const exportsBox = page.locator(
+  '[data-testid="run-table"] [data-testid="rounding-exports"]',
+);
+
+/**
+ * Value cells only.
+ *
+ * The index column is pinned, so it lives outside the centre container — which
+ * is what keeps a timestamp from being read as a number that failed to round.
+ */
+const cells = page.locator(
+  '[data-testid="run-table"] .ag-center-cols-container .ag-cell',
+);
+const isValue = (text) => text.trim() !== "" && Number.isFinite(Number(text));
+const shown = await cells.allInnerTexts();
+// Not the first cell: a variable is defined over the whole cross product of its
+// dimensions, so the top-left one is very often 0 — and 0 rounds to 0 at every
+// precision, which would prove nothing. Same reason as `firstNonZero` above.
+const at = shown.findIndex((text) => isValue(text) && Number(text) !== 0);
+
+if ((await roundingField.count()) === 1 && at >= 0) {
+  const cell = () => cells.nth(at).innerText();
+  const full = Number(await cell());
+  const queriesBefore = tableQueries().length;
+  const csvBefore = await capture(page, () => testId("table-download").click());
+
+  await roundingField.fill("3");
+  await until(async () => (await cell()) !== String(full));
+
+  check(
+    "a precision shortens the cell to that many significant figures",
+    Number(await cell()) === Number(full.toPrecision(3)),
+    `${full} → ${await cell()}`,
+  );
+
+  // The guarantee the CSV has always made. Setting a display precision must not
+  // quietly reach the artefact someone is about to do arithmetic on.
+  const csvDisplayOnly = await capture(page, () => testId("table-download").click());
+  check(
+    "the download is untouched while the box is unticked",
+    csvDisplayOnly.text === csvBefore.text,
+    `${csvBefore.text.length} vs ${csvDisplayOnly.text.length} bytes`,
+  );
+
+  await exportsBox.click();
+  const csvRounded = await capture(page, () => testId("table-download").click());
+  check(
+    "ticking the box rounds the file too",
+    csvRounded.text !== csvBefore.text &&
+      rows(csvRounded.text)[0] === rows(csvBefore.text)[0],
+    "same header, different values",
+  );
+
+  // Reversible, and not merely by reloading: a user who ticks it to look and
+  // then unticks it must get their full-precision file back.
+  await exportsBox.click();
+  const csvRestored = await capture(page, () => testId("table-download").click());
+  check(
+    "unticking it puts every digit back",
+    csvRestored.text === csvBefore.text,
+  );
+
+  // No round trip: rounding is applied to the frame already in the browser, the
+  // same as a unit is. Counted before and after rather than merely asserted to
+  // be non-zero, so this can actually fail.
+  check(
+    "changing the precision asks the server for nothing",
+    tableQueries().length === queriesBefore,
+    `${queriesBefore} → ${tableQueries().length}`,
+  );
+
+  await page
+    .locator('[data-testid="run-table"] [data-testid="rounding-reset"]')
+    .click();
+  await until(async () => Number(await cell()) === full);
+  check("resetting puts every digit back on screen too", true, String(full));
+} else {
+  skip("rounding the values in the grid and the export");
 }
 
 // Cancelling the dialog has to mean the file is not written. Falling back to an

@@ -37,6 +37,7 @@ import { RESOLUTION_LABELS, SUM_LABELS, keepOne } from "@/lib/chartControls";
 import { saveText } from "@/lib/download";
 import { csvFilename, frameToCsv } from "@/lib/frameCsv";
 import { frameToGrid } from "@/lib/tableRows";
+import { useRoundingStore } from "@/stores/rounding";
 import {
   RESOLUTIONS,
   RUN_SELECTION,
@@ -49,6 +50,8 @@ const props = defineProps<{ handle: string }>();
 
 const store = useRunSelection(props.handle);
 provide(RUN_SELECTION, store);
+
+const rounding = useRoundingStore();
 
 const table = useResultFrame(
   computed(() => props.handle),
@@ -72,7 +75,12 @@ const variables = computed(() => store.catalog?.variables.all ?? []);
 const COLUMN_DEFAULTS = { resizable: true, sortable: true, filter: true };
 
 const grid = computed(() =>
-  frameToGrid(table.frame.value, store.techLabels, table.unit.value),
+  frameToGrid(
+    table.frame.value,
+    store.techLabels,
+    table.unit.value,
+    rounding.precision,
+  ),
 );
 
 const rowCount = computed(() => grid.value.rows.length);
@@ -89,6 +97,9 @@ function exportCsv() {
   const csv = frameToCsv(
     [{ frame: table.frame.value, unit: table.unit.value }],
     store.techLabels,
+    // Not `rounding.precision`: the file stays full-precision unless the user
+    // has ticked "apply to downloads".
+    rounding.exportPrecision,
   );
   if (!csv) return;
   void saveText(csvFilename(store.catalog?.name, store.variableTable ?? "table"), csv);

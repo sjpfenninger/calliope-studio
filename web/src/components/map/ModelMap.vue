@@ -19,6 +19,7 @@ import StateMessage from "../app/StateMessage.vue";
 import { emptyCollection, type GeoPayload } from "../../lib/mapGeo";
 import { largestMagnitude, valueExtent, type PieSlice } from "../../lib/mapValues";
 import { donutSvg, escapeText } from "../../lib/pieMarker";
+import { formatValue } from "../../lib/precision";
 import { useUiStore } from "../../stores/ui";
 
 /**
@@ -65,6 +66,14 @@ const props = withDefaults(
     pies?: Record<string, PieSlice[]> | null;
     /** What `values` is, for the hover popup. */
     valueLabel?: string;
+    /**
+     * Significant figures for the hover popup, or null for full precision.
+     *
+     * Null on the editor side, which shows no values at all. See
+     * `lib/precision.ts` for why the popup, the tooltip and the table share one
+     * rule now.
+     */
+    precision?: number | null;
     interactive?: boolean;
     height?: string;
     /** Enables dragging; a feature's own `editable` decides whether it moves. */
@@ -91,6 +100,7 @@ const props = withDefaults(
     colorValues: null,
     pies: null,
     valueLabel: "",
+    precision: null,
     interactive: true,
     height: "100%",
     draggableNodes: false,
@@ -364,7 +374,10 @@ function popupHtml(node: string): string {
   const value = (props.values ?? {})[node];
   if (value != null) {
     const label = props.valueLabel ? `${escapeText(props.valueLabel)}: ` : "";
-    rows.push(`${label}${value.toLocaleString()}`);
+    // `formatValue` rather than `toLocaleString`: this and the table cell are the
+    // same number, and they used to disagree about both grouping and precision,
+    // so hovering a node and then finding it in the table read as two answers.
+    rows.push(`${label}${formatValue(value, props.precision)}`);
   }
 
   const slices = props.pies?.[node];

@@ -17,6 +17,7 @@ import { SECTION_HEADING } from "@/lib/formClasses";
 import { Checkbox } from "@/components/ui/checkbox";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { RUN_SELECTION, type FilterSection } from "@/stores/runSelection";
+import RunRoundingPanel from "./RunRoundingPanel.vue";
 import RunUnitsPanel from "./RunUnitsPanel.vue";
 
 const store = inject(RUN_SELECTION)!;
@@ -130,5 +131,9 @@ function toggle(section: FilterSection, member: string, checked: boolean) {
          to is asked far more often than what it is measured in, and a setting
          that is right once should not sit above the controls used every time. -->
     <RunUnitsPanel />
+    <!-- Below the units, because "what is this measured in" comes before "how
+         much of it do I want to read", and because a model with no settable
+         quantity renders no units section at all. -->
+    <RunRoundingPanel />
   </aside>
 </template>

@@ -27,6 +27,7 @@ import type { CsvSource } from "@/lib/frameCsv";
 import { exportFrames, hasData } from "@/lib/frameExport";
 import { nodeSlices, nodeTotals, valueExtent } from "@/lib/mapValues";
 import { unitSuffix, type DisplayUnit } from "@/lib/units";
+import { useRoundingStore } from "@/stores/rounding";
 import { RUN_SELECTION, type MapChannel } from "@/stores/runSelection";
 import { useUiStore } from "@/stores/ui";
 
@@ -51,6 +52,8 @@ function channelLabel(name: string | null, unit: DisplayUnit | null): string | n
 }
 
 const store = inject(RUN_SELECTION)!;
+// Per model rather than per handle — see `TimeseriesFigure`.
+const rounding = useRoundingStore();
 const ui = useUiStore();
 
 // The reduction from a nodes-indexed frame to what the map draws lives in
@@ -195,7 +198,13 @@ const mapVariableName = computed(
         testid="export-map"
         :disabled="!mapSources.length"
         @click="
-          exportFrames(mapSources, mapVariableName, store.catalog?.name, store.techLabels)
+          exportFrames(
+            mapSources,
+            mapVariableName,
+            store.catalog?.name,
+            store.techLabels,
+            rounding.exportPrecision,
+          )
         "
       />
     </template>
@@ -210,6 +219,7 @@ const mapVariableName = computed(
       :color-values="mapColors"
       :pies="mapPies"
       :value-label="channelLabel(store.mapVariables.size, props.sizeUnit) ?? ''"
+      :precision="rounding.precision"
       class="h-full"
     />
     <!-- The unit rides on the channel's name rather than being a prop of its own:
@@ -227,6 +237,7 @@ const mapVariableName = computed(
       :ramp="ramp"
       :pie-label="channelLabel(store.mapVariables.pie, props.pieUnit)"
       :pie-techs="pieTechs"
+      :precision="rounding.precision"
     />
   </FigurePanel>
 </template>

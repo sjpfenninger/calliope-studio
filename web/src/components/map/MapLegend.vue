@@ -30,6 +30,13 @@ const props = withDefaults(
     /** Variable drawn as pies, and the technologies making up the wedges. */
     pieLabel?: string | null;
     pieTechs?: { key: string; label: string; color: string }[];
+    /**
+     * The reader's precision, which here only ever *tightens* the ends.
+     *
+     * See `formatCompact`: these labels get about four characters between two
+     * swatches, and that is geometry rather than precision.
+     */
+    precision?: number | null;
   }>(),
   {
     sizeLabel: null,
@@ -39,6 +46,7 @@ const props = withDefaults(
     ramp: () => [],
     pieLabel: null,
     pieTechs: () => [],
+    precision: null,
   },
 );
 
@@ -53,7 +61,12 @@ const showing = computed(
 );
 
 const span = (extent: [number, number] | null | undefined) =>
-  extent ? [formatCompact(extent[0]), formatCompact(extent[1])] : null;
+  extent
+    ? [
+        formatCompact(extent[0], props.precision),
+        formatCompact(extent[1], props.precision),
+      ]
+    : null;
 </script>
 
 <template>

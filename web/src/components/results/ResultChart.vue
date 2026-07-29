@@ -15,6 +15,7 @@ import { NO_UNIT, type DisplayUnit } from "../../lib/units";
 import { ensureTheme } from "../../charts/theme";
 import { resolvedColor } from "../../lib/cssColor";
 import { normaliseIndexValue } from "../../lib/frameIndex";
+import { formatValue } from "../../lib/precision";
 import StateMessage from "../app/StateMessage.vue";
 import { seriesLabel } from "../../lib/seriesLabel";
 import { useUiStore } from "../../stores/ui";
@@ -53,8 +54,15 @@ const props = withDefaults(
      * still needed, but only to tell one render from another: see `render`.
      */
     unit?: DisplayUnit | null;
+    /**
+     * Significant figures to show, or null for the long-standing default.
+     *
+     * A prop for the same reason `unit` is one: which digits a reader wants is a
+     * setting about the run view, and this component knows nothing about it.
+     */
+    precision?: number | null;
   }>(),
-  { labels: () => ({}), indexColors: null, unit: null },
+  { labels: () => ({}), indexColors: null, unit: null, precision: null },
 );
 
 const unit = computed(() => props.unit ?? NO_UNIT);
@@ -149,14 +157,17 @@ function buildOption(frame: ResultFrame): echarts.EChartsOption {
       // tooltip readable when they are all in it.
       order: "valueDesc",
       confine: true,
-      // The one thing the axis label cannot do: a reader hovering a stack reads
-      // eight numbers and no unit anywhere near them.
-      ...(unit.value.label
-        ? {
-            valueFormatter: (value: unknown) =>
-              value == null ? "—" : `${value} ${unit.value.label}`,
-          }
-        : {}),
+      // Unconditional, where it used to appear only when a unit was configured:
+      // without it the tooltip printed the raw float, so hovering a stack gave
+      // eight numbers of seventeen digits each. The unit is appended when there
+      // is one, which is the one thing the axis label cannot do — a reader
+      // hovering a stack has no unit anywhere near them.
+      valueFormatter: (value: unknown) => {
+        if (value == null) return "—";
+        const text = formatValue(value as number, props.precision);
+        if (!text) return "—";
+        return unit.value.label ? `${text} ${unit.value.label}` : text;
+      },
     },
     legend: withLegend
       ? { type: "scroll", bottom: 0, height: LEGEND_H }
@@ -177,6 +188,23 @@ function buildOption(frame: ResultFrame): echarts.EChartsOption {
     // eating into the plot width on every chart.
     yAxis: {
       type: "value",
+      // Always present, `null` when there is nothing to apply — never omitted.
+      // A merged option never *removes* a key, so an omitted formatter would
+      // stay installed after the field was cleared, and the ticks would keep
+      // showing a precision the user had just taken away. ECharts falls back to
+      // its own label for anything that is neither a function nor a template
+      // string, so `null` is how a formatter is withdrawn.
+      axisLabel: {
+        // Cast because the types say `string | function | undefined`, and
+        // `undefined` is not the same thing: a merged option ignores it, where
+        // `null` reaches ECharts and fails its `isString`/`isFunction` checks,
+        // which is precisely the fall-through to the built-in label.
+        formatter: (props.precision === null
+          ? null
+          : (value: number) => formatValue(value, props.precision)) as
+          | ((value: number) => string)
+          | undefined,
+      },
       ...(unit.value.label
         ? { name: unit.value.label, nameLocation: "end", nameGap: 8 }
         : {}),
@@ -283,6 +311,10 @@ onBeforeUnmount(() => {
 watch(() => props.frame, render);
 watch(() => props.kind, render);
 watch(unit, render);
+// Deliberately *not* in `lastShape`: a precision change swaps two formatter
+// functions and nothing else, which a merge absorbs. Forcing a replace here
+// would throw away the reader's dataZoom on every keystroke in the field.
+watch(() => props.precision, render);
 
 // A theme is bound at `echarts.init` and cannot be swapped by `setOption`, so a
 // theme change means disposing and rebuilding. `lastShape` has to be cleared

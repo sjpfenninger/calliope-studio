@@ -14,6 +14,7 @@
  */
 import type { ResultFrame } from "../api/results";
 import { indexToLabel, indexToText } from "./frameIndex";
+import { formatValue } from "./precision";
 import { seriesLabel } from "./seriesLabel";
 import { unitSuffix, type DisplayUnit } from "./units";
 
@@ -54,17 +55,26 @@ function escape(field: string): string {
  * A number as text.
  *
  * `String`, never `toLocaleString`: under a European locale the latter renders
- * `1234.5` as `1.234,5`, and that comma would take the column count apart. The
- * grid may format for reading — see `tableRows.ts` — but the file may not, and it
- * is written at full precision because trimming it would be a silent, unasked-for
- * loss in the artefact someone is about to do arithmetic on.
+ * `1234.5` as `1.234,5`, and that comma would take the column count apart.
+ * `formatValue` is locale-free for exactly the same reason, so it can be the one
+ * rule both this and the grid read by.
+ *
+ * **`precision` is null unless the user has ticked "apply to downloads".** The
+ * grid may format for reading; the file may not, because trimming it would
+ * otherwise be a silent, unasked-for loss in the artefact someone is about to do
+ * arithmetic on. The setting exists so that a user who *wants* a rounded export
+ * can have one — never so that they get one without saying so, which is why the
+ * decision is made once in `stores/rounding.ts::exportPrecision` rather than at
+ * each of the four export buttons.
  */
-function valueToText(value: number | undefined): string {
+function valueToText(value: number | undefined, precision: number | null): string {
   // A gap in a series, or the padding a duration curve puts under its shorter
   // columns. An empty field is what every reader takes as missing; the literal
   // text `NaN` is what several take as a string, poisoning the column's type.
   if (value === undefined || Number.isNaN(value)) return "";
-  return String(value);
+  // Not through `formatValue` when unrounded: that trims to ten significant
+  // figures, which is a loss, and full precision is this function's promise.
+  return precision === null ? String(value) : formatValue(value, precision);
 }
 
 /**
@@ -79,10 +89,13 @@ function valueToText(value: number | undefined): string {
  *   sources: The frames to write. Null or empty frames contribute no columns.
  *   labels: Display text per technology, so a column reads exactly as its
  *     legend entry does.
+ *   precision: Significant figures, or null — the default — for every digit.
+ *     See `valueToText`: only a deliberate opt-in ever makes this non-null.
  */
 export function frameToCsv(
   sources: CsvSource[],
   labels: Record<string, string> = {},
+  precision: number | null = null,
 ): string {
   const present = sources.filter(
     (source): source is CsvSource & { frame: ResultFrame } =>
@@ -129,7 +142,7 @@ export function frameToCsv(
 
       const column = new Array<string>(spine.length).fill("");
       positions.forEach((row, position) => {
-        column[row] = valueToText(series.values[position]);
+        column[row] = valueToText(series.values[position], precision);
       });
       columns.push(column);
     }

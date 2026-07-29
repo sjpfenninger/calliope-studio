@@ -19,15 +19,27 @@ import { saveText } from "./download";
 import { csvFilename, frameToCsv, type CsvSource } from "./frameCsv";
 import type { ResultFrame } from "@/api/results";
 
+/**
+ * Args:
+ *   sources: The frames the figure is drawing.
+ *   variable: What to name the file after.
+ *   model: The model's name, for the same.
+ *   labels: Display text per technology.
+ *   precision: Always `stores/rounding.ts::exportPrecision`, never the display
+ *     precision — which is null unless the user has ticked "apply to downloads".
+ *     Passing the display one here is the mistake this parameter is named to
+ *     prevent.
+ */
 export function exportFrames(
   sources: CsvSource[],
   variable: string,
   model: string | null | undefined,
   labels: Record<string, string>,
+  precision: number | null = null,
 ): void {
   // Built before anything is awaited: `saveText` opens a file picker, and that
   // needs the click's user gesture still to be live.
-  const csv = frameToCsv(sources, labels);
+  const csv = frameToCsv(sources, labels, precision);
   if (!csv) return;
   void saveText(csvFilename(model, variable), csv);
 }

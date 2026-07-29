@@ -67,14 +67,27 @@ export function formatObjective(value: number | null | undefined): string {
  * numerical dust comes out as "0.0000000131" and pushes the other end of the
  * scale off the legend. Below a thousandth it goes exponential instead, which is
  * both shorter and a clearer way of saying "essentially nothing".
+ *
+ * `precision` **tightens this and never loosens it**. The reader's rounding
+ * setting should not be ignored somewhere as visible as a legend, but nor can it
+ * be honoured literally: at twelve significant figures one end of the ramp would
+ * be wider than the ramp. Three is the ceiling because three is what fits.
  */
-export function formatCompact(value: number | null | undefined): string {
+export function formatCompact(
+  value: number | null | undefined,
+  precision: number | null = null,
+): string {
   if (value == null || !Number.isFinite(value)) return "—";
   const magnitude = Math.abs(value);
-  if (magnitude !== 0 && magnitude < 1e-3) return value.toExponential(1);
+  // Capped separately at each end, because the two ends were never equal: the
+  // exponential branch has always shown two significant figures and the compact
+  // one three. An unset precision has to leave both exactly where they were.
+  if (magnitude !== 0 && magnitude < 1e-3) {
+    return value.toExponential(Math.min(precision ?? 2, 2) - 1);
+  }
   return value.toLocaleString(undefined, {
     notation: "compact",
-    maximumSignificantDigits: 3,
+    maximumSignificantDigits: Math.min(precision ?? 3, 3),
   });
 }
 

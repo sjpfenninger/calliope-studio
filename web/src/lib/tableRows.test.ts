@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { ResultFrame, Series } from "../api/results";
-import { formatCell, frameToGrid } from "./tableRows";
+import { frameToGrid } from "./tableRows";
 
 function series(key: string, dims: Record<string, string>, values: number[]): Series {
   return { key, dims, values: Float64Array.from(values) };
@@ -108,25 +108,19 @@ describe("frameToGrid", () => {
     expect(frameToGrid(null)).toEqual({ columns: [], rows: [] });
     expect(frameToGrid(frame({ series: [] }))).toEqual({ columns: [], rows: [] });
   });
-});
 
-describe("formatCell", () => {
-  it("trims the noise a float sum leaves behind", () => {
-    expect(formatCell(0.1 + 0.2)).toBe("0.3");
-  });
-
-  it("keeps an ordinary value as it is", () => {
-    expect(formatCell(1234.5)).toBe("1234.5");
-    expect(formatCell(0)).toBe("0");
-  });
-
-  it("goes exponential at the ends of the scale", () => {
-    expect(formatCell(1e10)).toBe("1.0000e+10");
-    expect(formatCell(1.31e-8)).toBe("1.3100e-8");
-  });
-
-  it("shows nothing for a gap", () => {
-    expect(formatCell(undefined)).toBe("");
-    expect(formatCell(NaN)).toBe("");
+  /**
+   * The formatter itself is `lib/precision.ts`'s, tested there. What matters
+   * here is that the column reaches for it with the reader's precision, since a
+   * grid that ignored the setting would look exactly like the setting doing
+   * nothing.
+   */
+  it("formats a cell at the precision it is given", () => {
+    const format = (precision: number | null) => {
+      const { columns } = frameToGrid(frame(), {}, null, precision);
+      return columns[1].valueFormatter as (params: { value: unknown }) => string;
+    };
+    expect(format(3)({ value: 1234.5678 })).toBe("1230");
+    expect(format(null)({ value: 1234.5678 })).toBe("1234.5678");
   });
 });

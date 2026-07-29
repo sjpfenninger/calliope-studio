@@ -11,6 +11,7 @@ import type { ColDef } from "ag-grid-community";
 
 import type { ResultFrame } from "../api/results";
 import { indexToLabel, indexToText } from "./frameIndex";
+import { formatValue } from "./precision";
 import { seriesLabel } from "./seriesLabel";
 import { unitSuffix, type DisplayUnit } from "./units";
 
@@ -32,25 +33,19 @@ function fieldFor(i: number): string {
 }
 
 /**
- * A number as a cell.
- *
- * `toPrecision` then back through `Number` is what removes the trailing
- * `0000000004` a float sum leaves behind, without rounding anything a solver
- * would call significant. Very large and very small magnitudes go exponential,
- * because a column of digits nobody can count is not information.
+ * Args:
+ *   frame: The scaled frame the grid is showing.
+ *   labels: Display text per technology, so a column reads as its legend entry.
+ *   unit: What the values are measured in, already applied to them.
+ *   precision: Significant figures to show, or null for full precision. See
+ *     `lib/precision.ts` — a cell, a tooltip and a map popup all read numbers by
+ *     that one rule now, so the same value cannot read three ways.
  */
-export function formatCell(value: number | undefined): string {
-  if (value === undefined || !Number.isFinite(value)) return "";
-  if (value === 0) return "0";
-  const magnitude = Math.abs(value);
-  if (magnitude >= 1e9 || magnitude < 1e-4) return value.toExponential(4);
-  return String(Number(value.toPrecision(10)));
-}
-
 export function frameToGrid(
   frame: ResultFrame | null,
   labels: Record<string, string> = {},
   unit: DisplayUnit | null = null,
+  precision: number | null = null,
 ): GridShape {
   if (!frame || !frame.series.length) return { columns: [], rows: [] };
 
@@ -73,7 +68,7 @@ export function frameToGrid(
       headerName: seriesLabel(series, frame.seriesDims, labels) + unitSuffix(unit),
       type: "numericColumn",
       valueFormatter: (params: { value: unknown }) =>
-        formatCell(params.value as number | undefined),
+        formatValue(params.value as number | undefined, precision),
     })),
   ];
 

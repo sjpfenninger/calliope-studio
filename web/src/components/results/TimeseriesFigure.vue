@@ -26,6 +26,7 @@ import { RESOLUTION_LABELS, SUM_LABELS, keepOne } from "@/lib/chartControls";
 import { exportFrames, hasData } from "@/lib/frameExport";
 import type { DisplayUnit } from "@/lib/units";
 import { indexColorsFor } from "@/lib/seriesColors";
+import { useRoundingStore } from "@/stores/rounding";
 import {
   RESOLUTIONS,
   RUN_SELECTION,
@@ -43,6 +44,9 @@ const props = defineProps<{
 }>();
 
 const store = inject(RUN_SELECTION)!;
+// A per-model setting rather than a per-handle one, so it is read here rather
+// than threaded down from the pane the way `frame` and `unit` are.
+const rounding = useRoundingStore();
 
 const PLOT_TYPES: PlotType[] = ["Bar", "Line", "Area", "Duration"];
 const resolutions = Object.keys(RESOLUTIONS);
@@ -162,6 +166,7 @@ function chooseSum(next: unknown, current: SumBy, variable: string | null): SumB
             store.variableTimeseries ?? 'timeseries',
             store.catalog?.name,
             store.techLabels,
+            rounding.exportPrecision,
           )
         "
       />
@@ -175,6 +180,7 @@ function chooseSum(next: unknown, current: SumBy, variable: string | null): SumB
       :error="props.error"
       :labels="store.techLabels"
       :unit="props.unit"
+      :precision="rounding.precision"
       height="100%"
       class="min-h-0 flex-1"
     />

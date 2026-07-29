@@ -190,6 +190,37 @@ describe("design language", () => {
     ).toEqual([]);
   });
 
+  it("puts no tooltip between a popup and its trigger", () => {
+    // Reka's `Tooltip` provides a popper context of its own. One sitting between
+    // a `DropdownMenu`/`Select`/`Popover` and its trigger therefore *shadows*
+    // the popup's: the trigger registers its anchor into the tooltip's popper,
+    // the popup's is left with none, and floating-ui has nothing to place it
+    // against — so it stays at Reka's unplaced default, `translate(0, -200%)`,
+    // several hundred pixels above the window.
+    //
+    // Nothing about that is visible from the DOM. The menu opens, its items are
+    // present and clickable by a script, `isVisible()` is true and no error is
+    // logged — while the user sees nothing at all. Three call sites had it, and
+    // `run-lifecycle` asserted "a run's action menu still opens" and passed
+    // throughout. The fix is to wrap the *whole* popup in the tooltip.
+    const ROOTS = ["DropdownMenu", "Select", "Popover"];
+    const bad = FILES.filter(({ rel }) => rel.startsWith("components/") && isApp(rel))
+      .flatMap(({ rel, text }) =>
+        ROOTS.flatMap((root) =>
+          [...text.matchAll(new RegExp(`<${root}\\b[^>]*>`, "g"))].flatMap((open) => {
+            const rest = text.slice(open.index + open[0].length);
+            const body = rest.slice(0, rest.indexOf(`</${root}>`) + 1 || undefined);
+            const tip = body.search(/<(InfoTip|Tooltip)\b/);
+            const trigger = body.search(new RegExp(`<${root}Trigger\\b`));
+            if (tip === -1 || trigger === -1 || tip > trigger) return [];
+            const line = text.slice(0, open.index).split("\n").length;
+            return [`${rel}:${line}  a tooltip wraps <${root}Trigger>`];
+          }),
+        ),
+      );
+    expect(bad).toEqual([]);
+  });
+
   it("fills a segmented control to the strip that holds it", () => {
     // A `PanelHeader` is `h-7`/`h-8` *including* its `border-b`, so its content
     // box is a pixel short of any named height. An `h-7` segment in an `h-7`

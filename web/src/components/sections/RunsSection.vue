@@ -265,36 +265,39 @@ function setRetention(keep: number | null) {
 
       <div class="flex-1" />
 
-      <DropdownMenu>
-        <!-- Outermost-first: each `as-child` merges down onto the one real
-             button, so the tooltip has to wrap the menu trigger. -->
-        <InfoTip label="How many finished runs to keep. Applied the next time a run starts.">
-          <DropdownMenuTrigger as-child>
-            <button
-              type="button"
-              data-testid="retention"
-              class="rounded-xs px-1 hover:bg-hover hover:text-foreground"
-            >
-              keep {{ runs.retention === null ? "all" : runs.retention }}
-            </button>
-          </DropdownMenuTrigger>
-        </InfoTip>
-        <DropdownMenuContent align="end" class="min-w-32">
-          <DropdownMenuLabel class="text-2xs">Keep how many runs</DropdownMenuLabel>
-          <DropdownMenuItem
-            v-for="choice in RETENTION_CHOICES"
-            :key="String(choice)"
-            :data-testid="`retention-${choice ?? 'all'}`"
-            @select="setRetention(choice)"
-          >
-            <Check
-              class="size-3" :stroke-width="ICON_STROKE_WIDTH_TIGHT"
-              :class="runs.retention === choice ? '' : 'invisible'"
-            />
-            {{ choice ?? "All of them" }}
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+      <!-- The tooltip wraps the *whole* menu, not its trigger. See `RunListItem`
+           for why: a `Tooltip` between a `DropdownMenu` and its trigger shadows
+           the popper context the trigger registers its anchor into. -->
+      <InfoTip label="How many finished runs to keep. Applied the next time a run starts.">
+        <span class="inline-flex">
+          <DropdownMenu>
+            <DropdownMenuTrigger as-child>
+              <button
+                type="button"
+                data-testid="retention"
+                class="rounded-xs px-1 hover:bg-hover hover:text-foreground"
+              >
+                keep {{ runs.retention === null ? "all" : runs.retention }}
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" class="min-w-32">
+              <DropdownMenuLabel class="text-2xs">Keep how many runs</DropdownMenuLabel>
+              <DropdownMenuItem
+                v-for="choice in RETENTION_CHOICES"
+                :key="String(choice)"
+                :data-testid="`retention-${choice ?? 'all'}`"
+                @select="setRetention(choice)"
+              >
+                <Check
+                  class="size-3" :stroke-width="ICON_STROKE_WIDTH_TIGHT"
+                  :class="runs.retention === choice ? '' : 'invisible'"
+                />
+                {{ choice ?? "All of them" }}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </span>
+      </InfoTip>
     </PanelFooter>
 
     <Dialog

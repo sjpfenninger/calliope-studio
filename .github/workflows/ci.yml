@@ -112,6 +112,12 @@ jobs:
       - name: Unsaved-changes guard
         run: pixi run -- pnpm --dir web run confirm-check http://127.0.0.1:8791
 
+      # Every popup lands where a person can see it. A popper with no anchor
+      # stays at Reka's off-screen default while the DOM looks entirely healthy,
+      # so presence is not the property — position is.
+      - name: Popup placement
+        run: pixi run -- pnpm --dir web run menu-check http://127.0.0.1:8791
+
       # The map as an input: it has a size at all, a node drags, a link draws.
       - name: Map editing
         run: pixi run -- pnpm --dir web run map-edit http://127.0.0.1:8791

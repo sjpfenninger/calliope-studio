@@ -13,6 +13,7 @@
     "dev": "vite",
     "lint": "oxlint",
     "map-edit": "node scripts/map-edit.mjs",
+    "menu-check": "node scripts/menu-check.mjs",
     "model-picker": "node scripts/model-picker.mjs",
     "monaco-check": "node scripts/monaco-check.mjs",
     "preview": "vite preview",

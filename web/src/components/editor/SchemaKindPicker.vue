@@ -49,32 +49,38 @@ function choose(value: unknown) {
 <template>
   <div class="flex items-center gap-1" data-testid="schema-kind">
     <span class="text-2xs text-text-faint">Schema</span>
-    <Select :model-value="kind" @update:model-value="choose">
-      <!-- The tooltip wraps the trigger rather than the other way round: each
-           `as-child` merges down onto the one real button, so the order decides
-           which primitive owns it. -->
-      <InfoTip
-        :label="
-          overridden
-            ? 'You chose this. Reset to use what the model says.'
-            : 'Detected from how the model refers to this file'
-        "
-      >
-        <SelectTrigger
-          size="sm"
-          class="min-w-0"
-          aria-label="Which Calliope schema checks this file"
-          data-testid="schema-kind-trigger"
-        >
-          <SelectValue>{{ LABELS[kind] }}</SelectValue>
-        </SelectTrigger>
-      </InfoTip>
-      <SelectContent>
-        <SelectItem value="model">{{ LABELS.model }}</SelectItem>
-        <SelectItem value="math">{{ LABELS.math }}</SelectItem>
-        <SelectItem value="unknown">{{ LABELS.unknown }}</SelectItem>
-      </SelectContent>
-    </Select>
+    <!-- The tooltip wraps the whole `Select`, not its trigger. A Reka `Tooltip`
+         provides a popper context of its own, so one sitting *between* a popper
+         root and its trigger shadows the root's: the trigger registers its
+         anchor into the tooltip's popper and the list is left with none, so
+         floating-ui never places it and it stays at `translate(0, -200%)`, off
+         the top of the window. See `RunListItem` — two dropdowns had the same
+         shape and opened invisibly. -->
+    <InfoTip
+      :label="
+        overridden
+          ? 'You chose this. Reset to use what the model says.'
+          : 'Detected from how the model refers to this file'
+      "
+    >
+      <span class="inline-flex min-w-0">
+        <Select :model-value="kind" @update:model-value="choose">
+          <SelectTrigger
+            size="sm"
+            class="min-w-0"
+            aria-label="Which Calliope schema checks this file"
+            data-testid="schema-kind-trigger"
+          >
+            <SelectValue>{{ LABELS[kind] }}</SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="model">{{ LABELS.model }}</SelectItem>
+            <SelectItem value="math">{{ LABELS.math }}</SelectItem>
+            <SelectItem value="unknown">{{ LABELS.unknown }}</SelectItem>
+          </SelectContent>
+        </Select>
+      </span>
+    </InfoTip>
     <TooltipButton
       v-if="overridden"
       label="Use the detected schema again"

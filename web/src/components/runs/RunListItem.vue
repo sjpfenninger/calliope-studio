@@ -144,49 +144,68 @@ function commitRename() {
       />
     </div>
 
-    <DropdownMenu>
-      <!-- Outermost-first: each `as-child` merges down onto the one real button,
-           so the tooltip has to wrap the menu trigger. -->
-      <InfoTip label="Run actions">
-        <DropdownMenuTrigger as-child>
-          <button
-            type="button"
-            aria-label="Run actions"
-            data-testid="run-menu"
-            :class="[
-              'absolute right-1.5 top-1 grid size-5 place-items-center rounded-xs text-text-faint opacity-0 group-hover:opacity-100 hover:text-foreground focus-visible:opacity-100 data-[state=open]:opacity-100',
-              // Takes the row's own background, so that when it appears it masks
-              // the text beneath rather than sitting on top of it — `bg-inherit`
-              // rather than a named colour because the row is hovered, active or
-              // plain, and the button has to be whichever one it currently is.
-              'bg-inherit hover:bg-active',
-            ]"
-          >
-            <MoreHorizontal class="size-3.5" />
-          </button>
-        </DropdownMenuTrigger>
-      </InfoTip>
-      <DropdownMenuContent align="end" class="min-w-40">
-        <DropdownMenuItem @select="startRename">
-          <Pencil />
-          Rename
-        </DropdownMenuItem>
-        <DropdownMenuItem v-if="running" @select="emit('cancel')">
-          <Square />
-          Cancel run
-        </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem
-          variant="destructive"
-          data-testid="run-delete"
-          :disabled="running"
-          @select="emit('remove')"
-        >
-          <Trash2 />
-          Delete
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <!-- **The tooltip wraps the whole menu, not its trigger.** Reka's `Tooltip`
+         provides a popper context of its own, so a `Tooltip` sitting *between* a
+         `DropdownMenu` and its `DropdownMenuTrigger` shadows the dropdown's: the
+         trigger registers its anchor into the tooltip's popper, the menu's is
+         left with none, and floating-ui has nothing to position against. The
+         content then stays at Reka's unplaced default, `translate(0, -200%)` —
+         so the menu opened, took focus and trapped the pointer, while sitting
+         several hundred pixels above the top of the window. Nothing appeared.
+
+         Nesting the other way puts the dropdown's own context nearest its
+         trigger. The span is what the tooltip points at, and it carries the
+         positioning so it has a real box to be: wrapped around an absolutely
+         positioned button it would have measured zero.
+
+         Two `as-child` primitives around one element is *not* the problem —
+         that was the first guess, and giving each its own element changed
+         nothing. -->
+    <InfoTip label="Run actions">
+      <span
+        class="absolute right-1.5 top-1 inline-flex opacity-0 group-hover:opacity-100 focus-within:opacity-100 has-[[data-state=open]]:opacity-100"
+      >
+        <DropdownMenu>
+          <DropdownMenuTrigger as-child>
+            <button
+              type="button"
+              aria-label="Run actions"
+              data-testid="run-menu"
+              :class="[
+                'grid size-5 place-items-center rounded-xs text-text-faint hover:text-foreground',
+                // Takes the row's own background, so that when it appears it masks
+                // the text beneath rather than sitting on top of it — `bg-inherit`
+                // rather than a named colour because the row is hovered, active or
+                // plain, and the button has to be whichever one it currently is.
+                'bg-inherit hover:bg-active',
+              ]"
+            >
+              <MoreHorizontal class="size-3.5" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" class="min-w-40">
+            <DropdownMenuItem @select="startRename">
+              <Pencil />
+              Rename
+            </DropdownMenuItem>
+            <DropdownMenuItem v-if="running" @select="emit('cancel')">
+              <Square />
+              Cancel run
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              variant="destructive"
+              data-testid="run-delete"
+              :disabled="running"
+              @select="emit('remove')"
+            >
+              <Trash2 />
+              Delete
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </span>
+    </InfoTip>
 
     <!-- Labelled, not run-on: these numbers used to be four unlabelled figures
          with a native `title` as the only clue what they were, which is a missing

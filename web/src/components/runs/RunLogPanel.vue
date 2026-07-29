@@ -12,6 +12,7 @@
  * make a live log unusable.
  */
 import { computed, nextTick, ref, watch } from "vue";
+import StateMessage from "@/components/app/StateMessage.vue";
 import PanelFooter from "@/components/app/PanelFooter.vue";
 import PanelHeader from "@/components/app/PanelHeader.vue";
 import { Square } from "@lucide/vue";
@@ -153,13 +154,13 @@ watch(
         {{ line.text }}
       </p>
 
-      <p v-if="!lines.length" class="text-sm text-muted-foreground">
+      <StateMessage v-if="!lines.length" variant="inline">
         <template v-if="running">Waiting for the worker…</template>
         <template v-else-if="runs.logFilter !== 'all'">
           Nothing at this level. The whole log is under “All”.
         </template>
         <template v-else>This run produced no log output.</template>
-      </p>
+      </StateMessage>
 
       <!-- The error is in `outcome.json` rather than in the stream when the
            worker died before it could log anything. -->

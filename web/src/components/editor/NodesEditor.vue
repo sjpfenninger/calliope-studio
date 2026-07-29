@@ -19,9 +19,8 @@
  */
 import { ref, computed } from "vue";
 import StateMessage from "@/components/app/StateMessage.vue";
-import TooltipButton from "@/components/app/TooltipButton.vue";
 // `Map` is aliased so it cannot shadow the global `Map` constructor.
-import { List, Map as MapIcon, Plus, Trash2 } from "@lucide/vue";
+import { List, Map as MapIcon, Plus } from "@lucide/vue";
 
 import { getDataTableParams } from "@/api/versions";
 import { useSectionEditor } from "@/composables/useSectionEditor";
@@ -29,12 +28,8 @@ import { useTabsStore } from "@/stores/tabs";
 import EditorMapPane from "./EditorMapPane.vue";
 import EditorToolbar from "./EditorToolbar.vue";
 import NodeFields, { type DataTableParam } from "./NodeFields.vue";
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "@/components/ui/accordion";
+import { Accordion } from "@/components/ui/accordion";
+import EntryAccordionRow from "./EntryAccordionRow.vue";
 import { GHOST_BUTTON } from "@/lib/formClasses";
 
 import { useModelGeo } from "@/composables/useModelGeo";
@@ -325,34 +320,22 @@ function openElsewhere() {
           :default-value="visibleEntries.map((e) => entryKey(e, entries))"
           class="px-2"
         >
-          <AccordionItem
+          <EntryAccordionRow
             v-for="entry in visibleEntries"
             :key="entryKey(entry, entries)"
             :value="entryKey(entry, entries)"
+            :name="entry.name || '(unnamed)'"
+            remove-label="Remove this node"
+            @remove="removeEntry(entry)"
           >
-            <div class="flex items-center gap-1.5">
-              <AccordionTrigger
-                class="min-w-0 flex-1 items-center py-1.5 font-mono text-sm hover:no-underline"
-              >
-                {{ entry.name || "(unnamed)" }}
-              </AccordionTrigger>
-              <TooltipButton
-                label="Remove this node"
-                :icon="Trash2"
-                tone="danger"
-                @click.stop="removeEntry(entry)"
-              />
-            </div>
 
-            <AccordionContent>
               <NodeFields
                 :entry="entry"
                 :templates="templatesData"
                 :data-table-params="dataTableParams[entry.name] ?? {}"
                 @change="onChange"
               />
-            </AccordionContent>
-          </AccordionItem>
+          </EntryAccordionRow>
         </Accordion>
       </div>
     </template>

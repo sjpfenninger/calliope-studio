@@ -14,19 +14,14 @@
 import { ref, computed } from "vue";
 import StateMessage from "@/components/app/StateMessage.vue";
 import FieldRow from "@/components/app/FieldRow.vue";
-import TooltipButton from "@/components/app/TooltipButton.vue";
-import { Plus, Trash2 } from "@lucide/vue";
+import { Plus } from "@lucide/vue";
 
 import { getDataTableParams } from "@/api/versions";
 import { useSectionEditor } from "@/composables/useSectionEditor";
 import EditorToolbar from "./EditorToolbar.vue";
 import ParamRows from "./ParamRows.vue";
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "@/components/ui/accordion";
+import { Accordion } from "@/components/ui/accordion";
+import EntryAccordionRow from "./EntryAccordionRow.vue";
 import { Switch } from "@/components/ui/switch";
 import { FIELD, GHOST_BUTTON } from "@/lib/formClasses";
 
@@ -187,107 +182,95 @@ function inheritedFor(entry: TechEntry) {
           :default-value="visibleEntries.map((e) => entryKey(e, entries))"
           class="px-2"
         >
-          <AccordionItem
+          <EntryAccordionRow
             v-for="entry in visibleEntries"
             :key="entryKey(entry, entries)"
             :value="entryKey(entry, entries)"
+            :name="entry.name || '(unnamed)'"
+            remove-label="Remove this technology"
+            @remove="removeEntry(entry)"
           >
-            <div class="flex items-center gap-1.5">
-              <AccordionTrigger
-                class="min-w-0 flex-1 items-center py-1.5 font-mono text-sm hover:no-underline"
-              >
-                {{ entry.name || "(unnamed)" }}
-              </AccordionTrigger>
+            <template #meta>
               <span
                 v-if="entry.base_tech"
                 class="shrink-0 rounded-xs bg-accent-soft px-1 text-2xs text-accent-text"
               >
                 {{ entry.base_tech }}
               </span>
-              <TooltipButton
-                label="Remove this tech"
-                :icon="Trash2"
-                tone="danger"
-                @click.stop="removeEntry(entry)"
+            </template>
+
+            <!-- name is the mapping key, not a parameter. -->
+            <FieldRow label="name" width="short">
+              <input
+                v-model="entry.name"
+                type="text"
+                :class="FIELD"
+                @input="onChange"
               />
-            </div>
+            </FieldRow>
 
-            <AccordionContent>
-              <div class="flex flex-col gap-2 pb-2">
-                <!-- name is the mapping key, not a parameter. -->
-                <FieldRow label="name" width="short">
-                  <input
-                    v-model="entry.name"
-                    type="text"
-                    :class="FIELD"
-                    @input="onChange"
-                  />
-                </FieldRow>
+            <FieldRow label="template" width="short">
+              <input
+                :value="entry.template ?? ''"
+                type="text"
+                placeholder="(none)"
+                :class="FIELD"
+                @change="
+                  entry.template =
+                    ($event.target as HTMLInputElement).value || null;
+                  onChange();
+                "
+              />
+            </FieldRow>
 
-                <FieldRow label="template" width="short">
-                  <input
-                    :value="entry.template ?? ''"
-                    type="text"
-                    placeholder="(none)"
-                    :class="FIELD"
-                    @change="
-                      entry.template =
-                        ($event.target as HTMLInputElement).value || null;
-                      onChange();
-                    "
-                  />
-                </FieldRow>
+            <FieldRow
+              label="base_tech"
+              width="short"
+              :inherited="inheritedFor(entry).base_tech ?? null"
+              :is-set="techSetsKey(entry, 'base_tech')"
+              @revert="
+                entry.base_tech = null;
+                onChange();
+              "
+            >
+              <select
+                :value="entry.base_tech ?? ''"
+                :class="FIELD"
+                @change="
+                  entry.base_tech =
+                    ($event.target as HTMLSelectElement).value || null;
+                  onChange();
+                "
+              >
+                <!-- Blank first: base_tech usually comes from the template,
+                     and setting it here is an override, not a requirement. -->
+                <option value="">—</option>
+                <option v-for="option in BASE_TECH_OPTIONS" :key="option" :value="option">
+                  {{ option }}
+                </option>
+              </select>
+            </FieldRow>
 
-                <FieldRow
-                  label="base_tech"
-                  width="short"
-                  :inherited="inheritedFor(entry).base_tech ?? null"
-                  :is-set="techSetsKey(entry, 'base_tech')"
-                  @revert="
-                    entry.base_tech = null;
-                    onChange();
-                  "
-                >
-                  <select
-                    :value="entry.base_tech ?? ''"
-                    :class="FIELD"
-                    @change="
-                      entry.base_tech =
-                        ($event.target as HTMLSelectElement).value || null;
-                      onChange();
-                    "
-                  >
-                    <!-- Blank first: base_tech usually comes from the template,
-                         and setting it here is an override, not a requirement. -->
-                    <option value="">—</option>
-                    <option v-for="option in BASE_TECH_OPTIONS" :key="option" :value="option">
-                      {{ option }}
-                    </option>
-                  </select>
-                </FieldRow>
+            <FieldRow
+              label="active"
+              width="auto"
+              :inherited="inheritedFor(entry).active ?? null"
+              :is-set="techSetsKey(entry, 'active')"
+              @revert="
+                entry.active = true;
+                onChange();
+              "
+            >
+              <Switch v-model="entry.active" @update:model-value="onChange" />
+            </FieldRow>
 
-                <FieldRow
-                  label="active"
-                  width="auto"
-                  :inherited="inheritedFor(entry).active ?? null"
-                  :is-set="techSetsKey(entry, 'active')"
-                  @revert="
-                    entry.active = true;
-                    onChange();
-                  "
-                >
-                  <Switch v-model="entry.active" @update:model-value="onChange" />
-                </FieldRow>
-
-                <ParamRows
-                  :params="entry.extraParams"
-                  :inherited="inheritedFor(entry)"
-                  :promoted="PROMOTED"
-                  @change="onChange"
-                />
-              </div>
-            </AccordionContent>
-          </AccordionItem>
+            <ParamRows
+              :params="entry.extraParams"
+              :inherited="inheritedFor(entry)"
+              :promoted="PROMOTED"
+              @change="onChange"
+            />
+          </EntryAccordionRow>
         </Accordion>
       </div>
     </template>

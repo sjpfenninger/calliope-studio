@@ -17,6 +17,7 @@
  * conflated that with "a folder containing no model".
  */
 import { onMounted, ref } from "vue";
+import StateMessage from "@/components/app/StateMessage.vue";
 import { useRoute, useRouter } from "vue-router";
 
 import { getRun, listRuns } from "@/api/runs";
@@ -82,13 +83,13 @@ function openIn(health: Health, tab: string) {
 </script>
 
 <template>
-  <div class="grid flex-1 place-items-center text-sm text-muted-foreground">
-    <p v-if="error">
-      {{ error }}
+  <StateMessage v-if="error" variant="fill" tone="danger">
+    {{ error }}
+    <template #action>
       <RouterLink :to="{ name: 'projects' }" class="text-accent-text underline">
         Recent models
       </RouterLink>
-    </p>
-    <p v-else>Opening results…</p>
-  </div>
+    </template>
+  </StateMessage>
+  <StateMessage v-else variant="fill" loading>Opening results…</StateMessage>
 </template>

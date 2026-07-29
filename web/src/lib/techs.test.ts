@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isTransmission, mergeIntoSection, partitionTechs } from "./techs";
+import { isTransmission, mergeIntoSection } from "./techs";
 
 /**
  * TechsEditor and LinksEditor each show half of one YAML section and each save
@@ -40,21 +40,6 @@ describe("isTransmission", () => {
   });
 });
 
-describe("partitionTechs", () => {
-  it("splits a section into links and everything else", () => {
-    const { links, techs } = partitionTechs(
-      {
-        ccgt: { base_tech: "supply" },
-        a_to_b: { base_tech: "transmission", link_from: "a", link_to: "b" },
-        battery: { base_tech: "storage" },
-        c_to_d: { template: "free_transmission" },
-      },
-      TEMPLATES,
-    );
-    expect(links).toEqual(["a_to_b", "c_to_d"]);
-    expect(techs).toEqual(["ccgt", "battery"]);
-  });
-});
 
 describe("mergeIntoSection", () => {
   const original = {

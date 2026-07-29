@@ -37,3 +37,21 @@ export const RESOLUTION_LABELS: Record<string, string> = {
 export function keepOne<T extends string>(next: unknown, current: T): T {
   return (next as T) || current;
 }
+
+/**
+ * The sum-by counterpart of `keepOne`, which also refuses an option the variable
+ * cannot honour rather than silently applying it.
+ *
+ * Byte-identical in both figures that offer the control. The lock is the store's
+ * answer, so this is presentation only — but it is the presentation both of them
+ * have to get the same, and a locked option that a forced click could still
+ * change is exactly what `smoke-charts` asserts against.
+ */
+export function chooseSum<T extends SumBy>(
+  next: unknown,
+  current: T,
+  locked: (value: SumBy) => boolean,
+): T {
+  const value = keepOne(next as T, current);
+  return locked(value) ? current : value;
+}

@@ -18,7 +18,8 @@ import { computed } from "vue";
 
 import { Checkbox } from "@/components/ui/checkbox";
 import InfoTip from "@/components/app/InfoTip.vue";
-import { FIELD, SECTION_HEADING, TEXT_BUTTON_SM } from "@/lib/formClasses";
+import SidebarSection from "@/components/app/SidebarSection.vue";
+import { FIELD, TEXT_BUTTON_SM } from "@/lib/formClasses";
 import { MAX_PRECISION, isBadPrecision } from "@/lib/precision";
 import { useRoundingStore } from "@/stores/rounding";
 
@@ -42,10 +43,8 @@ function toggleExports() {
 </script>
 
 <template>
-  <section data-testid="rounding-panel">
-    <header class="mb-1 flex h-5 items-center gap-1">
-      <span :class="SECTION_HEADING">rounding</span>
-      <div class="flex-1" />
+  <SidebarSection title="rounding" data-testid="rounding-panel">
+    <template #actions>
       <button
         v-if="rounding.isCustomised"
         type="button"
@@ -55,7 +54,7 @@ function toggleExports() {
       >
         Reset
       </button>
-    </header>
+    </template>
 
     <div class="flex flex-col gap-1.5">
       <div class="flex flex-col gap-0.5">
@@ -108,5 +107,5 @@ function toggleExports() {
         </div>
       </InfoTip>
     </div>
-  </section>
+  </SidebarSection>
 </template>

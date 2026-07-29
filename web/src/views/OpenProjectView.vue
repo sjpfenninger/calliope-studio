@@ -8,6 +8,7 @@
  * sit in the history for the back button to land on.
  */
 import { onMounted, ref } from "vue";
+import StateMessage from "@/components/app/StateMessage.vue";
 import { useRoute, useRouter } from "vue-router";
 
 import { listVersions } from "@/api/projects";
@@ -35,13 +36,13 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="grid flex-1 place-items-center text-sm text-muted-foreground">
-    <p v-if="error">
-      {{ error }}
+  <StateMessage v-if="error" variant="fill" tone="danger">
+    {{ error }}
+    <template #action>
       <RouterLink :to="{ name: 'projects' }" class="text-accent-text underline">
         Recent models
       </RouterLink>
-    </p>
-    <p v-else>Opening…</p>
-  </div>
+    </template>
+  </StateMessage>
+  <StateMessage v-else variant="fill" loading>Opening…</StateMessage>
 </template>

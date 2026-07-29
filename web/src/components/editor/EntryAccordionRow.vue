@@ -24,6 +24,8 @@ defineProps<{
   name: string;
   /** Tooltip on the remove button, e.g. "Remove this technology". */
   removeLabel: string;
+  /** For the one editor whose rows a browser check selects. */
+  testid?: string;
 }>();
 
 defineEmits<{ remove: [] }>();
@@ -31,7 +33,10 @@ defineEmits<{ remove: [] }>();
 
 <template>
   <AccordionItem :value="value">
-    <div class="flex items-center gap-1.5">
+    <div class="flex items-center gap-1.5" :data-testid="testid">
+      <!-- No `py-1.5` and no `hover:no-underline`: AccordionTrigger is already
+           `h-7` and has never underlined. All five copies carried both anyway,
+           and the padding only squeezed the row's own content. -->
       <AccordionTrigger class="min-w-0 flex-1 items-center gap-2 font-mono text-sm">
         <span class="truncate">{{ name }}</span>
         <slot name="meta" />

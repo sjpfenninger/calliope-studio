@@ -315,13 +315,56 @@ describe("design language", () => {
     // The exception is the browser's *overflow* affordance — a `title` whose
     // value is the visible text, clipped. That is not help text, a tooltip
     // component would have to measure the clipping to know when to offer it, and
-    // the rows that need it are the numerous ones. Those carry the pragma, as do
-    // the components whose `title` is a prop rather than an attribute.
-    expect(
-      offenders("native-title", /\s:?title="/, (f) =>
-        (f.startsWith("components/") || f.startsWith("views/")) && isApp(f),
-      ),
-    ).toEqual([]);
+    // the rows that need it are the numerous ones. Those carry the pragma.
+    //
+    // A `title` on a *component* is not a native title at all, it is a prop —
+    // `FigurePanel`'s caption, `StateMessage`'s first line, `SidebarSection`'s
+    // heading. That used to need a pragma at every call site, which is a comment
+    // saying "this rule does not apply here" rather than a rule that knows. The
+    // tag's own case answers it: HTML elements are lowercase and components are
+    // PascalCase, which is a convention Vue itself relies on to resolve them.
+    const nativeTitle = FILES.filter(
+      ({ rel }) => (rel.startsWith("components/") || rel.startsWith("views/")) && isApp(rel),
+    ).flatMap(({ rel, text }) =>
+      [...text.matchAll(/<([a-zA-Z][\w.-]*)((?:[^<>"']|"[^"]*"|'[^']*')*?)\/?>/g)]
+        .filter(
+          (m) =>
+            m[1][0] === m[1][0].toLowerCase() &&
+            /\s:?title="/.test(m[2]) &&
+            !/design-check: allow native-title/.test(
+              text.slice(Math.max(0, m.index - 400), m.index + m[0].length),
+            ),
+        )
+        .map((m) => `${rel}:${text.slice(0, m.index).split("\n").length}  <${m[1]}>`),
+    );
+    expect(nativeTitle).toEqual([]);
+  });
+
+  it("has no composition component nobody uses", () => {
+    // A component in these two directories exists to end a duplication, so one
+    // with no importer means the duplication is still out there — and it was, in
+    // every case. `EntryAccordionRow` had zero call sites while all five editors
+    // it names in its own docstring still hand-rolled the markup, three of them
+    // having since drifted apart. `ProgressHairline` had zero while
+    // `ResultChart` documented its behaviour as live. `MetricRow` described a
+    // results summary strip that does not exist.
+    //
+    // `components/ui/` is deliberately not covered: a primitive may reasonably
+    // sit unused until something needs it, which is the point of an inventory.
+    const composition = FILES.filter(
+      ({ rel }) =>
+        (rel.startsWith("components/app/") || rel.startsWith("components/editor/")) &&
+        rel.endsWith(".vue"),
+    );
+    const orphans = composition
+      .filter(({ rel }) => {
+        const name = rel.split("/").pop()!.replace(".vue", "");
+        return !FILES.some(
+          (other) => other.rel !== rel && new RegExp(`\\b${name}\\b`).test(other.text),
+        );
+      })
+      .map(({ rel }) => rel);
+    expect(orphans).toEqual([]);
   });
 
   it("uses monospace only at the mono step", () => {

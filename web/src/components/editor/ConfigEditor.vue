@@ -5,7 +5,8 @@ import FieldRow from "@/components/app/FieldRow.vue";
 
 import { useSectionEditor } from "@/composables/useSectionEditor";
 import EditorToolbar from "./EditorToolbar.vue";
-import { FIELD, FIELD_WIDTH, SECTION, SECTION_HEADING } from "@/lib/formClasses";
+import Eyebrow from "@/components/app/Eyebrow.vue";
+import { FIELD, FIELD_WIDTH, SECTION } from "@/lib/formClasses";
 import { cn } from "@/lib/utils";
 import { useSchemaStore } from "@/stores/schema";
 import SchemaObjectEditor, { type FieldOverlay } from "./SchemaObjectEditor.vue";
@@ -181,7 +182,7 @@ onMounted(() => void schemaStore.load());
 
       <div class="flex min-h-0 flex-1 flex-col gap-2 overflow-auto p-2">
         <section :class="SECTION">
-          <h3 :class="SECTION_HEADING">init</h3>
+          <Eyebrow class="mb-0">init</Eyebrow>
           <SchemaObjectEditor
             :key="filePath + ':init'"
             v-model="configData.init"
@@ -210,7 +211,7 @@ onMounted(() => void schemaStore.load());
         </section>
 
         <section :class="SECTION">
-          <h3 :class="SECTION_HEADING">build</h3>
+          <Eyebrow class="mb-0">build</Eyebrow>
           <SchemaObjectEditor
             :key="filePath + ':build'"
             v-model="configData.build"
@@ -220,7 +221,7 @@ onMounted(() => void schemaStore.load());
         </section>
 
         <section :class="SECTION">
-          <h3 :class="SECTION_HEADING">solve</h3>
+          <Eyebrow class="mb-0">solve</Eyebrow>
           <SchemaObjectEditor
             :key="filePath + ':solve'"
             v-model="configData.solve"

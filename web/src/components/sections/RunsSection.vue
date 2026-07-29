@@ -12,6 +12,7 @@
  * it works whether or not this section is the one being looked at.
  */
 import { computed, ref, watch } from "vue";
+import StateMessage from "@/components/app/StateMessage.vue";
 import PanelFooter from "@/components/app/PanelFooter.vue";
 import PanelHeader from "@/components/app/PanelHeader.vue";
 import InfoTip from "@/components/app/InfoTip.vue";
@@ -246,10 +247,10 @@ function setRetention(keep: number | null) {
         @remove="pendingDelete = run"
       />
 
-      <p v-if="!runs.ordered.length" class="p-3 text-sm text-muted-foreground">
+      <StateMessage v-if="!runs.ordered.length" variant="inline">
         No runs yet. Solving writes results beside the model, in
         <code class="font-mono text-xs">calliope-studio/runs/</code>.
-      </p>
+      </StateMessage>
     </div>
 
     <!-- What the history costs, and how much of it is kept. Visible because the

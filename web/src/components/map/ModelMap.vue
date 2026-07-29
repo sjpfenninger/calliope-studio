@@ -14,6 +14,7 @@ import {
   VECTOR_SOURCE,
 } from "../../lib/basemap";
 import { resolvedColor } from "../../lib/cssColor";
+import { ordinalRamp } from "../../charts/theme";
 import { MapPinOff } from "@lucide/vue";
 import StateMessage from "../app/StateMessage.vue";
 import { emptyCollection, type GeoPayload } from "../../lib/mapGeo";
@@ -185,11 +186,7 @@ function layerPaint() {
 }
 
 /** The ordinal chart ramp, resolved, darkest first. */
-function rampStops(): string[] {
-  return [1, 2, 3, 4, 5].map((step) =>
-    resolvedColor(`--cg-chart-${step}`, "#055bcc"),
-  );
-}
+const rampStops = ordinalRamp;
 
 /**
  * `circle-color` for the colour channel.

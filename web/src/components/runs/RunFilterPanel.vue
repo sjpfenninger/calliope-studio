@@ -12,7 +12,8 @@
  * pure waste.
  */
 import { inject } from "vue";
-import { SECTION_HEADING, TEXT_BUTTON_SM } from "@/lib/formClasses";
+import SidebarSection from "@/components/app/SidebarSection.vue";
+import { TEXT_BUTTON_SM } from "@/lib/formClasses";
 
 import { Checkbox } from "@/components/ui/checkbox";
 import { MultiSelect } from "@/components/ui/multi-select";
@@ -57,19 +58,14 @@ function toggle(section: FilterSection, member: string, checked: boolean) {
     data-testid="run-filters"
     class="flex min-h-0 flex-col gap-3 overflow-y-auto border-r border-border bg-panel p-2"
   >
-    <section
+    <SidebarSection
       v-for="section in store.sections"
       :key="section.name"
+      :title="section.name"
       :data-testid="`filter-${section.name}`"
       :data-dimension="section.dimension"
     >
-      <header class="mb-1 flex h-5 items-center gap-1">
-        <span
-          :class="SECTION_HEADING"
-        >
-          {{ section.name }}
-        </span>
-        <div class="flex-1" />
+      <template #actions>
         <button
           type="button"
           :class="TEXT_BUTTON_SM"
@@ -84,7 +80,7 @@ function toggle(section: FilterSection, member: string, checked: boolean) {
         >
           None
         </button>
-      </header>
+      </template>
 
       <div
         v-if="section.members.length <= CHECKBOX_LIMIT"
@@ -127,7 +123,7 @@ function toggle(section: FilterSection, member: string, checked: boolean) {
         :placeholder="`No ${section.name} selected`"
         @update:model-value="(value) => store.setSelected(section.name, value)"
       />
-    </section>
+    </SidebarSection>
 
     <!-- Last, and after the filters it is not one of: what a figure is narrowed
          to is asked far more often than what it is measured in, and a setting

@@ -8,6 +8,7 @@
  * dead end telling the user to go and run `calliope new` in a terminal.
  */
 import { ref } from "vue";
+import StateMessage from "@/components/app/StateMessage.vue";
 import { PRIMARY_BUTTON_MD, SECONDARY_BUTTON, SECONDARY_BUTTON_MD } from "@/lib/formClasses";
 import { cn } from "@/lib/utils";
 import { FolderPlus } from "@lucide/vue";
@@ -67,7 +68,7 @@ async function openHere() {
 
       <FolderBrowser v-model:listing="listing" />
 
-      <p v-if="error" class="text-sm text-danger-text">{{ error }}</p>
+      <StateMessage v-if="error" variant="inline" tone="danger">{{ error }}</StateMessage>
       <div v-else-if="listing && !listing.is_model" class="flex items-center gap-2">
         <p class="min-w-0 flex-1 text-2xs text-text-faint">
           This folder has no <code>model.yaml</code>.

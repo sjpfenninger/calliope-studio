@@ -228,12 +228,9 @@ function chooseResolution(next: unknown): string {
         />
       </PanelHeader>
 
-      <p
-        v-if="store.error"
-        class="m-2 rounded-sm bg-danger-soft p-2 text-sm text-danger-text"
-      >
+      <StateMessage v-if="store.error" variant="inline" tone="danger">
         {{ store.error }}
-      </p>
+      </StateMessage>
 
       <StateMessage
         v-if="table.error.value"

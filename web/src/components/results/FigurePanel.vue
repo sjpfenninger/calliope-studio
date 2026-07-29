@@ -18,6 +18,7 @@ import { inject, onBeforeUnmount, ref } from "vue";
 import PanelDisclosure from "@/components/app/PanelDisclosure.vue";
 import PanelHeader from "@/components/app/PanelHeader.vue";
 import PanelTitle from "@/components/app/PanelTitle.vue";
+import ProgressHairline from "@/components/app/ProgressHairline.vue";
 import { ResizablePanel } from "@/components/ui/resizable";
 import {
   FIGURE_PANELS,
@@ -33,6 +34,18 @@ const props = defineProps<{
   /** Named in the accessible label — "Collapse the map". */
   label: string;
   testid: string;
+  /**
+   * Whether a refetch is in flight, with data already on screen.
+   *
+   * `ResultChart` documents this behaviour — "on a refetch the old data stays on
+   * screen and the panel header's `ProgressHairline` carries the fact that
+   * something is happening" — as the reason it does not blank the chart or use
+   * ECharts' own in-canvas spinner. The hairline was written for it and then
+   * never mounted anywhere, so the calmer half of that trade was in place and
+   * the informative half was not: a filter change simply looked like nothing
+   * happening until the new numbers arrived.
+   */
+  busy?: boolean;
 }>();
 
 const panels = inject(FIGURE_PANELS)!;
@@ -81,6 +94,8 @@ const binding = panels.bindingFor(props.figure);
 
           <slot name="controls" />
         </PanelHeader>
+
+        <ProgressHairline :active="props.busy" />
 
         <div
           v-show="panels.isOpen(props.figure)"

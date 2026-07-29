@@ -30,18 +30,6 @@ export function isTransmission(
   return LINK_KEYS.every((key) => Boolean(raw[key] ?? template[key]));
 }
 
-/** Splits a `techs:` section into links and everything else, preserving order. */
-export function partitionTechs(
-  section: Record<string, RawTech>,
-  templates: Record<string, Record<string, any>> = {},
-): { links: string[]; techs: string[] } {
-  const links: string[] = [];
-  const techs: string[] = [];
-  for (const [name, raw] of Object.entries(section)) {
-    (isTransmission(raw, templates) ? links : techs).push(name);
-  }
-  return { links, techs };
-}
 
 /**
  * Rebuilds a full `techs:` section from one editor's partial edits.

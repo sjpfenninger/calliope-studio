@@ -22,8 +22,7 @@ import Segmented from "@/components/app/Segmented.vue";
 import PanelHeader from "@/components/app/PanelHeader.vue";
 import StateMessage from "@/components/app/StateMessage.vue";
 import InfoTip from "@/components/app/InfoTip.vue";
-import { SECTION_HEADING } from "@/lib/formClasses";
-import { cn } from "@/lib/utils";
+import Eyebrow from "@/components/app/Eyebrow.vue";
 import { FileWarning } from "@lucide/vue";
 
 import { Tree } from "@/components/ui/tree";
@@ -239,14 +238,16 @@ const viewSegments = computed(() => [
     </div>
 
     <div v-else class="min-h-0 flex-1 overflow-auto p-2" data-testid="run-summary">
-      <p v-if="summaryError" class="text-sm text-danger-text">{{ summaryError }}</p>
-      <p v-else-if="!summary" class="text-sm text-muted-foreground">Reading results…</p>
+      <StateMessage v-if="summaryError" variant="inline" tone="danger">
+        {{ summaryError }}
+      </StateMessage>
+      <StateMessage v-else-if="!summary" variant="inline" loading>Reading results…</StateMessage>
 
       <template v-else>
         <section v-for="section in SECTIONS" :key="section.key" class="mb-3">
-          <h3 :class="cn(SECTION_HEADING, 'mb-1')">
+          <Eyebrow>
             {{ section.label }}
-          </h3>
+          </Eyebrow>
           <dl class="rounded-sm border border-border">
             <div
               v-for="(value, key) in summary[section.key]"

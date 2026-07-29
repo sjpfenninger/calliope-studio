@@ -13,19 +13,14 @@
  */
 import { computed, onMounted, onUnmounted, ref, toRef, watch } from "vue";
 import StateMessage from "@/components/app/StateMessage.vue";
-import TooltipButton from "@/components/app/TooltipButton.vue";
-import { Plus, Trash2 } from "@lucide/vue";
+import { Plus } from "@lucide/vue";
 
 import { useSectionEditor } from "@/composables/useSectionEditor";
 import CsvGrid from "./CsvGrid.vue";
 import DataTableFields from "./DataTableFields.vue";
 import EditorToolbar from "./EditorToolbar.vue";
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "@/components/ui/accordion";
+import { Accordion } from "@/components/ui/accordion";
+import EntryAccordionRow from "./EntryAccordionRow.vue";
 import {
   ResizableHandle,
   ResizablePanel,
@@ -406,25 +401,15 @@ onUnmounted(() => clearTimeout(reloadTimer));
           :default-value="visibleEntries.map(({ index }) => String(index))"
           class="px-2"
         >
-          <AccordionItem
+          <EntryAccordionRow
             v-for="{ entry, index } in visibleEntries"
             :key="index"
             :value="String(index)"
+            :name="entry.name || '(unnamed)'"
+            remove-label="Remove this table"
+            testid="dt-entry"
+            @remove="removeEntry(index)"
           >
-            <div class="flex items-center gap-1" data-testid="dt-entry">
-              <AccordionTrigger
-                class="min-w-0 flex-1 items-center py-1.5 font-mono text-sm hover:no-underline"
-              >
-                {{ entry.name || "(unnamed)" }}
-              </AccordionTrigger>
-              <TooltipButton
-                label="Remove this table"
-                :icon="Trash2"
-                tone="danger"
-                @click.stop="removeEntry(index)"
-              />
-            </div>
-            <AccordionContent>
               <DataTableFields
                 :name="entry.name"
                 :data="entry.data"
@@ -432,8 +417,7 @@ onUnmounted(() => clearTimeout(reloadTimer));
                 @update:name="onNameChange(index, $event)"
                 @update:data="onEntryDataChange(index, $event)"
               />
-            </AccordionContent>
-          </AccordionItem>
+          </EntryAccordionRow>
         </Accordion>
       </div>
     </template>

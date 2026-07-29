@@ -69,7 +69,6 @@ export function withSiblingSchemas(payload: CalliopeSchema): CalliopeSchema {
  */
 export type FileKind = "model" | "math" | "unknown";
 
-export const FILE_KINDS: readonly FileKind[] = ["model", "math", "unknown"];
 
 /** A monaco-yaml schema association, structurally — the fields we set. */
 export interface SchemaEntry {

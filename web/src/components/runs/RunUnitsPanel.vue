@@ -19,7 +19,8 @@
 import { computed, inject } from "vue";
 
 import InfoTip from "@/components/app/InfoTip.vue";
-import { FIELD, SECTION_HEADING, TEXT_BUTTON_SM } from "@/lib/formClasses";
+import SidebarSection from "@/components/app/SidebarSection.vue";
+import { FIELD, TEXT_BUTTON_SM } from "@/lib/formClasses";
 import { parseScale, quantitiesIn, type Quantity } from "@/lib/units";
 import { RUN_SELECTION } from "@/stores/runSelection";
 import { useUnitsStore } from "@/stores/units";
@@ -61,10 +62,8 @@ function setLabel(quantity: Quantity, label: string) {
 </script>
 
 <template>
-  <section v-if="quantities.length" data-testid="units-panel">
-    <header class="mb-1 flex h-5 items-center gap-1">
-      <span :class="SECTION_HEADING">units</span>
-      <div class="flex-1" />
+  <SidebarSection v-if="quantities.length" title="units" data-testid="units-panel">
+    <template #actions>
       <button
         v-if="units.isCustomised"
         type="button"
@@ -74,7 +73,7 @@ function setLabel(quantity: Quantity, label: string) {
       >
         Reset
       </button>
-    </header>
+    </template>
 
     <div class="flex flex-col gap-1.5">
       <div
@@ -116,5 +115,5 @@ function setLabel(quantity: Quantity, label: string) {
         </div>
       </div>
     </div>
-  </section>
+  </SidebarSection>
 </template>

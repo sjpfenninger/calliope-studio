@@ -28,12 +28,8 @@ import { useSectionEditor } from "@/composables/useSectionEditor";
 import EditorMapPane from "./EditorMapPane.vue";
 import EditorToolbar from "./EditorToolbar.vue";
 import LinkFields from "./LinkFields.vue";
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "@/components/ui/accordion";
+import { Accordion } from "@/components/ui/accordion";
+import EntryAccordionRow from "./EntryAccordionRow.vue";
 import { FIELD, FIELD_LABEL, GHOST_BUTTON } from "@/lib/formClasses";
 
 import { cn } from "@/lib/utils";
@@ -454,39 +450,29 @@ function openElsewhere() {
           :default-value="visibleEntries.map((e) => entryKey(e, entries))"
           class="px-2"
         >
-          <AccordionItem
+          <EntryAccordionRow
             v-for="entry in visibleEntries"
             :key="entryKey(entry, entries)"
             :value="entryKey(entry, entries)"
+            :name="entry.name || '(unnamed)'"
+            remove-label="Remove this link"
+            @remove="removeEntry(entry)"
           >
-            <div class="flex items-center gap-1.5">
-              <AccordionTrigger
-                class="min-w-0 flex-1 items-center gap-2 py-1.5 font-mono text-sm hover:no-underline"
+            <template #meta>
+              <span
+                v-if="entry.linkFrom || entry.linkTo"
+                class="shrink-0 text-2xs text-text-faint"
               >
-                <span class="truncate">{{ entry.name || "(unnamed)" }}</span>
-                <span
-                  v-if="entry.linkFrom || entry.linkTo"
-                  class="shrink-0 text-2xs text-text-faint"
-                >
-                  {{ entry.linkFrom || "?" }} → {{ entry.linkTo || "?" }}
-                </span>
-              </AccordionTrigger>
-              <TooltipButton
-                label="Remove this link"
-                :icon="Trash2"
-                tone="danger"
-                @click.stop="removeEntry(entry)"
-              />
-            </div>
+                {{ entry.linkFrom || "?" }} → {{ entry.linkTo || "?" }}
+              </span>
+            </template>
 
-            <AccordionContent>
               <LinkFields
                 :entry="entry"
                 :templates="templatesData"
                 @change="onChange"
               />
-            </AccordionContent>
-          </AccordionItem>
+          </EntryAccordionRow>
         </Accordion>
       </div>
 

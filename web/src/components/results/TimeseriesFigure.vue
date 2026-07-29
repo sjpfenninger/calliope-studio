@@ -22,7 +22,7 @@ import {
 } from "@/components/ui/select";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import type { ResultFrame } from "@/api/results";
-import { RESOLUTION_LABELS, SUM_LABELS, keepOne } from "@/lib/chartControls";
+import { RESOLUTION_LABELS, SUM_LABELS, chooseSum, keepOne } from "@/lib/chartControls";
 import { exportFrames, hasData } from "@/lib/frameExport";
 import type { DisplayUnit } from "@/lib/units";
 import { indexColorsFor } from "@/lib/seriesColors";
@@ -65,15 +65,15 @@ const indexColors = computed(() =>
  * the tooltip that explains why it is locked — the same trade `PanelDisclosure`
  * makes. The click therefore still arrives, and this is what ignores it.
  */
-function chooseSum(next: unknown, current: SumBy, variable: string | null): SumBy {
-  const value = keepOne(next as SumBy, current);
-  return store.sumLock(variable, value) ? current : value;
+/** Bound to this figure's store, so the template keeps its two-argument call. */
+function chooseSumFor(next: unknown, current: SumBy, variable: string | null): SumBy {
+  return chooseSum(next, current, (value) => Boolean(store.sumLock(variable, value)));
 }
 </script>
 
 <template>
-  <!-- design-check: allow native-title — `FigurePanel`'s `title` is a prop. -->
   <FigurePanel
+    :busy="props.loading"
     figure="timeseries"
     title="Time series"
     label="the time series"
@@ -129,7 +129,7 @@ function chooseSum(next: unknown, current: SumBy, variable: string | null): SumB
         :model-value="store.effectiveSumBy"
         @update:model-value="
           (value) =>
-            (store.sumBy = chooseSum(value, store.sumBy, store.variableTimeseries))
+            (store.sumBy = chooseSumFor(value, store.sumBy, store.variableTimeseries))
         "
       >
         <InfoTip

@@ -117,12 +117,9 @@ onMounted(() => store.load());
     <RunFilterPanel class="w-52 shrink-0" />
 
     <main class="flex min-h-0 flex-1 flex-col">
-      <p
-        v-if="store.error"
-        class="m-2 rounded-sm bg-danger-soft p-2 text-sm text-danger-text"
-      >
+      <StateMessage v-if="store.error" variant="inline" tone="danger">
         {{ store.error }}
-      </p>
+      </StateMessage>
 
       <!-- Held back until the geography question has been answered, one way or
            the other. A splitter reads a panel's `defaultSize` when the panel
@@ -174,6 +171,11 @@ onMounted(() => store.load());
               :size-unit="mapSizeFrame.unit.value"
               :color-unit="mapColorFrame.unit.value"
               :pie-unit="mapPieFrame.unit.value"
+              :loading="
+                mapSizeFrame.loading.value ||
+                mapColorFrame.loading.value ||
+                mapPieFrame.loading.value
+              "
             />
 
             <!-- No hairline of its own: each figure is a bordered card, so the

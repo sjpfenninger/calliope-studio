@@ -22,7 +22,7 @@ import {
 } from "@/components/ui/select";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import type { ResultFrame } from "@/api/results";
-import { SUM_LABELS, keepOne } from "@/lib/chartControls";
+import { SUM_LABELS, chooseSum } from "@/lib/chartControls";
 import { exportFrames, hasData } from "@/lib/frameExport";
 import { indexColorsFor } from "@/lib/seriesColors";
 import { useRoundingStore } from "@/stores/rounding";
@@ -48,15 +48,15 @@ const indexColors = computed(() =>
 );
 
 /** See `TimeseriesFigure` — the locked options are clickable so they can explain. */
-function chooseSum(next: unknown, current: SumBy, variable: string | null): SumBy {
-  const value = keepOne(next as SumBy, current);
-  return store.sumLock(variable, value) ? current : value;
+/** Bound to this figure's store, so the template keeps its two-argument call. */
+function chooseSumFor(next: unknown, current: SumBy, variable: string | null): SumBy {
+  return chooseSum(next, current, (value) => Boolean(store.sumLock(variable, value)));
 }
 </script>
 
 <template>
-  <!-- design-check: allow native-title — `FigurePanel`'s `title` is a prop. -->
   <FigurePanel
+    :busy="props.loading"
     figure="static"
     title="Totals"
     label="the totals chart"
@@ -82,7 +82,7 @@ function chooseSum(next: unknown, current: SumBy, variable: string | null): SumB
         :model-value="store.effectiveStaticSum"
         @update:model-value="
           (value) =>
-            (store.staticSumBy = chooseSum(
+            (store.staticSumBy = chooseSumFor(
               value,
               store.staticSumBy,
               store.variableStatic,

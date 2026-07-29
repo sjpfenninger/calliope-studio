@@ -20,18 +20,14 @@
 import { computed, ref } from "vue";
 import StateMessage from "@/components/app/StateMessage.vue";
 import { entryKey } from "@/lib/entries";
-import { Plus, Trash2, X } from "@lucide/vue";
+import { Plus, X } from "@lucide/vue";
 
 import { getOverrides, putOverrides } from "@/api/versions";
 import { useSectionEditor } from "@/composables/useSectionEditor";
 import EditorToolbar from "./EditorToolbar.vue";
 import ScalarOrDataVar from "./ScalarOrDataVar.vue";
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "@/components/ui/accordion";
+import { Accordion } from "@/components/ui/accordion";
+import EntryAccordionRow from "./EntryAccordionRow.vue";
 import FieldRow from "@/components/app/FieldRow.vue";
 import TooltipButton from "@/components/app/TooltipButton.vue";
 import { FIELD, FIELD_MONO, GHOST_BUTTON } from "@/lib/formClasses";
@@ -183,99 +179,87 @@ const onChange = markDirty;
           :default-value="visibleEntries.map((e) => entryKey(e, entries))"
           class="px-2"
         >
-          <AccordionItem
+          <EntryAccordionRow
             v-for="entry in visibleEntries"
             :key="entryKey(entry, entries)"
             :value="entryKey(entry, entries)"
+            :name="entry.name || '(unnamed)'"
+            remove-label="Remove this override"
+            @remove="removeEntry(entry)"
           >
-            <div class="flex items-center gap-1.5">
-              <AccordionTrigger
-                class="min-w-0 flex-1 items-center gap-2 py-1.5 font-mono text-sm hover:no-underline"
-              >
-                <span class="truncate">{{ entry.name || "(unnamed)" }}</span>
-                <span class="shrink-0 text-2xs text-text-faint">
-                  {{ entry.settings.length }}
-                  {{ entry.settings.length === 1 ? "setting" : "settings" }}
-                </span>
-              </AccordionTrigger>
-              <TooltipButton
-                label="Remove this override"
-                :icon="Trash2"
-                tone="danger"
-                @click.stop="removeEntry(entry)"
+            <template #meta>
+              <span class="shrink-0 text-2xs text-text-faint">
+                {{ entry.settings.length }}
+                {{ entry.settings.length === 1 ? "setting" : "settings" }}
+              </span>
+            </template>
+
+            <FieldRow label="name" width="short">
+              <input
+                v-model="entry.name"
+                type="text"
+                :class="FIELD"
+                @input="onChange"
               />
-            </div>
+            </FieldRow>
 
-            <AccordionContent>
-              <div class="flex flex-col gap-2 pb-2">
-                <FieldRow label="name" width="short">
-                  <input
-                    v-model="entry.name"
-                    type="text"
-                    :class="FIELD"
-                    @input="onChange"
-                  />
-                </FieldRow>
+            <!-- The wide gutter, because these keys are paths: at the
+                 standard 9rem, `config.solve.spores.number` and
+                 `config.solve.spores.tracking_parameter` truncate to the
+                 same string. -->
+            <FieldRow
+              v-for="(setting, index) in entry.settings"
+              :key="index"
+              :label="setting.path"
+              width="value"
+              align="start"
+              gutter="wide"
+              data-testid="override-setting"
+            >
+              <template #label>
+                <!-- design-check: allow native-title — the field's own
+                     value, which a 16rem gutter still clips. -->
+                <input
+                  v-model="setting.path"
+                  type="text"
+                  list="override-paths"
+                  placeholder="config.init.name"
+                  :title="setting.path"
+                  :class="FIELD_MONO"
+                  @input="onChange"
+                />
+              </template>
 
-                <!-- The wide gutter, because these keys are paths: at the
-                     standard 9rem, `config.solve.spores.number` and
-                     `config.solve.spores.tracking_parameter` truncate to the
-                     same string. -->
-                <FieldRow
-                  v-for="(setting, index) in entry.settings"
-                  :key="index"
-                  :label="setting.path"
-                  width="value"
-                  align="start"
-                  gutter="wide"
-                  data-testid="override-setting"
-                >
-                  <template #label>
-                    <!-- design-check: allow native-title — the field's own
-                         value, which a 16rem gutter still clips. -->
-                    <input
-                      v-model="setting.path"
-                      type="text"
-                      list="override-paths"
-                      placeholder="config.init.name"
-                      :title="setting.path"
-                      :class="FIELD_MONO"
-                      @input="onChange"
-                    />
-                  </template>
+              <!-- Not every value is a scalar: `spores_tracker` is a whole
+                   indexed parameter, and the same control the tech editor
+                   uses handles both without mangling either. -->
+              <ScalarOrDataVar
+                :model-value="setting.value"
+                @update:model-value="
+                  setting.value = $event;
+                  onChange();
+                "
+              />
 
-                  <!-- Not every value is a scalar: `spores_tracker` is a whole
-                       indexed parameter, and the same control the tech editor
-                       uses handles both without mangling either. -->
-                  <ScalarOrDataVar
-                    :model-value="setting.value"
-                    @update:model-value="
-                      setting.value = $event;
-                      onChange();
-                    "
-                  />
+              <template #action>
+                <TooltipButton
+                  label="Remove this setting"
+                  :icon="X"
+                  tone="danger"
+                  @click="removeSetting(entry, index)"
+                />
+              </template>
+            </FieldRow>
 
-                  <template #action>
-                    <TooltipButton
-                      label="Remove this setting"
-                      :icon="X"
-                      tone="danger"
-                      @click="removeSetting(entry, index)"
-                    />
-                  </template>
-                </FieldRow>
-
-                <button
-                  type="button"
-                  :class="cn(GHOST_BUTTON, 'self-start')"
-                  @click="addSetting(entry)"
-                >
-                  <Plus class="size-3.5" />
-                  Add setting
-                </button>
-              </div>
-            </AccordionContent>
-          </AccordionItem>
+            <button
+              type="button"
+              :class="cn(GHOST_BUTTON, 'self-start')"
+              @click="addSetting(entry)"
+            >
+              <Plus class="size-3.5" />
+              Add setting
+            </button>
+          </EntryAccordionRow>
         </Accordion>
 
         <datalist id="override-paths">

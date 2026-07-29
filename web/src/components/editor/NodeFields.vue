@@ -23,7 +23,8 @@ import ParamRows from "./ParamRows.vue";
 import FieldRow from "@/components/app/FieldRow.vue";
 import TooltipButton from "@/components/app/TooltipButton.vue";
 import { Switch } from "@/components/ui/switch";
-import { FIELD, FIELD_MONO, SECTION_HEADING } from "@/lib/formClasses";
+import Eyebrow from "@/components/app/Eyebrow.vue";
+import { FIELD, FIELD_MONO } from "@/lib/formClasses";
 
 import type { NodeEntry } from "@/lib/entries";
 import { collectInherited, nodeSetsKey } from "@/lib/inherited";
@@ -174,7 +175,7 @@ function removeTech(index: number) {
     <!-- Per-node technology overrides: the same tech, tuned here. -->
     <div class="flex flex-col gap-1.5 rounded-sm border border-border p-2">
       <div class="flex items-center justify-between">
-        <span :class="SECTION_HEADING">techs</span>
+        <Eyebrow class="mb-0">techs</Eyebrow>
         <TooltipButton label="Add a technology" :icon="Plus" @click="addTech" />
       </div>
 

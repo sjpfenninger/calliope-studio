@@ -32,6 +32,19 @@ export const THEME_NAME = "calliope-studio";
  */
 const ORDINAL_RAMP = [1, 2, 3, 4, 5];
 
+/**
+ * The ramp, resolved, darkest first.
+ *
+ * Exported because the map and its legend need the same five colours and were
+ * each resolving them from their own copy of the list *and* their own copy of
+ * the `#055bcc` fallback — three copies of a five-element array, in a file whose
+ * docblock says the map and the legend must not resolve colour by different
+ * routes. Same function, three call sites, is not the same thing as one answer.
+ */
+export function ordinalRamp(): string[] {
+  return ORDINAL_RAMP.map((step) => resolvedColor(`--cg-chart-${step}`, "#055bcc"));
+}
+
 export function buildTheme() {
   const text = resolvedColor("--cg-text", "#1f1f1f");
   const muted = resolvedColor("--cg-text-muted", "#6c6c6c");
@@ -52,9 +65,7 @@ export function buildTheme() {
   };
 
   return {
-    color: ORDINAL_RAMP.map((step) =>
-      resolvedColor(`--cg-chart-${step}`, "#055bcc"),
-    ),
+    color: ordinalRamp(),
     // Transparent, so a chart sits on whatever surface hosts it rather than
     // punching a white rectangle through a dark theme.
     backgroundColor: "transparent",

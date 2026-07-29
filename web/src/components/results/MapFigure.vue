@@ -22,7 +22,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type { ResultFrame } from "@/api/results";
-import { resolvedColor } from "@/lib/cssColor";
+import { ordinalRamp } from "@/charts/theme";
 import type { CsvSource } from "@/lib/frameCsv";
 import { exportFrames, hasData } from "@/lib/frameExport";
 import { nodeSlices, nodeTotals, valueExtent } from "@/lib/mapValues";
@@ -44,6 +44,8 @@ const props = defineProps<{
   sizeUnit: DisplayUnit | null;
   colorUnit: DisplayUnit | null;
   pieUnit: DisplayUnit | null;
+  /** Any of the three channels still in flight. */
+  loading?: boolean;
 }>();
 
 /** A channel's variable name with its unit, for the legend and the map's hover. */
@@ -104,9 +106,7 @@ const ramp = ref<string[]>([]);
 watch(
   () => ui.revision,
   () => {
-    ramp.value = [1, 2, 3, 4, 5].map((step) =>
-      resolvedColor(`--cg-chart-${step}`, "#055bcc"),
-    );
+    ramp.value = ordinalRamp();
   },
   { immediate: true },
 );
@@ -162,8 +162,13 @@ const mapVariableName = computed(
 </script>
 
 <template>
-  <!-- design-check: allow native-title — `FigurePanel`'s `title` is a prop. -->
-  <FigurePanel figure="map" title="Map" label="the map" testid="collapse-map">
+  <FigurePanel
+    figure="map"
+    title="Map"
+    label="the map"
+    testid="collapse-map"
+    :busy="props.loading"
+  >
     <template #controls>
       <!-- One picker per encoding channel. All three set to None is a real
            answer, not an empty state: the nodes stay on the map at a uniform

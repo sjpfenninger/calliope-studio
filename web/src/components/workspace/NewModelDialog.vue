@@ -12,6 +12,7 @@
  * the request rather than after it.
  */
 import { computed, ref, watch } from "vue";
+import StateMessage from "@/components/app/StateMessage.vue";
 import { FIELD, PRIMARY_BUTTON_MD, SECONDARY_BUTTON_MD } from "@/lib/formClasses";
 import { cn } from "@/lib/utils";
 
@@ -145,7 +146,7 @@ async function create() {
         </Select>
       </div>
 
-      <p v-if="error" class="text-sm text-danger-text">{{ error }}</p>
+      <StateMessage v-if="error" variant="inline" tone="danger">{{ error }}</StateMessage>
       <p v-else-if="problem" class="text-2xs text-danger-text">{{ problem }}</p>
       <p v-else-if="target" data-testid="new-model-target" class="truncate font-mono text-xs text-text-faint">
         {{ target }}

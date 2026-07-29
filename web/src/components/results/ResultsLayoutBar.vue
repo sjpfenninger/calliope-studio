@@ -52,11 +52,15 @@ const segments = computed(() =>
 
 <template>
   <PanelHeader size="sm" data-testid="results-layout-bar">
+    <!-- `size="fill"`: the switcher takes the strip's own height exactly, square.
+         At `sm` it was an h-7 control in an h-7 strip — one pixel taller than the
+         box, split by `items-center`, so the selection lapped the hairline above
+         and the one below by half a pixel each. -->
     <Segmented
       :model-value="props.active"
       :items="segments"
       mode="value"
-      size="sm"
+      size="fill"
       @update:model-value="$event && ui.setResultsLayout($event)"
     />
 

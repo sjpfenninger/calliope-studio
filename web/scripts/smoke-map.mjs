@@ -104,6 +104,36 @@ check(
   Boolean(controlBackground) && !/^rgb\(255, 255, 255\)$/.test(controlBackground),
 );
 
+// The attribution strip, which the control check above does not reach — and so
+// the one piece of chrome that stayed stock. maplibre-gl.css styles it through
+// two-class selectors and beat the bare-class override in maplibre-overrides.css
+// for as long as that file existed, leaving a white plate and black text on a
+// dark map. Read through a canvas rather than matching the string: the
+// background is a color-mix() of an oklch token, so getComputedStyle serialises
+// it as `color(srgb ...)`, which both the regex above and the luminance() helper
+// below would misread. `fillStyle` parses every form the browser can compute.
+const attribution = await page.evaluate(() => {
+  const strip = document.querySelector(".maplibregl-ctrl-attrib");
+  if (!strip) return null;
+  const style = getComputedStyle(strip);
+  const context = document.createElement("canvas").getContext("2d");
+  const bytes = (value) => {
+    context.clearRect(0, 0, 1, 1);
+    context.fillStyle = value;
+    context.fillRect(0, 0, 1, 1);
+    return Array.from(context.getImageData(0, 0, 1, 1).data);
+  };
+  return { background: bytes(style.backgroundColor), text: bytes(style.color) };
+});
+// `compact: true` means the control is always created, so a missing strip is
+// itself a failure rather than a case to skip.
+const isDark = ([red, green, blue]) => red < 128 && green < 128 && blue < 128;
+check(
+  "the map's attribution strip follows the theme",
+  Boolean(attribution) && isDark(attribution.background) && !isDark(attribution.text),
+  attribution && `plate ${attribution.background}, text ${attribution.text}`,
+);
+
 // The basemap itself, not just the chrome around it. It is a vector style built
 // from the `--cg-map-*` tokens, so dark mode is a real style rather than the
 // dimmed raster it used to be — and if the tokens ever stop resolving, MapLibre

@@ -169,14 +169,41 @@
   outline-offset: 1px;
 }
 
-.maplibregl-ctrl-attrib {
-  background: color-mix(in srgb, var(--cg-surface) 82%, transparent);
+/* The strip itself. Stock reaches it twice, both at (0,2,0) —
+   `.maplibregl-ctrl.maplibregl-ctrl-attrib` for the plain box and
+   `.maplibregl-ctrl-attrib.maplibregl-compact` for the compact one — so the
+   bare-class rule that used to be here lost on specificity and the box went on
+   painting stock's `#fff` and `#000`, plate and text both, however the import
+   order was arranged. Compact is the only mode ModelMap uses, so the second
+   selector is the one that was showing; the first is matched too, because it is
+   what takes over if `compact` is ever dropped.
+
+   Geometry matched to `.maplibregl-ctrl-group` above rather than left at stock's
+   12px pill: the two sit in the same corner of the same map, and stock draws
+   them as different objects. `box-sizing` stays at stock's `content-box`
+   deliberately — the toggle button is absolutely positioned at `top: 0;
+   right: 0` and is exactly the height of the padding box, so the border insets
+   around it instead of running through it. Stock's padding is left alone for the
+   same reason: it is what reserves the button's 24px. */
+.maplibregl-ctrl.maplibregl-ctrl-attrib,
+.maplibregl-ctrl-attrib.maplibregl-compact {
+  background-color: color-mix(in srgb, var(--cg-surface) 82%, transparent);
   color: var(--cg-text-muted);
+  border: 1px solid var(--cg-border-subtle);
+  border-radius: var(--cg-radius-sm);
+  box-shadow: var(--cg-shadow-1);
   font-size: 10px;
 }
 
 .maplibregl-ctrl-attrib a {
   color: var(--cg-text-muted);
+}
+
+/* Stock's `a:hover` is `color: inherit` at (0,2,1) and outranks the rule above.
+   Left alone, hovering a credit link now resolves to the strip's own muted text
+   — i.e. to no change at all, with only the underline to show for it. */
+.maplibregl-ctrl-attrib a:hover {
+  color: var(--cg-text);
 }
 
 .maplibregl-popup-content {

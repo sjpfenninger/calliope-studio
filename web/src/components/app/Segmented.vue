@@ -22,9 +22,11 @@ import InfoTip from "./InfoTip.vue";
 import {
   SEGMENT_BASE,
   SEGMENT_NAV_ACTIVE,
+  SEGMENT_NAV_EDGES,
   SEGMENT_NAV_SEAM,
   SEGMENT_SIZE,
   SEGMENT_VALUE_ACTIVE,
+  SEGMENT_VALUE_ACTIVE_FILL,
 } from "./segmented";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
@@ -50,7 +52,12 @@ const props = withDefaults(
     items: SegmentItem<T>[];
     /** `nav` changes what the adjacent region shows; `value` sets a value. */
     mode?: "nav" | "value";
-    size?: "sm" | "md";
+    /**
+     * A control height, or `fill` to take the strip's own — see `SEGMENT_SIZE`.
+     * `fill` also squares the selection off, because at that height there is no
+     * strip left around it for a rounded one to sit on.
+     */
+    size?: "sm" | "md" | "fill";
     /**
      * Which surface the active segment opens into — whatever is below the strip.
      * `surface` over an editor or a card, `panel` over more sidebar, `none` for a
@@ -59,24 +66,42 @@ const props = withDefaults(
     seam?: "surface" | "panel" | "none";
     /** Segments grow to share the width, for a strip that spans its container. */
     fill?: boolean;
+    /**
+     * Draw the active segment's left and right edges — the rest of the tab shape
+     * the seam starts. For a strip that has no rules of its own between segments;
+     * see `SEGMENT_NAV_EDGES`. Pointless without a seam, so `nav` only.
+     */
+    edges?: boolean;
     class?: HTMLAttributes["class"];
   }>(),
-  { mode: "nav", size: "sm", seam: "surface", fill: false },
+  { mode: "nav", size: "sm", seam: "surface", fill: false, edges: false },
 );
 
 const model = defineModel<T>();
 
 const activeClass = computed(() =>
   props.mode === "nav"
-    ? cn(SEGMENT_NAV_ACTIVE, SEGMENT_NAV_SEAM[props.seam])
-    : SEGMENT_VALUE_ACTIVE,
+    ? cn(
+        SEGMENT_NAV_ACTIVE,
+        SEGMENT_NAV_SEAM[props.seam],
+        props.edges && props.seam !== "none" && SEGMENT_NAV_EDGES,
+      )
+    : cn(
+        SEGMENT_VALUE_ACTIVE,
+        props.size === "fill" && SEGMENT_VALUE_ACTIVE_FILL,
+      ),
 );
 
 const segmentClass = computed(() =>
   cn(SEGMENT_BASE, SEGMENT_SIZE[props.size], activeClass.value),
 );
 
-const rootClass = computed(() => cn("flex items-stretch", props.class));
+// `self-stretch` at `fill`: the strip is `items-center`, so without it the group
+// is only as tall as its text and `h-full` on the segments resolves against that
+// rather than against the strip.
+const rootClass = computed(() =>
+  cn("flex items-stretch", props.size === "fill" && "self-stretch", props.class),
+);
 
 function isActive(item: SegmentItem<T>): true | undefined {
   return model.value === item.value || undefined;

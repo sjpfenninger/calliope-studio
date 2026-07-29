@@ -110,7 +110,10 @@ function onLayout(sizes: number[]) {
       <AppSidebar :project-id="projectId" :version-id="versionId" />
     </ResizablePanel>
 
-    <ResizableHandle />
+    <!-- The grip the results view uses, on the one boundary in the shell that
+         moves — the hairline alone said nothing about being draggable. Here the
+         handle keeps its line, because it *is* the sidebar's edge. -->
+    <ResizableHandle with-handle data-testid="shell-split-handle" />
 
     <ResizablePanel :default-size="78">
       <div class="flex h-full min-h-0 flex-col">

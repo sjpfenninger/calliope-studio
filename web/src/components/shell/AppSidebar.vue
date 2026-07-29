@@ -7,7 +7,6 @@
  */
 import { computed } from "vue";
 import PanelFooter from "@/components/app/PanelFooter.vue";
-import LogoMark from "@/components/layout/LogoMark.vue";
 
 import ProjectSwitcher from "./ProjectSwitcher.vue";
 import SidebarNav from "./SidebarNav.vue";
@@ -26,7 +25,9 @@ const editable = computed(() => props.versionId !== null);
 </script>
 
 <template>
-  <aside class="flex h-full min-h-0 flex-col border-r border-border bg-panel">
+  <!-- No border of its own: the splitter handle beside it draws the hairline, and
+       two rules on one boundary is a 2px seam where every other bar is 1px. -->
+  <aside class="flex h-full min-h-0 flex-col bg-panel">
     <div class="shrink-0 border-b border-border p-1.5">
       <ProjectSwitcher
         :current-id="projectId"
@@ -45,10 +46,7 @@ const editable = computed(() => props.versionId !== null);
       <RouterView />
     </div>
 
-    <PanelFooter>
-      <LogoMark class="size-3.5 shrink-0" />
-      <span class="truncate">Calliope Studio</span>
-      <div class="flex-1" />
+    <PanelFooter class="justify-end">
       <ThemeToggle />
     </PanelFooter>
   </aside>

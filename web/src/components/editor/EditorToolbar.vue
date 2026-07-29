@@ -5,6 +5,11 @@
  * All five had their own copy of "a Save button, a keyboard hint, and sometimes
  * something else", at three different heights. One 32px strip, matching the tab
  * bar above it and the section toolbars in the sidebar.
+ *
+ * `bg-surface`, not the chrome tone `PanelHeader` defaults to: this strip is the
+ * first thing under the tab bar, and the active tab opens onto it. On `--cg-panel`
+ * the tab bled into a tone one step back from itself, which undoes what the seam
+ * is for. Its `border-b` stays — it still has to divide itself from the body.
  */
 import { Loader2, Save } from "@lucide/vue";
 import PanelHeader from "@/components/app/PanelHeader.vue";
@@ -16,7 +21,7 @@ defineEmits<{ save: [] }>();
 </script>
 
 <template>
-  <PanelHeader>
+  <PanelHeader class="bg-surface">
     <button
       type="button"
       data-testid="save"

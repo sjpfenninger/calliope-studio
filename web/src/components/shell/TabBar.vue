@@ -7,15 +7,26 @@
  * `TabsList`, and its roving tabindex fights all of them.
  *
  * 32px tall. The active tab is the *same surface as the editor below it*, with
- * the strip's bottom hairline erased beneath it by a 1px bridge, so the two read
- * as one continuous sheet and the inactive tabs sit back on the strip. Its label
- * and icon are accent-coloured; there is no underline. All of that comes from
- * components/app/segmented.ts, which is the point — this is the one hand-rolled
- * strip in the app, and importing the classes is what stops it drifting.
+ * the strip's bottom hairline stopping at its two side edges, so the two read as
+ * one continuous sheet and the inactive tabs sit back on the strip. Those edges
+ * are the separator it carries and the one belonging to the tab before it, both
+ * raised to full strength. Its label and icon are accent-coloured; there is no
+ * underline. All of that comes from components/app/segmented.ts, which is the
+ * point — this is the one hand-rolled strip in the app, and importing the classes
+ * is what stops it drifting.
  *
  * It scrolls with no scrollbar: the global one is 10px, a third of the strip's
  * height, drawn straight across the tabs. The wheel and the auto-reveal below
  * are what replace it.
+ *
+ * Scrolling is also why the hairline is an inset shadow and not a `border-b`.
+ * `overflow-x: auto` computes `overflow-y` to `auto` too, and the clip is at the
+ * padding box — so the `-bottom-px` bridge every other strip erases its border
+ * with was drawn outside the clip and thrown away, and this bar showed a full
+ * line under the active tab for its whole existence. The line has to be inside
+ * the box for the tab's own background to cover it; see
+ * `SEGMENT_STRIP_LINE_SCROLLED`. The bridge is still in the shared class and is
+ * simply inert here.
  */
 import { ref, watch } from "vue";
 import { BarChart3, ShieldCheck } from "@lucide/vue";
@@ -24,7 +35,9 @@ import { X } from "@lucide/vue";
 import {
   SEGMENT_BASE,
   SEGMENT_NAV_ACTIVE,
+  SEGMENT_NAV_EDGES_RULED,
   SEGMENT_NAV_SEAM,
+  SEGMENT_STRIP_LINE_SCROLLED,
 } from "@/components/app/segmented";
 import { fileIcon, ICON_STROKE_WIDTH_TIGHT, sectionIcon } from "@/lib/icons";
 import { cn } from "@/lib/utils";
@@ -37,7 +50,8 @@ const TAB_CLASS = cn(
   SEGMENT_BASE,
   SEGMENT_NAV_ACTIVE,
   SEGMENT_NAV_SEAM.surface,
-  "border-r border-border-subtle px-3 data-[preview]:italic hover:bg-hover",
+  SEGMENT_NAV_EDGES_RULED,
+  "px-3 data-[preview]:italic hover:bg-hover",
 );
 
 const strip = ref<HTMLElement | null>(null);
@@ -106,7 +120,12 @@ function onAuxClick(id: string, event: MouseEvent) {
     v-if="tabs.ordered.length"
     ref="strip"
     data-testid="tab-strip"
-    class="scrollbar-none flex h-8 shrink-0 items-stretch overflow-x-auto border-b border-border bg-panel"
+    :class="
+      cn(
+        'scrollbar-none flex h-8 shrink-0 items-stretch overflow-x-auto bg-panel',
+        SEGMENT_STRIP_LINE_SCROLLED,
+      )
+    "
     @wheel="onWheel"
   >
     <button

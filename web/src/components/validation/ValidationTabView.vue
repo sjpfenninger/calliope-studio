@@ -64,7 +64,9 @@ const validatedAt = computed(() =>
 
 <template>
   <div class="flex min-h-0 flex-1 flex-col" data-testid="validation-tab">
-    <PanelHeader>
+    <!-- `bg-surface`: the first strip under the tab bar, which the active tab
+         opens onto. -->
+    <PanelHeader class="bg-surface">
       <ShieldCheck class="size-3.5 shrink-0 text-text-faint" />
       <span class="text-sm" data-testid="validation-status">{{ status }}</span>
       <span v-if="validatedAt && !running" class="text-2xs text-text-faint">

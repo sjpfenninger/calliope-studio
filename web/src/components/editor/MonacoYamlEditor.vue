@@ -271,7 +271,9 @@ onUnmounted(() => {
   <div class="flex min-h-0 flex-col">
     <!-- Only for a real file. A section or entry tab is a model-definition
          fragment by construction, so it has nothing to choose. -->
-    <PanelHeader v-if="filePath" size="sm">
+    <!-- `bg-surface`: it is what the active tab opens onto, and Monaco's own
+         background below it is that colour too. -->
+    <PanelHeader v-if="filePath" size="sm" class="bg-surface">
       <SchemaKindPicker :path="filePath" />
     </PanelHeader>
     <div ref="containerRef" class="monaco-container min-h-0 flex-1" />

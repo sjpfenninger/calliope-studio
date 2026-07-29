@@ -13,6 +13,11 @@
  * segment is the same colour as the section beneath it and has no line between
  * them, while the other two sit on a recessed strip.
  *
+ * `edges` is the rest of that shape. Unlike the tab bar, this strip draws no
+ * rules between its segments, so the fill was the only thing marking where the
+ * active one ended and the seam had nothing to descend from; with the two side
+ * borders it is a tab opening into the section rather than a tinted word.
+ *
  * It used to carry a soft accent fill, a hand-rolled underline span, and the
  * codebase's only two `!important` utilities, all at once. See
  * components/app/segmented.ts for the one rule that replaced them.
@@ -103,6 +108,7 @@ const active = computed(() =>
     seam="panel"
     size="sm"
     fill
+    edges
     class="border-b border-border bg-background"
   />
 </template>

@@ -14,7 +14,7 @@ import {
 import { NO_UNIT, type DisplayUnit } from "../../lib/units";
 import { ensureTheme } from "../../charts/theme";
 import { resolvedColor } from "../../lib/cssColor";
-import { normaliseIndexValue } from "../../lib/frameIndex";
+import { indexToLabel, normaliseIndexValue } from "../../lib/frameIndex";
 import { formatValue } from "../../lib/precision";
 import StateMessage from "../app/StateMessage.vue";
 import { seriesLabel } from "../../lib/seriesLabel";
@@ -111,8 +111,19 @@ function axisValues(frame: ResultFrame): (string | number)[] {
     // The index carries identity, so it gets the same display names the legend
     // gives it — a link reads `A → B` on the axis exactly as it does everywhere
     // else, rather than reverting to its generated `a_to_b` technology name.
-    if (props.indexColors) return props.labels[String(index)] ?? index;
-    return index;
+    //
+    // Through `indexToLabel`, whose docstring asks for exactly that and whose
+    // other two callers are the CSV writer and the table. This used to be a
+    // second, hand-rolled copy guarded on `indexColors` instead of on the
+    // dimension — and the two guards disagree, because `indexColorsFor` also
+    // returns null when nothing is summed. So on a techs-indexed frame with no
+    // sum-by the axis read `a_to_b` while the table and the exported CSV of the
+    // *same* frame read `A → B`.
+    const text = String(index);
+    const label = indexToLabel(text, frame.indexName, props.labels);
+    // The original value when there was nothing to substitute, so a numeric
+    // index stays a number and the axis keeps inferring what it always did.
+    return label === text ? index : label;
   });
 }
 

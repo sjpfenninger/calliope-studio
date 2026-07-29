@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { ref, reactive, computed, nextTick, onMounted, watch } from "vue";
+import { ref, reactive, computed, nextTick, onMounted, onUnmounted, watch } from "vue";
 import StateMessage from "@/components/app/StateMessage.vue";
 import FieldRow from "@/components/app/FieldRow.vue";
 
 import client from "@/api/client";
+import { errorDetail } from "@/api/errors";
 import EditorToolbar from "./EditorToolbar.vue";
 import { FIELD, FIELD_WIDTH, SECTION, SECTION_HEADING } from "@/lib/formClasses";
 import { cn } from "@/lib/utils";
@@ -23,6 +24,14 @@ const schemaStore = useSchemaStore();
 const isLoading = ref(true);
 const isSaving = ref(false);
 const error = ref<string | null>(null);
+/**
+ * Kept apart from `error`, which replaces the whole editor.
+ *
+ * A load failure means there is nothing to show; a save failure means there is
+ * something to show and it is the user's unsaved work. Reporting the second
+ * through the first would unmount the very edits that failed to save.
+ */
+const saveError = ref<string | null>(null);
 
 // ---------------------------------------------------------------------------
 // Section data — owned here; SchemaObjectEditor instances v-model into these.
@@ -164,12 +173,15 @@ function buildPayload() {
 
 async function save() {
   isSaving.value = true;
+  saveError.value = null;
   try {
     await client.put(
       `/api/versions/${props.versionId}/yaml-section/${props.filePath}?section=config`,
       { data: buildPayload() }
     );
     tabsStore.markClean(props.tabId);
+  } catch (caught) {
+    saveError.value = errorDetail(caught, "Failed to save config section.");
   } finally {
     isSaving.value = false;
   }
@@ -205,6 +217,13 @@ onMounted(async () => {
   await Promise.all([load(), schemaStore.load()]);
 });
 
+// This editor was the one of the seven that never removed it. The listener is on
+// `window`, so it outlives the component: every config tab opened left another
+// behind, and afterwards Cmd+S anywhere in the app saved this instance's stale
+// `configData` over whatever was live. DataTablesEditor documents the same
+// hazard at its own `onUnmounted`; six editors had the lesson and this one did not.
+onUnmounted(() => window.removeEventListener("keydown", onKeydown));
+
 watch(() => props.filePath, load);
 </script>
 
@@ -216,7 +235,7 @@ watch(() => props.filePath, load);
     <StateMessage v-else-if="error" variant="block" tone="danger">{{ error }}</StateMessage>
 
     <template v-else>
-      <EditorToolbar :saving="isSaving" @save="save" />
+      <EditorToolbar :saving="isSaving" :error="saveError" @save="save" />
 
       <div class="flex min-h-0 flex-1 flex-col gap-2 overflow-auto p-2">
         <section :class="SECTION">

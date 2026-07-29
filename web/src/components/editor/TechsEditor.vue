@@ -18,6 +18,7 @@ import TooltipButton from "@/components/app/TooltipButton.vue";
 import { Plus, Trash2 } from "@lucide/vue";
 
 import client from "@/api/client";
+import { errorDetail } from "@/api/errors";
 import EditorToolbar from "./EditorToolbar.vue";
 import ParamRows from "./ParamRows.vue";
 import {
@@ -55,6 +56,8 @@ const templatesStore = useTemplatesStore();
 const isLoading = ref(true);
 const isSaving = ref(false);
 const error = ref<string | null>(null);
+/** Kept apart from `error`, which replaces the editor and so the unsaved work. */
+const saveError = ref<string | null>(null);
 
 const BASE_TECH_OPTIONS = ["supply", "demand", "storage", "transmission", "conversion"];
 
@@ -150,6 +153,7 @@ function buildPayload(): Record<string, RawTech> {
 
 async function save() {
   isSaving.value = true;
+  saveError.value = null;
   try {
     const payload = buildPayload();
     await client.put(
@@ -161,6 +165,10 @@ async function save() {
     tabsStore.markClean(props.tabId);
     // Editing a tech can change what a template means for its siblings.
     await templatesStore.refresh(props.versionId);
+  } catch (caught) {
+    // Only the PUT can reach here: `templatesStore.refresh` swallows its own
+    // failure by design, so this cannot report a successful write as a failed one.
+    saveError.value = errorDetail(caught, "Failed to save technologies.");
   } finally {
     isSaving.value = false;
   }
@@ -222,7 +230,7 @@ watch(() => props.filePath, load);
     <StateMessage v-else-if="error" variant="block" tone="danger">{{ error }}</StateMessage>
 
     <template v-else>
-      <EditorToolbar :saving="isSaving" @save="save">
+      <EditorToolbar :saving="isSaving" :error="saveError" @save="save">
         <button v-if="!entryName" type="button" :class="GHOST_BUTTON" @click="addEntry">
           <Plus class="size-3.5" />
           Add tech

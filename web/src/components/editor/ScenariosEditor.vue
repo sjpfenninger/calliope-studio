@@ -20,6 +20,7 @@ import { entryKey } from "@/lib/entries";
 import { ChevronDown, ChevronUp, Plus, TriangleAlert, Trash2, X } from "@lucide/vue";
 
 import client from "@/api/client";
+import { errorDetail } from "@/api/errors";
 import EditorToolbar from "./EditorToolbar.vue";
 import { MultiSelect } from "@/components/ui/multi-select";
 import FieldRow from "@/components/app/FieldRow.vue";
@@ -42,6 +43,8 @@ const componentTree = useComponentTreeStore();
 const isLoading = ref(true);
 const isSaving = ref(false);
 const error = ref<string | null>(null);
+/** Kept apart from `error`, which replaces the editor and so the unsaved work. */
+const saveError = ref<string | null>(null);
 
 interface ScenarioEntry {
   name: string;
@@ -99,6 +102,7 @@ async function load() {
 
 async function save() {
   isSaving.value = true;
+  saveError.value = null;
   try {
     await client.put(
       `/api/versions/${props.versionId}/yaml-section/${props.filePath}?section=scenarios`,
@@ -111,6 +115,8 @@ async function save() {
       },
     );
     tabsStore.markClean(props.tabId);
+  } catch (caught) {
+    saveError.value = errorDetail(caught, "Failed to save scenarios.");
   } finally {
     isSaving.value = false;
   }
@@ -182,7 +188,7 @@ watch(() => props.filePath, load);
     <StateMessage v-else-if="error" variant="block" tone="danger">{{ error }}</StateMessage>
 
     <template v-else>
-      <EditorToolbar :saving="isSaving" @save="save">
+      <EditorToolbar :saving="isSaving" :error="saveError" @save="save">
         <button v-if="!entryName" type="button" :class="GHOST_BUTTON" @click="addEntry">
           <Plus class="size-3.5" />
           Add scenario

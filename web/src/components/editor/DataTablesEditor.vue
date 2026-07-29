@@ -323,7 +323,7 @@ watch(() => props.filePath, load);
     <StateMessage v-else-if="error" variant="block" tone="danger">{{ error }}</StateMessage>
 
     <template v-else>
-      <EditorToolbar :saving="isSaving" @save="save">
+      <EditorToolbar :saving="isSaving" :error="saveError" @save="save">
         <button
           v-if="!entryName"
           type="button"
@@ -333,7 +333,6 @@ watch(() => props.filePath, load);
           <Plus class="size-3.5" />
           Add table
         </button>
-        <span v-if="saveError" class="text-2xs text-danger-text">{{ saveError }}</span>
       </EditorToolbar>
 
       <StateMessage v-if="!visibleEntries.length" variant="block">

@@ -24,6 +24,7 @@ import TooltipButton from "@/components/app/TooltipButton.vue";
 import { List, Map as MapIcon, Plus, Trash2 } from "@lucide/vue";
 
 import client from "@/api/client";
+import { errorDetail } from "@/api/errors";
 import EditorMapPane from "./EditorMapPane.vue";
 import EditorToolbar from "./EditorToolbar.vue";
 import NodeFields, { type DataTableParam } from "./NodeFields.vue";
@@ -71,6 +72,8 @@ const ui = useUiStore();
 const isLoading = ref(true);
 const isSaving = ref(false);
 const error = ref<string | null>(null);
+/** Kept apart from `error`, which replaces the editor and so the unsaved work. */
+const saveError = ref<string | null>(null);
 
 const entries = ref<NodeEntry[]>([]);
 const templatesData = computed(() => templatesStore.templates);
@@ -212,6 +215,7 @@ function buildPayload(): Record<string, any> {
 
 async function save() {
   isSaving.value = true;
+  saveError.value = null;
   try {
     const payload = buildPayload();
     await client.put(
@@ -227,6 +231,11 @@ async function save() {
     // forms display have to be re-read too.
     await templatesStore.refresh(props.versionId);
     await reloadGeo();
+  } catch (caught) {
+    // Only the PUT can reach here: the three refreshes below it each swallow
+    // their own failure by design, so this cannot report a successful write as a
+    // failed one.
+    saveError.value = errorDetail(caught, "Failed to save nodes.");
   } finally {
     isSaving.value = false;
   }
@@ -301,7 +310,7 @@ watch(() => props.filePath, load);
     <StateMessage v-else-if="error" variant="block" tone="danger">{{ error }}</StateMessage>
 
     <template v-else>
-      <EditorToolbar :saving="isSaving" @save="save">
+      <EditorToolbar :saving="isSaving" :error="saveError" @save="save">
         <button v-if="!entryName" type="button" :class="GHOST_BUTTON" @click="addEntry">
           <Plus class="size-3.5" />
           Add node

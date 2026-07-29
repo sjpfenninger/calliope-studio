@@ -23,6 +23,7 @@ import { entryKey } from "@/lib/entries";
 import { Plus, Trash2, X } from "@lucide/vue";
 
 import client from "@/api/client";
+import { errorDetail } from "@/api/errors";
 import EditorToolbar from "./EditorToolbar.vue";
 import ScalarOrDataVar from "./ScalarOrDataVar.vue";
 import {
@@ -52,6 +53,13 @@ const componentTree = useComponentTreeStore();
 const isLoading = ref(true);
 const isSaving = ref(false);
 const error = ref<string | null>(null);
+/**
+ * Kept apart from `error`, which this editor renders as a banner *above* the
+ * form rather than in place of it — so reusing it for a failed save left a
+ * message about the write sitting over the unsaved entries, in a treatment
+ * nothing else in the app uses. It reports where the other six do now.
+ */
+const saveError = ref<string | null>(null);
 
 interface Setting {
   path: string;
@@ -117,7 +125,7 @@ async function load() {
 
 async function save() {
   isSaving.value = true;
-  error.value = null;
+  saveError.value = null;
   try {
     await client.put(`/api/versions/${props.versionId}/overrides/${props.filePath}`, {
       overrides: Object.fromEntries(
@@ -130,10 +138,10 @@ async function save() {
       ),
     });
     tabsStore.markClean(props.tabId);
-  } catch (e: any) {
+  } catch (caught) {
     // A path that cannot exist — `config.init.name.deeper`, where `name` holds a
     // string — comes back as a 400 saying so, and nothing was written.
-    error.value = e?.response?.data?.detail ?? "Failed to save overrides.";
+    saveError.value = errorDetail(caught, "Failed to save overrides.");
   } finally {
     isSaving.value = false;
   }
@@ -188,7 +196,7 @@ watch(() => props.filePath, load);
     </StateMessage>
 
     <template v-else>
-      <EditorToolbar :saving="isSaving" @save="save">
+      <EditorToolbar :saving="isSaving" :error="saveError" @save="save">
         <button v-if="!entryName" type="button" :class="GHOST_BUTTON" @click="addEntry">
           <Plus class="size-3.5" />
           Add override

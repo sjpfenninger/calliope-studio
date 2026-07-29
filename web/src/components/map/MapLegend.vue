@@ -78,8 +78,13 @@ const span = (extent: [number, number] | null | undefined) =>
     <div v-if="props.sizeLabel" class="flex flex-col gap-0.5">
       <span class="truncate text-2xs text-text-muted">Size · {{ props.sizeLabel }}</span>
       <div class="flex items-center gap-1.5">
-        <span class="size-1.5 shrink-0 rounded-full bg-accent" />
-        <span class="size-3 shrink-0 rounded-full bg-accent" />
+        <!-- `bg-primary`, not `bg-accent`: shadcn's "accent" is the hover wash,
+             `--cg-hover`, not the brand colour — the trap ui/toggle documents.
+             These two dots are the size ramp, and on `bg-surface` they were a
+             barely-visible grey rather than the accent every other saturated
+             mark in the app uses. -->
+        <span class="size-1.5 shrink-0 rounded-full bg-primary" />
+        <span class="size-3 shrink-0 rounded-full bg-primary" />
         <span v-if="span(props.sizeExtent)" class="truncate text-2xs text-text-faint">
           {{ span(props.sizeExtent)![0] }} – {{ span(props.sizeExtent)![1] }}
         </span>

@@ -12,6 +12,7 @@
  */
 import { ref, computed, watch } from "vue";
 import StateMessage from "@/components/app/StateMessage.vue";
+import InfoTip from "@/components/app/InfoTip.vue";
 import { RefreshCw } from "@lucide/vue";
 import { VueFlow, type Node, type Edge, Position } from "@vue-flow/core";
 
@@ -196,12 +197,21 @@ function onNodeClick(event: { node: Node }) {
       <DialogHeader>
         <div class="flex items-center gap-2">
           <DialogTitle class="flex-1">Import graph</DialogTitle>
-          <button type="button" title="Reload" :class="ICON_BUTTON" @click="load">
-            <RefreshCw
-              class="size-3.5"
-              :class="isLoading ? 'animate-spin' : ''"
-            />
-          </button>
+          <!-- Not a `TooltipButton`: the spin belongs to the glyph, and putting
+               it on the button would rotate the hover square with it. -->
+          <InfoTip label="Reload">
+            <button
+              type="button"
+              aria-label="Reload"
+              :class="ICON_BUTTON"
+              @click="load"
+            >
+              <RefreshCw
+                class="size-3.5"
+                :class="isLoading ? 'animate-spin' : ''"
+              />
+            </button>
+          </InfoTip>
         </div>
         <DialogDescription>
           Every file the model pulls in, and what pulls it in. Click one to open it.

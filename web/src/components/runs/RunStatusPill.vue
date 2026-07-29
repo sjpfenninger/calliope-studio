@@ -10,6 +10,7 @@
  * the model solved and was found infeasible — so painting it as a failure tells
  * the user their software broke when their model is what needs attention.
  */
+import InfoTip from "@/components/app/InfoTip.vue";
 import type { RunStatus } from "@/stores/runs";
 
 withDefaults(
@@ -46,14 +47,15 @@ const STATUS_DOT: Record<RunStatus, string> = {
 </script>
 
 <template>
-  <span
-    v-if="dotOnly"
-    data-testid="run-status"
-    :data-status="status"
-    :title="status"
-    class="size-1.5 shrink-0 rounded-full"
-    :class="STATUS_DOT[status]"
-  />
+  <!-- Only the dot form needs saying: the other one prints the word. -->
+  <InfoTip v-if="dotOnly" :label="status">
+    <span
+      data-testid="run-status"
+      :data-status="status"
+      class="size-1.5 shrink-0 rounded-full"
+      :class="STATUS_DOT[status]"
+    />
+  </InfoTip>
   <span
     v-else
     data-testid="run-status"

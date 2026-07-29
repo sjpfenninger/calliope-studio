@@ -14,12 +14,9 @@
 import { computed, ref, watch } from "vue";
 import PanelFooter from "@/components/app/PanelFooter.vue";
 import PanelHeader from "@/components/app/PanelHeader.vue";
-import {
-  DANGER_BUTTON,
-  ICON_BUTTON,
-  PRIMARY_BUTTON,
-  SECONDARY_BUTTON,
-} from "@/lib/formClasses";
+import InfoTip from "@/components/app/InfoTip.vue";
+import TooltipButton from "@/components/app/TooltipButton.vue";
+import { DANGER_BUTTON, PRIMARY_BUTTON, SECONDARY_BUTTON } from "@/lib/formClasses";
 import { cn } from "@/lib/utils";
 import { Check, HardDrive, Play, RefreshCw, TriangleAlert } from "@lucide/vue";
 
@@ -115,6 +112,8 @@ async function start() {
   }
 }
 
+const canStart = computed(() => !starting.value && !!tabs.versionId);
+
 function open(run: RunRecord, event: MouseEvent) {
   tabs.openRun(
     { id: run.id, handle: run.results_handle, label: run.label },
@@ -141,33 +140,34 @@ function setRetention(keep: number | null) {
 <template>
   <div class="flex min-h-0 flex-1 flex-col">
     <PanelHeader>
-      <button
-        type="button"
-        data-testid="start-run"
-        :title="
+      <!-- The trigger is the wrapper, not the button: a disabled control fires
+           no pointer events, so a tooltip on one never opens. It only takes the
+           button's place in the tab order while the button is out of it. -->
+      <InfoTip
+        :label="
           runs.scenario
             ? `Solve with ${runs.scenario} applied`
             : 'Solve the model as written'
         "
-        :disabled="starting || !tabs.versionId"
-        :class="PRIMARY_BUTTON"
-        @click="start"
       >
-        <Play class="size-3.5" />
-        Run
-      </button>
+        <span class="inline-flex" :tabindex="canStart ? undefined : 0">
+          <button
+            type="button"
+            data-testid="start-run"
+            :disabled="!canStart"
+            :class="PRIMARY_BUTTON"
+            @click="start"
+          >
+            <Play class="size-3.5" />
+            Run
+          </button>
+        </span>
+      </InfoTip>
 
       <RunStatusPill v-if="busy" :status="runs.active[0].status" />
 
       <div class="flex-1" />
-      <button
-        type="button"
-        title="Reload the run history"
-        :class="ICON_BUTTON"
-        @click="refresh"
-      >
-        <RefreshCw class="size-3.5" />
-      </button>
+      <TooltipButton label="Reload the run history" :icon="RefreshCw" @click="refresh" />
     </PanelHeader>
 
     <!-- Its own strip rather than a control in the header above: the sidebar
@@ -202,15 +202,16 @@ function setRetention(keep: number | null) {
                    scenario resolves, and a model saying one thing while the
                    picker shows another is the worse failure.
 
-                   The `title` is on the span rather than the icon: it is an SVG,
-                   where `title` is an element and the attribute shows nothing. -->
-              <span
+                   The trigger is the span rather than the icon: an SVG cannot
+                   host one, and it is what carried the `title` before. -->
+              <InfoTip
                 v-if="entry.missing?.length"
-                class="inline-flex items-center"
-                :title="`Composes overrides this model does not define: ${entry.missing.join(', ')}`"
+                :label="`Composes overrides this model does not define: ${entry.missing.join(', ')}`"
               >
-                <TriangleAlert class="size-3 text-warning-text" />
-              </span>
+                <span class="inline-flex items-center">
+                  <TriangleAlert class="size-3 text-warning-text" />
+                </span>
+              </InfoTip>
             </SelectItem>
           </SelectGroup>
 
@@ -261,16 +262,19 @@ function setRetention(keep: number | null) {
       <div class="flex-1" />
 
       <DropdownMenu>
-        <DropdownMenuTrigger as-child>
-          <button
-            type="button"
-            data-testid="retention"
-            title="How many finished runs to keep. Applied the next time a run starts."
-            class="rounded-xs px-1 hover:bg-hover hover:text-foreground"
-          >
-            keep {{ runs.retention === null ? "all" : runs.retention }}
-          </button>
-        </DropdownMenuTrigger>
+        <!-- Outermost-first: each `as-child` merges down onto the one real
+             button, so the tooltip has to wrap the menu trigger. -->
+        <InfoTip label="How many finished runs to keep. Applied the next time a run starts.">
+          <DropdownMenuTrigger as-child>
+            <button
+              type="button"
+              data-testid="retention"
+              class="rounded-xs px-1 hover:bg-hover hover:text-foreground"
+            >
+              keep {{ runs.retention === null ? "all" : runs.retention }}
+            </button>
+          </DropdownMenuTrigger>
+        </InfoTip>
         <DropdownMenuContent align="end" class="min-w-32">
           <DropdownMenuLabel class="text-2xs">Keep how many runs</DropdownMenuLabel>
           <DropdownMenuItem

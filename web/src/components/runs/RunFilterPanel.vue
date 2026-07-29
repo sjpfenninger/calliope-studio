@@ -95,6 +95,8 @@ function toggle(section: FilterSection, member: string, checked: boolean) {
              than an input. The box itself is therefore inert. -->
         <!-- The testid stays keyed on the raw member, never on its label, so it
              holds no arrow and stays stable if the labelling changes. -->
+        <!-- design-check: allow native-title — the member's own name, which
+             truncates in a sidebar this narrow. One row, many of them. -->
         <div
           v-for="member in section.members"
           :key="member"

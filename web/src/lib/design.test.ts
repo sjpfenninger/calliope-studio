@@ -204,6 +204,24 @@ describe("design language", () => {
     expect(offenders("lucide", /lucide-vue-next/)).toEqual([]);
   });
 
+  it("explains itself with a tooltip, not a native title", () => {
+    // A native `title` is drawn by the OS: it cannot take a token, a radius or a
+    // delay, it is the one surface this file can never reach, and it opens about
+    // a second after the styled tooltip would. Two mechanisms in one row of
+    // controls reads as broken rather than as two styles.
+    //
+    // The exception is the browser's *overflow* affordance — a `title` whose
+    // value is the visible text, clipped. That is not help text, a tooltip
+    // component would have to measure the clipping to know when to offer it, and
+    // the rows that need it are the numerous ones. Those carry the pragma, as do
+    // the components whose `title` is a prop rather than an attribute.
+    expect(
+      offenders("native-title", /\s:?title="/, (f) =>
+        (f.startsWith("components/") || f.startsWith("views/")) && isApp(f),
+      ),
+    ).toEqual([]);
+  });
+
   it("uses monospace only at the mono step", () => {
     // 11px is *the* mono step: IBM Plex Mono at 11px optically matches Inter at
     // 12px, which is why the scale in style.css says every app-side use of the

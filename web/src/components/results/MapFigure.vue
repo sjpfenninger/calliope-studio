@@ -162,6 +162,7 @@ const mapVariableName = computed(
 </script>
 
 <template>
+  <!-- design-check: allow native-title — `FigurePanel`'s `title` is a prop. -->
   <FigurePanel figure="map" title="Map" label="the map" testid="collapse-map">
     <template #controls>
       <!-- One picker per encoding channel. All three set to None is a real

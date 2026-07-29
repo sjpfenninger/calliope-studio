@@ -22,12 +22,8 @@ import { Plus, X } from "@lucide/vue";
 import ScalarOrDataVar from "./ScalarOrDataVar.vue";
 import Eyebrow from "@/components/app/Eyebrow.vue";
 import FieldRow from "@/components/app/FieldRow.vue";
-import {
-  DANGER_ICON_BUTTON,
-  FIELD,
-  FIELD_MONO,
-  GHOST_BUTTON,
-} from "@/lib/formClasses";
+import TooltipButton from "@/components/app/TooltipButton.vue";
+import { FIELD, FIELD_MONO, GHOST_BUTTON } from "@/lib/formClasses";
 import { cn } from "@/lib/utils";
 import { parseScalar, type Param } from "@/lib/entries";
 import { unmatchedInherited, type Inherited } from "@/lib/inherited";
@@ -109,14 +105,12 @@ function materialise(key: string, raw: string) {
       />
 
       <template #action>
-        <button
-          type="button"
-          title="Remove this parameter"
-          :class="DANGER_ICON_BUTTON"
+        <TooltipButton
+          label="Remove this parameter"
+          :icon="X"
+          tone="danger"
           @click="remove(index)"
-        >
-          <X class="size-3.5" />
-        </button>
+        />
       </template>
     </FieldRow>
 

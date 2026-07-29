@@ -14,7 +14,9 @@
 import { computed, ref, watch } from "vue";
 import { Badge } from "@/components/ui/badge";
 import PanelHeader from "@/components/app/PanelHeader.vue";
-import { GHOST_BUTTON, ICON_BUTTON } from "@/lib/formClasses";
+import InfoTip from "@/components/app/InfoTip.vue";
+import TooltipButton from "@/components/app/TooltipButton.vue";
+import { GHOST_BUTTON } from "@/lib/formClasses";
 import { Loader2, Network, RefreshCw, ShieldCheck } from "@lucide/vue";
 
 import ImportGraphDialog from "@/components/layout/ImportGraphDialog.vue";
@@ -68,6 +70,8 @@ const validating = computed(
   () => validation.phase === "syntax" || validation.phase === "build",
 );
 
+const canValidate = computed(() => !validating.value && !!tabs.versionId);
+
 // The tab opens first, so that the build tier — which can run for minutes — has
 // somewhere to report from for the whole of that time rather than at the end.
 function validate() {
@@ -80,38 +84,34 @@ function validate() {
 <template>
   <div class="flex min-h-0 flex-1 flex-col">
     <PanelHeader>
-      <button
-        type="button"
-        title="Parse the YAML, then ask Calliope to build the model"
-        data-testid="validate"
-        :class="GHOST_BUTTON"
-        :disabled="validating || !tabs.versionId"
-        @click="validate"
-      >
-        <component
-          :is="validating ? Loader2 : ShieldCheck"
-          class="size-3.5"
-          :class="validating && 'animate-spin'"
-        />
-        {{ validating ? "Validating…" : "Validate" }}
-      </button>
+      <!-- The trigger is the wrapper, not the button: a disabled control fires
+           no pointer events, so a tooltip on one never opens. It only takes the
+           button's place in the tab order while the button is out of it. -->
+      <InfoTip label="Parse the YAML, then ask Calliope to build the model">
+        <span class="inline-flex" :tabindex="canValidate ? undefined : 0">
+          <button
+            type="button"
+            data-testid="validate"
+            :class="GHOST_BUTTON"
+            :disabled="!canValidate"
+            @click="validate"
+          >
+            <component
+              :is="validating ? Loader2 : ShieldCheck"
+              class="size-3.5"
+              :class="validating && 'animate-spin'"
+            />
+            {{ validating ? "Validating…" : "Validate" }}
+          </button>
+        </span>
+      </InfoTip>
       <div class="flex-1" />
-      <button
-        type="button"
-        title="Import graph"
-        :class="ICON_BUTTON"
+      <TooltipButton
+        label="Import graph"
+        :icon="Network"
         @click="showImportGraph = true"
-      >
-        <Network class="size-3.5" />
-      </button>
-      <button
-        type="button"
-        title="Reload the model tree"
-        :class="ICON_BUTTON"
-        @click="refresh"
-      >
-        <RefreshCw class="size-3.5" />
-      </button>
+      />
+      <TooltipButton label="Reload the model tree" :icon="RefreshCw" @click="refresh" />
     </PanelHeader>
 
     <Tree
@@ -131,14 +131,17 @@ function validate() {
       @select="(node, event) => open(node as ModelTreeNode, event)"
     >
       <template #trailing="{ item }">
-        <Badge
+        <InfoTip
           v-if="(item as ModelTreeNode).template"
-          variant="outline"
-          class="ml-auto shrink-0 border-border-subtle px-1 font-normal text-text-faint"
-          :title="`From template ${(item as ModelTreeNode).template}`"
+          :label="`From template ${(item as ModelTreeNode).template}`"
         >
-          {{ (item as ModelTreeNode).template }}
-        </Badge>
+          <Badge
+            variant="outline"
+            class="ml-auto shrink-0 border-border-subtle px-1 font-normal text-text-faint"
+          >
+            {{ (item as ModelTreeNode).template }}
+          </Badge>
+        </InfoTip>
         <span
           v-else-if="(item as ModelTreeNode).settingCount"
           class="ml-auto shrink-0 text-2xs tabular-nums text-text-faint"

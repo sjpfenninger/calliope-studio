@@ -13,7 +13,8 @@
 import { ref } from "vue";
 import { MinusCircle, Table2 } from "@lucide/vue";
 
-import { FIELD, ICON_BUTTON } from "@/lib/formClasses";
+import TooltipButton from "@/components/app/TooltipButton.vue";
+import { FIELD } from "@/lib/formClasses";
 import { parseScalar } from "@/lib/entries";
 
 const props = defineProps<{
@@ -108,14 +109,11 @@ const SUB_LABEL = "w-10 shrink-0 text-right font-mono text-xs text-text-faint";
   <div class="flex w-full items-start gap-1">
     <template v-if="!structured">
       <input v-model="scalarText" type="text" :class="FIELD" @change="emitScalar" />
-      <button
-        type="button"
-        :class="ICON_BUTTON"
-        title="Switch to indexed form"
+      <TooltipButton
+        label="Switch to indexed form"
+        :icon="Table2"
         @click="toggleMode"
-      >
-        <Table2 class="size-3.5" />
-      </button>
+      />
     </template>
 
     <template v-else>
@@ -151,14 +149,11 @@ const SUB_LABEL = "w-10 shrink-0 text-right font-mono text-xs text-text-faint";
           />
         </label>
       </div>
-      <button
-        type="button"
-        :class="ICON_BUTTON"
-        title="Switch to scalar form"
+      <TooltipButton
+        label="Switch to scalar form"
+        :icon="MinusCircle"
         @click="toggleMode"
-      >
-        <MinusCircle class="size-3.5" />
-      </button>
+      />
     </template>
   </div>
 </template>

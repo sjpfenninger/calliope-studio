@@ -24,13 +24,8 @@
 import { computed } from "vue";
 import { CornerDownRight, Undo2 } from "@lucide/vue";
 
-import {
-  FIELD_LABEL,
-  FIELD_ROW,
-  FIELD_ROW_WIDE,
-  FIELD_WIDTH,
-  ICON_BUTTON_SM,
-} from "@/lib/formClasses";
+import TooltipButton from "./TooltipButton.vue";
+import { FIELD_LABEL, FIELD_ROW, FIELD_ROW_WIDE, FIELD_WIDTH } from "@/lib/formClasses";
 import type { FieldWidth } from "@/lib/formClasses";
 import { cn } from "@/lib/utils";
 import type { Inherited } from "@/lib/inherited";
@@ -104,7 +99,10 @@ const sourceLabel = computed(() => {
     "
   >
     <!-- Slotted, because a parameter row's key is itself an input and has to sit
-         in the same gutter as every fixed label, or the form loses its seam. -->
+         in the same gutter as every fixed label, or the form loses its seam.
+
+         design-check: allow native-title — the value is the label itself, so
+         this is the browser revealing what a 9rem gutter clipped, not help. -->
     <slot name="label">
       <label
         :class="cn(FIELD_LABEL, 'truncate', align === 'start' ? 'pt-1' : '')"
@@ -124,7 +122,10 @@ const sourceLabel = computed(() => {
         <slot :placeholder="placeholder" />
       </div>
 
-      <!-- Sans, and at the badge step: a source is an annotation, not a key. -->
+      <!-- Sans, and at the badge step: a source is an annotation, not a key.
+
+           design-check: allow native-title — `sourceTitle` is what the two
+           truncated spans below say, unclipped. -->
       <span
         v-if="inherited"
         class="flex min-w-0 items-center gap-1 text-2xs text-muted-foreground"
@@ -137,15 +138,13 @@ const sourceLabel = computed(() => {
         </span>
       </span>
 
-      <button
+      <TooltipButton
         v-if="isSet && inherited && revertable"
-        type="button"
-        :class="ICON_BUTTON_SM"
-        :title="`Revert to the value from ${inherited.sources.join(', ')}`"
+        :label="`Revert to the value from ${inherited.sources.join(', ')}`"
+        :icon="Undo2"
+        size="sm"
         @click="$emit('revert')"
-      >
-        <Undo2 class="size-3.5" />
-      </button>
+      />
 
       <slot name="action" />
     </div>

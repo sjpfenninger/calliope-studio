@@ -2,14 +2,19 @@
 /**
  * A tooltip on something that is not a button.
  *
- * The app carried fifty native `title=` attributes while the styled tooltip
- * primitive went unused. Native titles have OS styling, a ~1s delay, no
- * dark-mode awareness, and never appear on touch — and they render `\n`
- * inconsistently across platforms, which matters for the one that lists a run's
- * external files.
+ * This and `TooltipButton` are now the *only* way the app explains a control.
+ * The alternative was fifty native `title=` attributes, which have OS styling, a
+ * ~1s delay, no dark-mode awareness, and never appear on touch or on keyboard
+ * focus — and which render `\n` inconsistently across platforms, which matters
+ * for the one that lists a run's external files. Two mechanisms was worse than
+ * either alone: along one row of controls, some explanations arrived at 300ms
+ * and the rest a second later, which reads as broken rather than as two styles.
  *
- * A `title` on *truncated* text is a different thing and stays: that is the
- * browser's own overflow affordance, and a portal per row would be absurd.
+ * A `title` on *truncated* text is the one exception and stays: that is the
+ * browser's own overflow affordance, it needs the clipping measured to know
+ * when to offer itself, and a portal per row would be absurd. The rule is
+ * enforced — `design.test.ts`, `native-title` — and each surviving `title`
+ * carries a pragma saying which visible string it is the unclipped form of.
  *
  * An empty `label` passes the slot straight through with no tooltip at all, so a
  * caller whose explanation is conditional — a control that is only sometimes

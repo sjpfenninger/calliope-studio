@@ -108,16 +108,18 @@ function commitRename() {
         @keydown.esc.prevent="renaming = false"
         @blur="commitRename"
       />
-      <button
-        v-else
-        type="button"
-        data-testid="run-open"
-        class="min-w-0 shrink truncate text-left text-sm"
-        :title="run.id"
-        @click="emit('open', $event)"
-      >
-        {{ title }}
-      </button>
+      <!-- The id, not the label: this is the run's identity behind whatever it
+           has been renamed to, so it is help rather than an overflow reveal. -->
+      <InfoTip v-if="!renaming" :label="run.id">
+        <button
+          type="button"
+          data-testid="run-open"
+          class="min-w-0 shrink truncate text-left text-sm"
+          @click="emit('open', $event)"
+        >
+          {{ title }}
+        </button>
+      </InfoTip>
 
       <!-- Beside the name, not down with the numbers: it is what distinguishes
            two runs of the same model, and as a fifth item on the metrics row it
@@ -148,23 +150,27 @@ function commitRename() {
     </div>
 
     <DropdownMenu>
-      <DropdownMenuTrigger as-child>
-        <button
-          type="button"
-          title="Run actions"
-          data-testid="run-menu"
-          :class="[
-            'absolute right-1.5 top-1 grid size-5 place-items-center rounded-xs text-text-faint opacity-0 group-hover:opacity-100 hover:text-foreground focus-visible:opacity-100 data-[state=open]:opacity-100',
-            // Takes the row's own background, so that when it appears it masks
-            // the text beneath rather than sitting on top of it — `bg-inherit`
-            // rather than a named colour because the row is hovered, active or
-            // plain, and the button has to be whichever one it currently is.
-            'bg-inherit hover:bg-active',
-          ]"
-        >
-          <MoreHorizontal class="size-3.5" />
-        </button>
-      </DropdownMenuTrigger>
+      <!-- Outermost-first: each `as-child` merges down onto the one real button,
+           so the tooltip has to wrap the menu trigger. -->
+      <InfoTip label="Run actions">
+        <DropdownMenuTrigger as-child>
+          <button
+            type="button"
+            aria-label="Run actions"
+            data-testid="run-menu"
+            :class="[
+              'absolute right-1.5 top-1 grid size-5 place-items-center rounded-xs text-text-faint opacity-0 group-hover:opacity-100 hover:text-foreground focus-visible:opacity-100 data-[state=open]:opacity-100',
+              // Takes the row's own background, so that when it appears it masks
+              // the text beneath rather than sitting on top of it — `bg-inherit`
+              // rather than a named colour because the row is hovered, active or
+              // plain, and the button has to be whichever one it currently is.
+              'bg-inherit hover:bg-active',
+            ]"
+          >
+            <MoreHorizontal class="size-3.5" />
+          </button>
+        </DropdownMenuTrigger>
+      </InfoTip>
       <DropdownMenuContent align="end" class="min-w-40">
         <DropdownMenuItem @select="startRename">
           <Pencil />

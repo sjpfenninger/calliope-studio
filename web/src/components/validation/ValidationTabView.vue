@@ -122,6 +122,7 @@ const validatedAt = computed(() =>
       Press Validate to check this model.
     </StateMessage>
 
+    <!-- design-check: allow native-title — `StateMessage`'s `title` is a prop. -->
     <StateMessage
       v-else-if="!validation.problems.length"
       variant="fill"

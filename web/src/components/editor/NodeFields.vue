@@ -21,14 +21,9 @@ import { Plus, X } from "@lucide/vue";
 
 import ParamRows from "./ParamRows.vue";
 import FieldRow from "@/components/app/FieldRow.vue";
+import TooltipButton from "@/components/app/TooltipButton.vue";
 import { Switch } from "@/components/ui/switch";
-import {
-  DANGER_ICON_BUTTON,
-  FIELD,
-  FIELD_MONO,
-  ICON_BUTTON,
-  SECTION_HEADING,
-} from "@/lib/formClasses";
+import { FIELD, FIELD_MONO, SECTION_HEADING } from "@/lib/formClasses";
 
 import type { NodeEntry } from "@/lib/entries";
 import { collectInherited, nodeSetsKey } from "@/lib/inherited";
@@ -180,14 +175,7 @@ function removeTech(index: number) {
     <div class="flex flex-col gap-1.5 rounded-sm border border-border p-2">
       <div class="flex items-center justify-between">
         <span :class="SECTION_HEADING">techs</span>
-        <button
-          type="button"
-          title="Add a technology"
-          :class="ICON_BUTTON"
-          @click="addTech"
-        >
-          <Plus class="size-3.5" />
-        </button>
+        <TooltipButton label="Add a technology" :icon="Plus" @click="addTech" />
       </div>
 
       <div
@@ -206,14 +194,12 @@ function removeTech(index: number) {
             />
           </template>
           <template #action>
-            <button
-              type="button"
-              title="Remove this technology"
-              :class="DANGER_ICON_BUTTON"
+            <TooltipButton
+              label="Remove this technology"
+              :icon="X"
+              tone="danger"
               @click="removeTech(ti)"
-            >
-              <X class="size-3.5" />
-            </button>
+            />
           </template>
         </FieldRow>
 

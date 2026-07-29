@@ -17,7 +17,7 @@
  * MapLibre and Monaco all fail to parse. Printed below so the claim can be
  * re-checked when browsers change.
  */
-import { open, results } from "./harness.mjs";
+import { open, results, until } from "./harness.mjs";
 
 const BASE = process.argv[2] ?? "http://127.0.0.1:8000";
 
@@ -189,6 +189,59 @@ const painted = await page.evaluate(
 check(
   `choosing dark repaints the body (${painted})`,
   (await preference()) === "dark" && painted !== light.bodyBackground,
+);
+
+// ── The tooltip, which is now the only way a control explains itself ─────────
+//
+// Native `title` was the other half of that job and is gone, enforced by
+// `design.test.ts`'s `native-title` rule — so a tooltip that fails to open is
+// now an explanation lost rather than a styling difference. Nothing exercised
+// one before this, in any check.
+//
+// The toggle is the subject because it is a `TooltipButton` on every page, and
+// because its own label changes with the theme, which is the case a tooltip
+// cached on first hover would get wrong.
+
+await page.mouse.move(0, 0);
+await toggle.hover();
+const bubble = page.locator('[data-slot="tooltip-content"]');
+check(
+  "hovering a control opens the styled tooltip",
+  await until(async () => (await bubble.count()) > 0 && (await bubble.isVisible())),
+);
+
+// `bg-foreground` against a body painted `--cg-text`: the bubble is the inverted
+// surface, so its fill is exactly the colour the page writes its text in. Both
+// sides are read *after* the switch to dark above, so this also says the portal
+// follows the theme — it is rendered outside the app's own tree.
+const inverted = await page.evaluate(() => {
+  const element = document.querySelector('[data-slot="tooltip-content"]');
+  return element
+    ? {
+        background: getComputedStyle(element).backgroundColor,
+        bodyText: getComputedStyle(document.body).color,
+        // The first line only: reka renders a second, visually hidden copy of
+        // the label for the `role="tooltip"` node, so the text is it twice.
+        label: element.innerText.trim().split("\n")[0].trim(),
+      }
+    : null;
+});
+check(
+  `the tooltip is the inverted surface (${inverted?.background ?? "absent"})`,
+  !!inverted && inverted.background === inverted.bodyText,
+);
+// The same string as the accessible name, which is the property `TooltipButton`
+// exists to make unforgettable: one `label` prop feeds both.
+const named = (await toggle.getAttribute("aria-label"))?.trim();
+check(
+  `it says what the control does ("${inverted?.label ?? ""}")`,
+  !!inverted?.label && inverted.label === named,
+);
+
+await page.mouse.move(0, 0);
+check(
+  "and it closes when the pointer leaves",
+  await until(async () => (await bubble.count()) === 0 || !(await bubble.isVisible())),
 );
 
 // ── The renderers that live outside the DOM ─────────────────────────────────

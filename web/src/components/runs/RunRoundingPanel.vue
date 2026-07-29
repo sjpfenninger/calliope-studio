@@ -17,6 +17,7 @@
 import { computed } from "vue";
 
 import { Checkbox } from "@/components/ui/checkbox";
+import InfoTip from "@/components/app/InfoTip.vue";
 import { FIELD, SECTION_HEADING } from "@/lib/formClasses";
 import { MAX_PRECISION, isBadPrecision } from "@/lib/precision";
 import { useRoundingStore } from "@/stores/rounding";
@@ -62,44 +63,50 @@ function toggleExports() {
              40 GW capacity and a 0.003 cost fraction, and two decimals flattens
              the second while padding the first. -->
         <span class="text-2xs text-text-muted">significant figures</span>
-        <input
-          :class="[FIELD, isBad && 'border-danger']"
-          :value="rounding.digits"
-          type="text"
-          inputmode="numeric"
-          placeholder="all"
-          :aria-invalid="isBad"
-          :title="`How many significant figures to show, 1 to ${MAX_PRECISION}. Empty shows every digit.`"
-          data-testid="rounding-digits"
-          @input="rounding.setDigits(($event.target as HTMLInputElement).value)"
-        />
+        <InfoTip
+          :label="`How many significant figures to show, 1 to ${MAX_PRECISION}. Empty shows every digit.`"
+        >
+          <input
+            :class="[FIELD, isBad && 'border-danger']"
+            :value="rounding.digits"
+            type="text"
+            inputmode="numeric"
+            placeholder="all"
+            :aria-invalid="isBad"
+            data-testid="rounding-digits"
+            @input="rounding.setDigits(($event.target as HTMLInputElement).value)"
+          />
+        </InfoTip>
       </div>
 
       <!-- The row is the click target, not the box: Reka renders a button, so a
            wrapping `<label>` would not forward to it. The box is inert. -->
-      <div
-        role="checkbox"
-        :tabindex="canExport ? 0 : -1"
-        :aria-checked="rounding.exports"
-        :aria-disabled="!canExport"
-        data-testid="rounding-exports"
-        title="Round downloaded CSV files too. Off by default: a CSV is what you do arithmetic on."
-        class="flex h-6 items-center gap-1.5 rounded-xs px-1 text-sm"
-        :class="
-          canExport
-            ? 'cursor-pointer hover:bg-hover'
-            : 'cursor-default text-text-faint opacity-50'
-        "
-        @click="toggleExports()"
-        @keydown.space.prevent="toggleExports()"
+      <InfoTip
+        label="Round downloaded CSV files too. Off by default: a CSV is what you do arithmetic on."
       >
-        <Checkbox
-          class="pointer-events-none size-3.5"
-          :model-value="rounding.exports"
-          :disabled="!canExport"
-        />
-        <span class="truncate">apply to downloads</span>
-      </div>
+        <div
+          role="checkbox"
+          :tabindex="canExport ? 0 : -1"
+          :aria-checked="rounding.exports"
+          :aria-disabled="!canExport"
+          data-testid="rounding-exports"
+          class="flex h-6 items-center gap-1.5 rounded-xs px-1 text-sm"
+          :class="
+            canExport
+              ? 'cursor-pointer hover:bg-hover'
+              : 'cursor-default text-text-faint opacity-50'
+          "
+          @click="toggleExports()"
+          @keydown.space.prevent="toggleExports()"
+        >
+          <Checkbox
+            class="pointer-events-none size-3.5"
+            :model-value="rounding.exports"
+            :disabled="!canExport"
+          />
+          <span class="truncate">apply to downloads</span>
+        </div>
+      </InfoTip>
     </div>
   </section>
 </template>

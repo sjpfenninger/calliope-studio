@@ -128,6 +128,8 @@ function onAuxClick(id: string, event: MouseEvent) {
     "
     @wheel="onWheel"
   >
+    <!-- design-check: allow native-title — the tab's own label, which is
+         `max-w-40 truncate`; a tooltip here would be a portal per tab. -->
     <button
       v-for="tab in tabs.ordered"
       :key="tab.id"
@@ -152,13 +154,19 @@ function onAuxClick(id: string, event: MouseEvent) {
       >· {{ tab.section }}</span>
 
       <!-- The dot takes the close button's place until hovered, so the tab does
-           not change width and the row does not shuffle under the cursor. -->
+           not change width and the row does not shuffle under the cursor.
+
+           Which is also why it gets no tooltip: it is gone by the time a pointer
+           could rest on it, so the `title` it used to carry was unreachable. The
+           sr-only text is the part that was doing real work — it joins the tab's
+           own accessible name. -->
       <span
         v-if="tab.isDirty"
         data-testid="tab-dirty"
         class="size-1.5 shrink-0 rounded-full bg-primary group-hover:hidden"
-        title="Unsaved changes"
-      />
+      >
+        <span class="sr-only">Unsaved changes</span>
+      </span>
       <span
         class="-mr-1 grid size-4 shrink-0 place-items-center rounded-xs text-text-faint opacity-0 hover:bg-active hover:text-foreground group-hover:opacity-100"
         :class="tab.isDirty ? 'hidden group-hover:grid' : ''"

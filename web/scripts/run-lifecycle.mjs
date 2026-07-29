@@ -230,6 +230,30 @@ check(
   ((await visible("run-summary").textContent()) ?? "").includes(PICK),
 );
 
+// ── The two menus whose trigger is now nested inside a tooltip ───────────────
+//
+// Both are `<InfoTip><DropdownMenuTrigger as-child><button>`, and each `as-child`
+// merges its props down onto that one button. Get the nesting the other way
+// round and the chain breaks silently: nothing throws, the button simply stops
+// opening its menu, and the only visible symptom is a click that does nothing.
+
+await page.getByRole("link", { name: "Runs" }).click();
+await testId("start-run").waitFor();
+
+await page.locator('[data-testid="run-menu"]').first().click();
+check(
+  "a run's action menu still opens under its tooltip",
+  await until(async () => (await testId("run-delete").count()) > 0),
+);
+await page.keyboard.press("Escape");
+
+await testId("retention").click();
+check(
+  "so does the retention menu",
+  await until(async () => (await testId("retention-all").count()) > 0),
+);
+await page.keyboard.press("Escape");
+
 await page.screenshot({ path: "/tmp/calliope-studio-run-lifecycle.png", fullPage: true });
 console.log("screenshot: /tmp/calliope-studio-run-lifecycle.png");
 

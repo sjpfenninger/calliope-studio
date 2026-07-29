@@ -55,6 +55,7 @@ function chooseSum(next: unknown, current: SumBy, variable: string | null): SumB
 </script>
 
 <template>
+  <!-- design-check: allow native-title — `FigurePanel`'s `title` is a prop. -->
   <FigurePanel
     figure="static"
     title="Totals"

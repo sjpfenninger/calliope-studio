@@ -13,6 +13,7 @@
  */
 import { computed, onMounted, onUnmounted, ref, toRef, watch } from "vue";
 import StateMessage from "@/components/app/StateMessage.vue";
+import TooltipButton from "@/components/app/TooltipButton.vue";
 import { Plus, Trash2 } from "@lucide/vue";
 
 import client from "@/api/client";
@@ -30,7 +31,7 @@ import {
   ResizablePanel,
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
-import { DANGER_ICON_BUTTON, FIELD_LABEL, GHOST_BUTTON } from "@/lib/formClasses";
+import { FIELD_LABEL, GHOST_BUTTON } from "@/lib/formClasses";
 import { cn } from "@/lib/utils";
 
 import { resolveDataPath } from "@/lib/modelPaths";
@@ -443,14 +444,12 @@ watch(() => props.filePath, load);
               >
                 {{ entry.name || "(unnamed)" }}
               </AccordionTrigger>
-              <button
-                type="button"
-                title="Remove this table"
-                :class="DANGER_ICON_BUTTON"
+              <TooltipButton
+                label="Remove this table"
+                :icon="Trash2"
+                tone="danger"
                 @click.stop="removeEntry(index)"
-              >
-                <Trash2 class="size-3.5" />
-              </button>
+              />
             </div>
             <AccordionContent>
               <DataTableFields

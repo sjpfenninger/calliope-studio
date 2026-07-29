@@ -23,7 +23,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ICON_BUTTON_SM } from "@/lib/formClasses";
+import InfoTip from "@/components/app/InfoTip.vue";
+import TooltipButton from "@/components/app/TooltipButton.vue";
 import type { FileKind } from "@/lib/calliopeSchema";
 import { useSchemaKindsStore } from "@/stores/schemaKinds";
 
@@ -49,34 +50,38 @@ function choose(value: unknown) {
   <div class="flex items-center gap-1" data-testid="schema-kind">
     <span class="text-2xs text-text-faint">Schema</span>
     <Select :model-value="kind" @update:model-value="choose">
-      <SelectTrigger
-        size="sm"
-        class="min-w-0"
-        aria-label="Which Calliope schema checks this file"
-        :title="
+      <!-- The tooltip wraps the trigger rather than the other way round: each
+           `as-child` merges down onto the one real button, so the order decides
+           which primitive owns it. -->
+      <InfoTip
+        :label="
           overridden
             ? 'You chose this. Reset to use what the model says.'
             : 'Detected from how the model refers to this file'
         "
-        data-testid="schema-kind-trigger"
       >
-        <SelectValue>{{ LABELS[kind] }}</SelectValue>
-      </SelectTrigger>
+        <SelectTrigger
+          size="sm"
+          class="min-w-0"
+          aria-label="Which Calliope schema checks this file"
+          data-testid="schema-kind-trigger"
+        >
+          <SelectValue>{{ LABELS[kind] }}</SelectValue>
+        </SelectTrigger>
+      </InfoTip>
       <SelectContent>
         <SelectItem value="model">{{ LABELS.model }}</SelectItem>
         <SelectItem value="math">{{ LABELS.math }}</SelectItem>
         <SelectItem value="unknown">{{ LABELS.unknown }}</SelectItem>
       </SelectContent>
     </Select>
-    <button
+    <TooltipButton
       v-if="overridden"
-      type="button"
-      :class="ICON_BUTTON_SM"
-      title="Use the detected schema again"
-      data-testid="schema-kind-reset"
+      label="Use the detected schema again"
+      :icon="RotateCcw"
+      size="sm"
+      testid="schema-kind-reset"
       @click="schemaKinds.clearOverride(props.path)"
-    >
-      <RotateCcw class="size-3" />
-    </button>
+    />
   </div>
 </template>

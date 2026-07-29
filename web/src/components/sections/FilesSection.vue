@@ -10,6 +10,7 @@
 import { computed, ref, watch } from "vue";
 
 import { Tree } from "@/components/ui/tree";
+import InfoTip from "@/components/app/InfoTip.vue";
 import { fileIcon } from "@/lib/icons";
 import { type FileTreeNode } from "@/lib/fileTree";
 import { openIntent } from "@/lib/openIntent";
@@ -52,11 +53,12 @@ function open(node: FileTreeNode, event: MouseEvent | KeyboardEvent) {
     @select="(node, event) => open(node as FileTreeNode, event)"
   >
     <template #trailing="{ item }">
-      <span
+      <InfoTip
         v-if="tabs.get(fileTabId((item as FileTreeNode).key))?.isDirty"
-        class="ml-auto size-1.5 shrink-0 rounded-full bg-primary"
-        title="Unsaved changes"
-      />
+        label="Unsaved changes"
+      >
+        <span class="ml-auto size-1.5 shrink-0 rounded-full bg-primary" />
+      </InfoTip>
     </template>
   </Tree>
 </template>

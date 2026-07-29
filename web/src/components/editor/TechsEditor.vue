@@ -14,6 +14,7 @@
 import { ref, computed, onMounted, onUnmounted, watch } from "vue";
 import StateMessage from "@/components/app/StateMessage.vue";
 import FieldRow from "@/components/app/FieldRow.vue";
+import TooltipButton from "@/components/app/TooltipButton.vue";
 import { Plus, Trash2 } from "@lucide/vue";
 
 import client from "@/api/client";
@@ -26,7 +27,7 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import { Switch } from "@/components/ui/switch";
-import { DANGER_ICON_BUTTON, FIELD, GHOST_BUTTON } from "@/lib/formClasses";
+import { FIELD, GHOST_BUTTON } from "@/lib/formClasses";
 
 import { type DataTableParam } from "@/lib/dataTableParams";
 import { collectInherited, techSetsKey } from "@/lib/inherited";
@@ -256,14 +257,12 @@ watch(() => props.filePath, load);
               >
                 {{ entry.base_tech }}
               </span>
-              <button
-                type="button"
-                title="Remove this tech"
-                :class="DANGER_ICON_BUTTON"
+              <TooltipButton
+                label="Remove this tech"
+                :icon="Trash2"
+                tone="danger"
                 @click.stop="removeEntry(entry)"
-              >
-                <Trash2 class="size-3.5" />
-              </button>
+              />
             </div>
 
             <AccordionContent>

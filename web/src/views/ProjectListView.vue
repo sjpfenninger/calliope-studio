@@ -19,6 +19,8 @@
 import { computed, onMounted, ref } from "vue";
 import Panel from "@/components/app/Panel.vue";
 import StateMessage from "@/components/app/StateMessage.vue";
+import InfoTip from "@/components/app/InfoTip.vue";
+import TooltipButton from "@/components/app/TooltipButton.vue";
 import { PRIMARY_BUTTON, SECONDARY_BUTTON } from "@/lib/formClasses";
 import { cn } from "@/lib/utils";
 import { useRouter } from "vue-router";
@@ -132,24 +134,23 @@ function open(id: string) {
           </span>
         </button>
 
-        <span
-          class="shrink-0 text-2xs text-text-faint"
-          :title="formatTimestamp(model.created_at)"
-        >
-          {{ formatRelativeTime(model.created_at) }}
-        </span>
+        <InfoTip :label="formatTimestamp(model.created_at)">
+          <span class="shrink-0 text-2xs text-text-faint">
+            {{ formatRelativeTime(model.created_at) }}
+          </span>
+        </InfoTip>
 
-        <button
-          type="button"
-          data-testid="forget-model"
-          title="Remove from this list (nothing is deleted)"
-          class="grid size-5 shrink-0 place-items-center rounded-xs text-text-faint opacity-0 group-hover:opacity-100 hover:bg-active hover:text-foreground focus-visible:opacity-100"
+        <TooltipButton
+          label="Remove from this list (nothing is deleted)"
+          :icon="X"
+          size="sm"
+          testid="forget-model"
+          class="opacity-0 group-hover:opacity-100 hover:bg-active hover:text-foreground focus-visible:opacity-100"
           @click="projectStore.forgetModel(model.id)"
-        >
-          <X class="size-3.5" />
-        </button>
+        />
       </div>
 
+      <!-- design-check: allow native-title — `StateMessage`'s `title` is a prop. -->
       <StateMessage v-if="!hasModels" variant="block" title="No models yet">
         Open a folder containing a <code class="font-mono">model.yaml</code>, or
         start a new one from a Calliope example with <strong>New model…</strong>

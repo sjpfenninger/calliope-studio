@@ -16,6 +16,7 @@
  */
 import { computed, onMounted, ref } from "vue";
 import StateMessage from "@/components/app/StateMessage.vue";
+import TooltipButton from "@/components/app/TooltipButton.vue";
 import { ChevronRight, CornerLeftUp, Folder, FolderCheck } from "@lucide/vue";
 
 import client from "@/api/client";
@@ -59,16 +60,13 @@ defineExpose({ browse });
 <template>
   <div class="flex min-h-0 flex-col gap-2">
     <div class="flex h-7 items-center gap-1.5">
-      <button
-        type="button"
-        title="Up one level"
-        data-testid="browse-up"
+      <TooltipButton
+        label="Up one level"
+        :icon="CornerLeftUp"
+        testid="browse-up"
         :disabled="!listing?.parent"
-        class="grid size-6 shrink-0 place-items-center rounded-sm text-text-faint hover:bg-hover hover:text-foreground disabled:opacity-40"
         @click="browse(listing?.parent ?? undefined)"
-      >
-        <CornerLeftUp class="size-3.5" />
-      </button>
+      />
       <span
         data-testid="browse-path"
         class="min-w-0 flex-1 truncate rounded-sm border border-border bg-surface-2 px-2 py-1 font-mono text-xs"

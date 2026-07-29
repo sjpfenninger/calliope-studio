@@ -19,6 +19,7 @@
  */
 import { ref, computed, onMounted, onUnmounted, watch } from "vue";
 import StateMessage from "@/components/app/StateMessage.vue";
+import TooltipButton from "@/components/app/TooltipButton.vue";
 // `Map` is aliased: unaliased it shadows the global `Map` constructor, which is
 // used below and fails in a way that points at the wrong line entirely.
 import { List, Map as MapIcon, Plus, Trash2, X } from "@lucide/vue";
@@ -33,12 +34,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
-import {
-  DANGER_ICON_BUTTON,
-  FIELD,
-  FIELD_LABEL,
-  GHOST_BUTTON,
-} from "@/lib/formClasses";
+import { FIELD, FIELD_LABEL, GHOST_BUTTON } from "@/lib/formClasses";
 
 import { cn } from "@/lib/utils";
 import { useModelGeo } from "@/composables/useModelGeo";
@@ -447,14 +443,12 @@ watch(showMap, (visible) => {
           >
             Click a second node to link from
             <code class="font-mono text-foreground">{{ pendingFrom }}</code>
-            <button
-              type="button"
-              title="Cancel (Esc)"
-              :class="DANGER_ICON_BUTTON"
+            <TooltipButton
+              label="Cancel (Esc)"
+              :icon="X"
+              tone="danger"
               @click="pendingFrom = null"
-            >
-              <X class="size-3.5" />
-            </button>
+            />
           </span>
           <span v-else class="text-xs text-text-faint">
             Click two nodes to draw a link, or a line to edit one.
@@ -465,14 +459,12 @@ watch(showMap, (visible) => {
           <template v-if="activeEntry">
             <div class="flex items-center justify-between gap-1.5">
               <span class="truncate font-mono text-sm">{{ activeEntry.name }}</span>
-              <button
-                type="button"
-                title="Remove this link"
-                :class="DANGER_ICON_BUTTON"
+              <TooltipButton
+                label="Remove this link"
+                :icon="Trash2"
+                tone="danger"
                 @click="removeEntry(activeEntry)"
-              >
-                <Trash2 class="size-3.5" />
-              </button>
+              />
             </div>
             <LinkFields
               :key="activeEntry.name"
@@ -534,14 +526,12 @@ watch(showMap, (visible) => {
                   {{ entry.linkFrom || "?" }} → {{ entry.linkTo || "?" }}
                 </span>
               </AccordionTrigger>
-              <button
-                type="button"
-                title="Remove this link"
-                :class="DANGER_ICON_BUTTON"
+              <TooltipButton
+                label="Remove this link"
+                :icon="Trash2"
+                tone="danger"
                 @click.stop="removeEntry(entry)"
-              >
-                <Trash2 class="size-3.5" />
-              </button>
+              />
             </div>
 
             <AccordionContent>

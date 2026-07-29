@@ -144,3 +144,13 @@ export const ICON_BUTTON_SM =
 /** The same, for something destructive. */
 export const DANGER_ICON_BUTTON =
   "grid size-6 shrink-0 place-items-center rounded-sm text-text-faint transition-colors hover:bg-danger-soft hover:text-danger-text disabled:opacity-40";
+
+/**
+ * Destructive at 20px, for a remove affordance inside a 24px row.
+ *
+ * The fourth corner of the size × tone square, and the one the scenarios editor
+ * was reaching for when it wrote `cn(DANGER_ICON_BUTTON, "size-5")` — which kept
+ * the 3px radius a 24px control gets and so was 20px at the wrong roundness.
+ */
+export const DANGER_ICON_BUTTON_SM =
+  "grid size-5 shrink-0 place-items-center rounded-xs text-text-faint transition-colors hover:bg-danger-soft hover:text-danger-text disabled:opacity-40";

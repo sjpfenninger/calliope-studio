@@ -16,13 +16,8 @@ import { Plus, X } from "@lucide/vue";
 import { Switch } from "@/components/ui/switch";
 import Eyebrow from "@/components/app/Eyebrow.vue";
 import FieldRow from "@/components/app/FieldRow.vue";
-import {
-  DANGER_ICON_BUTTON,
-  FIELD,
-  FIELD_MONO,
-  ICON_BUTTON_SM,
-  type FieldWidth,
-} from "@/lib/formClasses";
+import TooltipButton from "@/components/app/TooltipButton.vue";
+import { FIELD, FIELD_MONO, type FieldWidth } from "@/lib/formClasses";
 // Self-import for recursive nested-object rendering.
 import SchemaObjectEditor from "./SchemaObjectEditor.vue";
 
@@ -330,14 +325,12 @@ function flushKV(key: string) {
       <div v-else-if="entry.widget === 'keyValue'" class="flex flex-col gap-1">
         <div class="flex items-center justify-between">
           <Eyebrow class="mb-0">{{ entry.label }}</Eyebrow>
-          <button
-            type="button"
-            title="Add a row"
-            :class="ICON_BUTTON_SM"
+          <TooltipButton
+            label="Add a row"
+            :icon="Plus"
+            size="sm"
             @click="addKVRow(entry.key)"
-          >
-            <Plus class="size-3.5" />
-          </button>
+          />
         </div>
         <FieldRow
           v-for="(pair, j) in kvCache[entry.key] ?? []"
@@ -361,14 +354,12 @@ function flushKV(key: string) {
             @change="flushKV(entry.key)"
           />
           <template #action>
-            <button
-              type="button"
-              title="Remove this row"
-              :class="DANGER_ICON_BUTTON"
+            <TooltipButton
+              label="Remove this row"
+              :icon="X"
+              tone="danger"
               @click="removeKVRow(entry.key, j)"
-            >
-              <X class="size-3.5" />
-            </button>
+            />
           </template>
         </FieldRow>
       </div>

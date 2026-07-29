@@ -19,6 +19,7 @@
  */
 import { ref, computed, onMounted, onUnmounted, watch } from "vue";
 import StateMessage from "@/components/app/StateMessage.vue";
+import TooltipButton from "@/components/app/TooltipButton.vue";
 // `Map` is aliased so it cannot shadow the global `Map` constructor.
 import { List, Map as MapIcon, Plus, Trash2 } from "@lucide/vue";
 
@@ -32,7 +33,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
-import { DANGER_ICON_BUTTON, GHOST_BUTTON } from "@/lib/formClasses";
+import { GHOST_BUTTON } from "@/lib/formClasses";
 
 import { useModelGeo } from "@/composables/useModelGeo";
 import { useTabsStore } from "@/stores/tabs";
@@ -385,14 +386,12 @@ watch(() => props.filePath, load);
               >
                 {{ entry.name || "(unnamed)" }}
               </AccordionTrigger>
-              <button
-                type="button"
-                title="Remove this node"
-                :class="DANGER_ICON_BUTTON"
+              <TooltipButton
+                label="Remove this node"
+                :icon="Trash2"
+                tone="danger"
                 @click.stop="removeEntry(entry)"
-              >
-                <Trash2 class="size-3.5" />
-              </button>
+              />
             </div>
 
             <AccordionContent>

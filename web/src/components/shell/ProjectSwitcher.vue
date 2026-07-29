@@ -29,8 +29,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import ModelDialogs from "@/components/workspace/ModelDialogs.vue";
+import TooltipButton from "@/components/app/TooltipButton.vue";
 import { shortenPath } from "@/lib/format";
-import { ICON_BUTTON } from "@/lib/formClasses";
 import { ICON_STROKE_WIDTH_TIGHT } from "@/lib/icons";
 import { useProjectStore } from "@/stores/project";
 
@@ -94,6 +94,8 @@ async function opened(id: string) {
             class="size-3.5 shrink-0"
             :class="project.id === currentId ? 'opacity-100' : 'opacity-0'"
           />
+          <!-- design-check: allow native-title — the description is the path
+               below, which is both truncated and shortened from its head. -->
           <span class="min-w-0 flex-1" :title="project.description">
             <span class="block truncate">{{ project.name }}</span>
             <!-- Shortened from the head: `truncate` clips the end, and the end
@@ -111,24 +113,18 @@ async function opened(id: string) {
       </DropdownMenuContent>
     </DropdownMenu>
 
-    <button
-      type="button"
-      data-testid="open-model"
-      title="Open a model…"
-      :class="ICON_BUTTON"
+    <TooltipButton
+      label="Open a model…"
+      :icon="FolderSearch"
+      testid="open-model"
       @click="dialog = 'open'"
-    >
-      <FolderSearch class="size-3.5" />
-    </button>
-    <button
-      type="button"
-      data-testid="new-model"
-      title="New model…"
-      :class="ICON_BUTTON"
+    />
+    <TooltipButton
+      label="New model…"
+      :icon="FolderPlus"
+      testid="new-model"
       @click="dialog = 'new'"
-    >
-      <FolderPlus class="size-3.5" />
-    </button>
+    />
 
     <ModelDialogs v-model:open="dialog" @opened="opened" />
   </div>

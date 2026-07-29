@@ -14,9 +14,11 @@ import { computed, type Component } from "vue";
 import InfoTip from "./InfoTip.vue";
 import {
   DANGER_ICON_BUTTON,
+  DANGER_ICON_BUTTON_SM,
   ICON_BUTTON,
   ICON_BUTTON_SM,
 } from "@/lib/formClasses";
+import { ICON_STROKE_WIDTH, ICON_STROKE_WIDTH_TIGHT } from "@/lib/icons";
 import { cn } from "@/lib/utils";
 
 const props = withDefaults(
@@ -40,7 +42,9 @@ const emit = defineEmits<{ click: [event: MouseEvent] }>();
 const body = computed(() =>
   cn(
     props.tone === "danger"
-      ? DANGER_ICON_BUTTON
+      ? props.size === "sm"
+        ? DANGER_ICON_BUTTON_SM
+        : DANGER_ICON_BUTTON
       : props.size === "sm"
         ? ICON_BUTTON_SM
         : ICON_BUTTON,
@@ -49,6 +53,15 @@ const body = computed(() =>
 );
 
 const glyph = computed(() => (props.size === "sm" ? "size-3" : "size-3.5"));
+
+/**
+ * A `size-3` glyph is below the 14px where the global 1.75 renders under a
+ * device pixel, so the small button takes the tight stroke rather than leaving
+ * every caller to remember it.
+ */
+const stroke = computed(() =>
+  props.size === "sm" ? ICON_STROKE_WIDTH_TIGHT : ICON_STROKE_WIDTH,
+);
 </script>
 
 <template>
@@ -61,7 +74,7 @@ const glyph = computed(() => (props.size === "sm" ? "size-3" : "size-3.5"));
       :class="body"
       @click="emit('click', $event)"
     >
-      <component :is="icon" :class="glyph" />
+      <component :is="icon" :class="glyph" :stroke-width="stroke" />
     </button>
   </InfoTip>
 </template>

@@ -13,6 +13,7 @@
  * happen, and a strip that waits for it for ever reads as stuck.
  */
 import { computed } from "vue";
+import InfoTip from "@/components/app/InfoTip.vue";
 
 import { RUN_STAGES, type RunStage } from "@/stores/runs";
 
@@ -62,16 +63,18 @@ const SEGMENT_STYLE: Record<Segment["state"], string> = {
     :data-status="stage.status"
     class="flex min-w-0 items-center gap-1.5"
   >
-    <div class="flex items-center gap-0.5" :title="LABELS[current ?? ''] ?? current ?? ''">
-      <span
-        v-for="segment in segments"
-        :key="segment.name"
-        :data-segment="segment.name"
-        :data-state="segment.state"
-        :title="segment.label"
-        class="h-1 w-4 rounded-full"
-        :class="SEGMENT_STYLE[segment.state]"
-      />
+    <!-- Only the segments say anything: the current stage is spelled out in
+         words immediately to the right, so the strip as a whole had nothing to
+         add that was not already on screen. -->
+    <div class="flex items-center gap-0.5">
+      <InfoTip v-for="segment in segments" :key="segment.name" :label="segment.label">
+        <span
+          :data-segment="segment.name"
+          :data-state="segment.state"
+          class="h-1 w-4 rounded-full"
+          :class="SEGMENT_STYLE[segment.state]"
+        />
+      </InfoTip>
     </div>
 
     <span class="shrink-0 text-2xs text-text-dim">

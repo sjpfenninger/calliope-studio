@@ -175,6 +175,8 @@ watch(
     </div>
 
     <PanelFooter v-if="run">
+      <!-- design-check: allow native-title — the id, of which the eight
+           characters beside it are the visible prefix. -->
       <span :title="run.id">{{ run.id.slice(0, 8) }}</span>
       <span v-if="run.scenario">· {{ run.scenario }}</span>
       <span v-if="run.solved_from">· solved from {{ run.solved_from }}</span>

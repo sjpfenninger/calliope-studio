@@ -11,7 +11,7 @@
  * app to use either.
  */
 import { computed } from "vue";
-import { ICON_BUTTON_SM } from "@/lib/formClasses";
+import TooltipButton from "@/components/app/TooltipButton.vue";
 import { Moon, MonitorCog, Sun } from "@lucide/vue";
 
 import { useUiStore } from "../../stores/ui";
@@ -33,14 +33,11 @@ const label = computed(
 </script>
 
 <template>
-  <button
-    type="button"
-    data-testid="theme-toggle"
-    :title="label"
-    :aria-label="label"
-    :class="ICON_BUTTON_SM"
+  <TooltipButton
+    :label="label"
+    :icon="icon"
+    size="sm"
+    testid="theme-toggle"
     @click="ui.cycleTheme()"
-  >
-    <component :is="icon" class="size-3.5" />
-  </button>
+  />
 </template>

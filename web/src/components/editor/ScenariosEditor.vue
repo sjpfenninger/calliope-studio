@@ -23,14 +23,9 @@ import client from "@/api/client";
 import EditorToolbar from "./EditorToolbar.vue";
 import { MultiSelect } from "@/components/ui/multi-select";
 import FieldRow from "@/components/app/FieldRow.vue";
-import {
-  DANGER_ICON_BUTTON,
-  FIELD,
-  GHOST_BUTTON,
-  ICON_BUTTON,
-} from "@/lib/formClasses";
-import { ICON_STROKE_WIDTH_TIGHT } from "@/lib/icons";
-import { cn } from "@/lib/utils";
+import InfoTip from "@/components/app/InfoTip.vue";
+import TooltipButton from "@/components/app/TooltipButton.vue";
+import { FIELD, GHOST_BUTTON } from "@/lib/formClasses";
 import { useComponentTreeStore } from "@/stores/componentTree";
 import { useTabsStore } from "@/stores/tabs";
 
@@ -224,14 +219,12 @@ watch(() => props.filePath, load);
                 class="w-56"
                 @update:model-value="(value) => setOverrides(entry, value)"
               />
-              <button
-                type="button"
-                title="Remove this scenario"
-                :class="DANGER_ICON_BUTTON"
+              <TooltipButton
+                label="Remove this scenario"
+                :icon="Trash2"
+                tone="danger"
                 @click="removeEntry(entry)"
-              >
-                <Trash2 class="size-3.5" />
-              </button>
+              />
             </template>
           </FieldRow>
 
@@ -247,41 +240,39 @@ watch(() => props.filePath, load);
               </span>
               <span class="min-w-0 flex-1 truncate font-mono">{{ name }}</span>
 
-              <span
+              <InfoTip
                 v-if="unresolved(entry).includes(name)"
-                class="inline-flex shrink-0 items-center gap-1 rounded-xs bg-warning-soft px-1 text-2xs text-warning-text"
-                title="No override of this name is defined anywhere in the model"
+                label="No override of this name is defined anywhere in the model"
               >
-                <TriangleAlert class="size-3" />
-                unknown
-              </span>
+                <span
+                  class="inline-flex shrink-0 items-center gap-1 rounded-xs bg-warning-soft px-1 text-2xs text-warning-text"
+                >
+                  <TriangleAlert class="size-3" />
+                  unknown
+                </span>
+              </InfoTip>
 
-              <button
-                type="button"
-                title="Apply earlier"
-                :class="cn(ICON_BUTTON, 'size-5')"
+              <TooltipButton
+                label="Apply earlier"
+                :icon="ChevronUp"
+                size="sm"
                 :disabled="index === 0"
                 @click="move(entry, index, -1)"
-              >
-                <ChevronUp class="size-3" :stroke-width="ICON_STROKE_WIDTH_TIGHT" />
-              </button>
-              <button
-                type="button"
-                title="Apply later"
-                :class="cn(ICON_BUTTON, 'size-5')"
+              />
+              <TooltipButton
+                label="Apply later"
+                :icon="ChevronDown"
+                size="sm"
                 :disabled="index === entry.overrides.length - 1"
                 @click="move(entry, index, 1)"
-              >
-                <ChevronDown class="size-3" :stroke-width="ICON_STROKE_WIDTH_TIGHT" />
-              </button>
-              <button
-                type="button"
-                title="Remove"
-                :class="cn(DANGER_ICON_BUTTON, 'size-5')"
+              />
+              <TooltipButton
+                label="Remove"
+                :icon="X"
+                tone="danger"
+                size="sm"
                 @click="drop(entry, index)"
-              >
-                <X class="size-3" :stroke-width="ICON_STROKE_WIDTH_TIGHT" />
-              </button>
+              />
             </li>
           </ol>
 

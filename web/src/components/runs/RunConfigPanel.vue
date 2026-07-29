@@ -21,6 +21,7 @@ import { computed, ref, watch } from "vue";
 import Segmented from "@/components/app/Segmented.vue";
 import PanelHeader from "@/components/app/PanelHeader.vue";
 import StateMessage from "@/components/app/StateMessage.vue";
+import InfoTip from "@/components/app/InfoTip.vue";
 import { SECTION_HEADING } from "@/lib/formClasses";
 import { cn } from "@/lib/utils";
 import { FileWarning } from "@lucide/vue";
@@ -150,16 +151,19 @@ const viewSegments = computed(() => [
       <!-- A model reaching outside its own folder cannot be fully frozen, and
            such a run falls back to solving the live workspace. Saying so here is
            the only place the user finds out. -->
-      <span
+      <!-- One line per file, which is what `InfoTip`'s `whitespace-pre-line` is
+           for: a native `title` renders `\n` differently on every platform. -->
+      <InfoTip
         v-if="manifest?.complete === false"
-        class="inline-flex items-center gap-1 text-2xs text-warning-text"
-        :title="
+        :label="
           external.map((entry) => `${entry.reference} — ${entry.reason}`).join('\n')
         "
       >
-        <FileWarning class="size-3" />
-        {{ external.length }} file(s) outside the model folder
-      </span>
+        <span class="inline-flex items-center gap-1 text-2xs text-warning-text">
+          <FileWarning class="size-3" />
+          {{ external.length }} file(s) outside the model folder
+        </span>
+      </InfoTip>
       <span v-else-if="manifest?.solve_from" class="text-2xs text-text-faint">
         solved from the {{ manifest.solve_from }}
       </span>
@@ -248,6 +252,8 @@ const viewSegments = computed(() => [
               class="flex gap-2 border-b border-border-subtle px-2 py-0.5 text-sm last:border-b-0"
             >
               <dt class="w-56 shrink-0 truncate text-text-dim">{{ key }}</dt>
+              <!-- design-check: allow native-title — the same string the `dd`
+                   prints, unclipped. -->
               <dd class="min-w-0 flex-1 truncate font-mono text-xs" :title="display(value)">
                 {{ display(value) }}
               </dd>

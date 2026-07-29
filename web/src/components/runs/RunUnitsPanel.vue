@@ -18,6 +18,7 @@
  */
 import { computed, inject } from "vue";
 
+import InfoTip from "@/components/app/InfoTip.vue";
 import { FIELD, SECTION_HEADING } from "@/lib/formClasses";
 import { parseScale, quantitiesIn, type Quantity } from "@/lib/units";
 import { RUN_SELECTION } from "@/stores/runSelection";
@@ -85,27 +86,33 @@ function setLabel(quantity: Quantity, label: string) {
         <span class="text-2xs text-text-muted">{{ quantity }}</span>
         <!-- Scale beside label, because they are one thought: "divide by a
              thousand and call it GWh". -->
+        <!-- Wrapped one at a time rather than once around the pair: the two
+             fields carry different explanations and share only the caption. -->
         <div class="flex gap-1">
-          <input
-            :class="[FIELD, isBadScale(quantity) && 'border-danger']"
-            :value="scaleOf(quantity)"
-            type="text"
-            inputmode="text"
-            placeholder="1"
-            :aria-invalid="isBadScale(quantity)"
-            :title="`Multiply every ${quantity} value by this. “/1000” and “1e-3” both work.`"
-            :data-testid="`units-${quantity}-scale`"
-            @input="setScale(quantity, ($event.target as HTMLInputElement).value)"
-          />
-          <input
-            :class="FIELD"
-            :value="labelOf(quantity)"
-            type="text"
-            :placeholder="quantity"
-            :title="`What to label ${quantity} on axes and column headers.`"
-            :data-testid="`units-${quantity}-label`"
-            @input="setLabel(quantity, ($event.target as HTMLInputElement).value)"
-          />
+          <InfoTip
+            :label="`Multiply every ${quantity} value by this. “/1000” and “1e-3” both work.`"
+          >
+            <input
+              :class="[FIELD, isBadScale(quantity) && 'border-danger']"
+              :value="scaleOf(quantity)"
+              type="text"
+              inputmode="text"
+              placeholder="1"
+              :aria-invalid="isBadScale(quantity)"
+              :data-testid="`units-${quantity}-scale`"
+              @input="setScale(quantity, ($event.target as HTMLInputElement).value)"
+            />
+          </InfoTip>
+          <InfoTip :label="`What to label ${quantity} on axes and column headers.`">
+            <input
+              :class="FIELD"
+              :value="labelOf(quantity)"
+              type="text"
+              :placeholder="quantity"
+              :data-testid="`units-${quantity}-label`"
+              @input="setLabel(quantity, ($event.target as HTMLInputElement).value)"
+            />
+          </InfoTip>
         </div>
       </div>
     </div>

@@ -32,12 +32,8 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import FieldRow from "@/components/app/FieldRow.vue";
-import {
-  DANGER_ICON_BUTTON,
-  FIELD,
-  FIELD_MONO,
-  GHOST_BUTTON,
-} from "@/lib/formClasses";
+import TooltipButton from "@/components/app/TooltipButton.vue";
+import { FIELD, FIELD_MONO, GHOST_BUTTON } from "@/lib/formClasses";
 
 import { cn } from "@/lib/utils";
 import { useComponentTreeStore } from "@/stores/componentTree";
@@ -233,14 +229,12 @@ watch(() => props.filePath, load);
                   {{ entry.settings.length === 1 ? "setting" : "settings" }}
                 </span>
               </AccordionTrigger>
-              <button
-                type="button"
-                title="Remove this override"
-                :class="DANGER_ICON_BUTTON"
+              <TooltipButton
+                label="Remove this override"
+                :icon="Trash2"
+                tone="danger"
                 @click.stop="removeEntry(entry)"
-              >
-                <Trash2 class="size-3.5" />
-              </button>
+              />
             </div>
 
             <AccordionContent>
@@ -268,6 +262,8 @@ watch(() => props.filePath, load);
                   data-testid="override-setting"
                 >
                   <template #label>
+                    <!-- design-check: allow native-title — the field's own
+                         value, which a 16rem gutter still clips. -->
                     <input
                       v-model="setting.path"
                       type="text"
@@ -291,14 +287,12 @@ watch(() => props.filePath, load);
                   />
 
                   <template #action>
-                    <button
-                      type="button"
-                      title="Remove this setting"
-                      :class="DANGER_ICON_BUTTON"
+                    <TooltipButton
+                      label="Remove this setting"
+                      :icon="X"
+                      tone="danger"
                       @click="removeSetting(entry, index)"
-                    >
-                      <X class="size-3.5" />
-                    </button>
+                    />
                   </template>
                 </FieldRow>
 

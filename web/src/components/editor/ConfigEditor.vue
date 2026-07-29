@@ -1,14 +1,12 @@
 <script setup lang="ts">
-import { ref, reactive, computed, nextTick, onMounted, onUnmounted, watch } from "vue";
+import { ref, reactive, computed, onMounted, watch } from "vue";
 import StateMessage from "@/components/app/StateMessage.vue";
 import FieldRow from "@/components/app/FieldRow.vue";
 
-import { getYamlSection, putYamlSection } from "@/api/versions";
-import { errorDetail } from "@/api/errors";
+import { useSectionEditor } from "@/composables/useSectionEditor";
 import EditorToolbar from "./EditorToolbar.vue";
 import { FIELD, FIELD_WIDTH, SECTION, SECTION_HEADING } from "@/lib/formClasses";
 import { cn } from "@/lib/utils";
-import { useTabsStore } from "@/stores/tabs";
 import { useSchemaStore } from "@/stores/schema";
 import SchemaObjectEditor, { type FieldOverlay } from "./SchemaObjectEditor.vue";
 
@@ -18,20 +16,7 @@ const props = defineProps<{
   tabId: string;
 }>();
 
-const tabsStore = useTabsStore();
 const schemaStore = useSchemaStore();
-
-const isLoading = ref(true);
-const isSaving = ref(false);
-const error = ref<string | null>(null);
-/**
- * Kept apart from `error`, which replaces the whole editor.
- *
- * A load failure means there is nothing to show; a save failure means there is
- * something to show and it is the user's unsaved work. Reporting the second
- * through the first would unmount the very edits that failed to save.
- */
-const saveError = ref<string | null>(null);
 
 // ---------------------------------------------------------------------------
 // Section data — owned here; SchemaObjectEditor instances v-model into these.
@@ -121,32 +106,6 @@ const sporesOverlay: FieldOverlay = {
 // Load / save
 // ---------------------------------------------------------------------------
 
-async function load() {
-  isLoading.value = true;
-  error.value = null;
-  try {
-    const d = await getYamlSection(props.versionId, props.filePath, "config");
-    configData.init = d.init ?? {};
-    configData.build = d.build ?? {};
-    configData.solve = d.solve ?? {};
-
-    // `config.init.subset.timesteps` is where Calliope 0.7 keeps it. The
-    // pre-0.7 `time_subset` is still read, so a model carrying one still opens.
-    const ts = configData.init.subset?.timesteps ?? configData.init.time_subset ?? null;
-    timeSubsetStart.value = Array.isArray(ts) ? (ts[0] ?? "") : "";
-    timeSubsetEnd.value = Array.isArray(ts) ? (ts[1] ?? "") : "";
-  } catch (caught) {
-    error.value = errorDetail(caught, "Failed to load config section.");
-  } finally {
-    isLoading.value = false;
-    // The dirty watchers below are post-flush, so they fire once *after*
-    // `isLoading` goes false — with the values load() just wrote. Without this
-    // the tab acquired an unsaved-changes dot from merely being opened.
-    await nextTick();
-    tabsStore.markClean(props.tabId);
-  }
-}
-
 function buildPayload() {
   const init = { ...configData.init };
   // Written back where Calliope 0.7 reads it. This used to write `time_subset`,
@@ -168,18 +127,25 @@ function buildPayload() {
   return { init, build: { ...configData.build }, solve: { ...configData.solve } };
 }
 
-async function save() {
-  isSaving.value = true;
-  saveError.value = null;
-  try {
-    await putYamlSection(props.versionId, props.filePath, "config", buildPayload());
-    tabsStore.markClean(props.tabId);
-  } catch (caught) {
-    saveError.value = errorDetail(caught, "Failed to save config section.");
-  } finally {
-    isSaving.value = false;
-  }
-}
+const { isLoading, isSaving, error, saveError, save, markDirty } = useSectionEditor({
+  versionId: () => props.versionId,
+  filePath: () => props.filePath,
+  tabId: () => props.tabId,
+  section: "config",
+  label: "the config section",
+  apply(data) {
+    configData.init = data.init ?? {};
+    configData.build = data.build ?? {};
+    configData.solve = data.solve ?? {};
+
+    // `config.init.subset.timesteps` is where Calliope 0.7 keeps it. The
+    // pre-0.7 `time_subset` is still read, so a model carrying one still opens.
+    const ts = configData.init.subset?.timesteps ?? configData.init.time_subset ?? null;
+    timeSubsetStart.value = Array.isArray(ts) ? (ts[0] ?? "") : "";
+    timeSubsetEnd.value = Array.isArray(ts) ? (ts[1] ?? "") : "";
+  },
+  build: buildPayload,
+});
 
 // ---------------------------------------------------------------------------
 // Dirty tracking — watch reactive state; skip during initial load.
@@ -187,38 +153,20 @@ async function save() {
 
 watch(
   configData,
-  () => { if (!isLoading.value) tabsStore.markDirty(props.tabId); },
+  () => { if (!isLoading.value) markDirty(); },
   { deep: true }
 );
 watch([timeSubsetStart, timeSubsetEnd], () => {
-  if (!isLoading.value) tabsStore.markDirty(props.tabId);
+  if (!isLoading.value) markDirty();
 });
 
 // ---------------------------------------------------------------------------
 // Keyboard shortcut
 // ---------------------------------------------------------------------------
 
-function onKeydown(e: KeyboardEvent) {
-  if ((e.metaKey || e.ctrlKey) && e.key === "s") {
-    e.preventDefault();
-    save();
-  }
-}
-
-onMounted(async () => {
-  window.addEventListener("keydown", onKeydown);
-  // Load schema and YAML section concurrently.
-  await Promise.all([load(), schemaStore.load()]);
-});
-
-// This editor was the one of the seven that never removed it. The listener is on
-// `window`, so it outlives the component: every config tab opened left another
-// behind, and afterwards Cmd+S anywhere in the app saved this instance's stale
-// `configData` over whatever was live. DataTablesEditor documents the same
-// hazard at its own `onUnmounted`; six editors had the lesson and this one did not.
-onUnmounted(() => window.removeEventListener("keydown", onKeydown));
-
-watch(() => props.filePath, load);
+// The section load and its lifecycle belong to the composable; the schema is
+// this editor's own and is fetched alongside it rather than after it.
+onMounted(() => void schemaStore.load());
 </script>
 
 <template>

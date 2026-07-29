@@ -11,14 +11,14 @@
  * promotes the two nodes they join. They still share this YAML section, so a
  * save writes them back untouched rather than dropping them.
  */
-import { ref, computed, onMounted, onUnmounted, watch } from "vue";
+import { ref, computed } from "vue";
 import StateMessage from "@/components/app/StateMessage.vue";
 import FieldRow from "@/components/app/FieldRow.vue";
 import TooltipButton from "@/components/app/TooltipButton.vue";
 import { Plus, Trash2 } from "@lucide/vue";
 
-import { getDataTableParams, getYamlSection, putYamlSection } from "@/api/versions";
-import { errorDetail } from "@/api/errors";
+import { getDataTableParams } from "@/api/versions";
+import { useSectionEditor } from "@/composables/useSectionEditor";
 import EditorToolbar from "./EditorToolbar.vue";
 import ParamRows from "./ParamRows.vue";
 import {
@@ -32,8 +32,6 @@ import { FIELD, GHOST_BUTTON } from "@/lib/formClasses";
 
 import { type DataTableParam } from "@/lib/dataTableParams";
 import { collectInherited, techSetsKey } from "@/lib/inherited";
-import { useTabsStore } from "@/stores/tabs";
-import { useSectionDataStore } from "@/stores/sectionData";
 import { useTemplatesStore } from "@/stores/templates";
 import { isTransmission, mergeIntoSection, type RawTech } from "@/lib/techs";
 import {
@@ -50,14 +48,7 @@ const props = defineProps<{
   entryName?: string | null;
 }>();
 
-const tabsStore = useTabsStore();
-const sectionDataStore = useSectionDataStore();
 const templatesStore = useTemplatesStore();
-const isLoading = ref(true);
-const isSaving = ref(false);
-const error = ref<string | null>(null);
-/** Kept apart from `error`, which replaces the editor and so the unsaved work. */
-const saveError = ref<string | null>(null);
 
 const BASE_TECH_OPTIONS = ["supply", "demand", "storage", "transmission", "conversion"];
 
@@ -77,40 +68,6 @@ const visibleEntries = computed(() =>
     ? entries.value.filter((e) => e.name === props.entryName)
     : entries.value
 );
-
-async function load() {
-  isLoading.value = true;
-  error.value = null;
-  try {
-    // Templates first: whether a technology is a transmission link usually
-    // comes from its template, so nothing can be classified without them.
-    await loadTemplatesSection();
-
-    const cached = sectionDataStore.get(props.versionId, props.filePath, "techs");
-    let section: Record<string, RawTech>;
-    if (cached !== null) {
-      section = cached as Record<string, RawTech>;
-    } else {
-      section = (await getYamlSection(
-        props.versionId,
-        props.filePath,
-        "techs",
-      )) as Record<string, RawTech>;
-      sectionDataStore.set(props.versionId, props.filePath, "techs", section);
-    }
-
-    originalSection.value = section;
-    entries.value = Object.entries(originalSection.value)
-      .filter(([, raw]) => !isTransmission(raw, templatesData.value))
-      .map(([name, raw]) => rawToTech(name, raw));
-
-    await loadDataTableParams();
-  } catch (caught) {
-    error.value = errorDetail(caught, "Failed to load techs section.");
-  } finally {
-    isLoading.value = false;
-  }
-}
 
 /**
  * The model's templates, resolved.
@@ -149,40 +106,44 @@ function buildPayload(): Record<string, RawTech> {
   return mergeIntoSection(originalSection.value, edited, ownedHere);
 }
 
-async function save() {
-  isSaving.value = true;
-  saveError.value = null;
-  try {
-    const payload = buildPayload();
-    await putYamlSection(props.versionId, props.filePath, "techs", payload);
-    sectionDataStore.set(props.versionId, props.filePath, "techs", payload);
-    originalSection.value = payload;
-    tabsStore.markClean(props.tabId);
+const { isLoading, isSaving, error, saveError, save, markDirty } = useSectionEditor({
+  versionId: () => props.versionId,
+  filePath: () => props.filePath,
+  tabId: () => props.tabId,
+  section: "techs",
+  label: "technologies",
+  async apply(data) {
+    // Templates first: whether a technology is a transmission link usually comes
+    // from its template, so nothing can be classified without them.
+    await loadTemplatesSection();
+    originalSection.value = data as Record<string, RawTech>;
+    entries.value = Object.entries(originalSection.value)
+      .filter(([, raw]) => !isTransmission(raw, templatesData.value))
+      .map(([name, raw]) => rawToTech(name, raw));
+    await loadDataTableParams();
+  },
+  build: buildPayload,
+  async after(written) {
+    // The merged whole becomes the new baseline, or the next save would compute
+    // its merge against the section as it was two saves ago.
+    if (written) originalSection.value = written as Record<string, RawTech>;
     // Editing a tech can change what a template means for its siblings.
     await templatesStore.refresh(props.versionId);
-  } catch (caught) {
-    // Only the PUT can reach here: `templatesStore.refresh` swallows its own
-    // failure by design, so this cannot report a successful write as a failed one.
-    saveError.value = errorDetail(caught, "Failed to save technologies.");
-  } finally {
-    isSaving.value = false;
-  }
-}
+  },
+});
 
 function addEntry() {
   entries.value.push({ name: "", template: null, base_tech: null, active: true, extraParams: [] });
-  tabsStore.markDirty(props.tabId);
+  markDirty();
 }
 
 function removeEntry(entry: TechEntry) {
   const i = entries.value.indexOf(entry);
   if (i !== -1) entries.value.splice(i, 1);
-  tabsStore.markDirty(props.tabId);
+  markDirty();
 }
 
-function onChange() {
-  tabsStore.markDirty(props.tabId);
-}
+const onChange = markDirty;
 
 /**
  * What this technology gets from its template and from the data tables.
@@ -198,23 +159,6 @@ function inheritedFor(entry: TechEntry) {
   );
 }
 
-function onKeydown(e: KeyboardEvent) {
-  if ((e.metaKey || e.ctrlKey) && e.key === "s") {
-    e.preventDefault();
-    save();
-  }
-}
-
-onMounted(() => {
-  window.addEventListener("keydown", onKeydown);
-  load();
-});
-
-onUnmounted(() => {
-  window.removeEventListener("keydown", onKeydown);
-});
-
-watch(() => props.filePath, load);
 </script>
 
 <template>

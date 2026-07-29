@@ -17,13 +17,13 @@
  * nested YAML stays nested and a dotted key keeps its spelling. That is why this
  * editor talks to `/overrides/` rather than to `yaml-section`.
  */
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, ref } from "vue";
 import StateMessage from "@/components/app/StateMessage.vue";
 import { entryKey } from "@/lib/entries";
 import { Plus, Trash2, X } from "@lucide/vue";
 
 import { getOverrides, putOverrides } from "@/api/versions";
-import { errorDetail } from "@/api/errors";
+import { useSectionEditor } from "@/composables/useSectionEditor";
 import EditorToolbar from "./EditorToolbar.vue";
 import ScalarOrDataVar from "./ScalarOrDataVar.vue";
 import {
@@ -38,7 +38,6 @@ import { FIELD, FIELD_MONO, GHOST_BUTTON } from "@/lib/formClasses";
 
 import { cn } from "@/lib/utils";
 import { useComponentTreeStore } from "@/stores/componentTree";
-import { useTabsStore } from "@/stores/tabs";
 
 const props = defineProps<{
   versionId: string;
@@ -47,19 +46,7 @@ const props = defineProps<{
   entryName?: string | null;
 }>();
 
-const tabsStore = useTabsStore();
 const componentTree = useComponentTreeStore();
-
-const isLoading = ref(true);
-const isSaving = ref(false);
-const error = ref<string | null>(null);
-/**
- * Kept apart from `error`, which this editor renders as a banner *above* the
- * form rather than in place of it — so reusing it for a failed save left a
- * message about the write sitting over the unsaved entries, in a treatment
- * nothing else in the app uses. It reports where the other six do now.
- */
-const saveError = ref<string | null>(null);
 
 interface Setting {
   path: string;
@@ -103,49 +90,41 @@ const suggestions = computed(() => {
   return paths;
 });
 
-async function load() {
-  isLoading.value = true;
-  error.value = null;
-  try {
-    const overrides = await getOverrides<Setting>(props.versionId, props.filePath);
-    entries.value = Object.entries(overrides).map(([name, settings]) => ({
-      name,
-      settings: settings.map((setting) => ({ ...setting })),
-    }));
-  } catch (caught) {
-    error.value = errorDetail(caught, "Failed to load overrides.");
-  } finally {
-    isLoading.value = false;
-    await nextTick();
-    tabsStore.markClean(props.tabId);
-  }
-}
-
-async function save() {
-  isSaving.value = true;
-  saveError.value = null;
-  try {
-    await putOverrides<Setting>(
-      props.versionId,
-      props.filePath,
-      Object.fromEntries(
-        entries.value
-          .filter((entry) => entry.name)
-          .map((entry) => [
-            entry.name,
-            entry.settings.filter((setting) => setting.path.trim()),
-          ]),
-      ),
+/**
+ * Overrides are not served through `yaml-section`, so this is the one editor
+ * that supplies its own transport. Everything else about it is identical.
+ */
+const { isLoading, isSaving, error, saveError, save, markDirty } = useSectionEditor({
+  versionId: () => props.versionId,
+  filePath: () => props.filePath,
+  tabId: () => props.tabId,
+  section: "overrides",
+  label: "overrides",
+  transport: {
+    read: (versionId, path) => getOverrides<Setting>(versionId, path),
+    write: (versionId, path, data) =>
+      putOverrides<Setting>(versionId, path, data as Record<string, Setting[]>),
+  },
+  apply(data) {
+    entries.value = Object.entries(data as Record<string, Setting[]>).map(
+      ([name, settings]) => ({
+        name,
+        settings: settings.map((setting) => ({ ...setting })),
+      }),
     );
-    tabsStore.markClean(props.tabId);
-  } catch (caught) {
-    // A path that cannot exist — `config.init.name.deeper`, where `name` holds a
-    // string — comes back as a 400 saying so, and nothing was written.
-    saveError.value = errorDetail(caught, "Failed to save overrides.");
-  } finally {
-    isSaving.value = false;
-  }
-}
+  },
+  // A path that cannot exist — `config.init.name.deeper`, where `name` holds a
+  // string — comes back as a 400 saying so, and nothing was written.
+  build: () =>
+    Object.fromEntries(
+      entries.value
+        .filter((entry) => entry.name)
+        .map((entry) => [
+          entry.name,
+          entry.settings.filter((setting) => setting.path.trim()),
+        ]),
+    ),
+});
 
 function addEntry() {
   entries.value.push({ name: "", settings: [] });
@@ -168,25 +147,7 @@ function removeSetting(entry: OverrideEntry, index: number) {
   onChange();
 }
 
-function onChange() {
-  tabsStore.markDirty(props.tabId);
-}
-
-function onKeydown(event: KeyboardEvent) {
-  if ((event.metaKey || event.ctrlKey) && event.key === "s") {
-    event.preventDefault();
-    save();
-  }
-}
-
-onMounted(() => {
-  window.addEventListener("keydown", onKeydown);
-  load();
-});
-
-onUnmounted(() => window.removeEventListener("keydown", onKeydown));
-
-watch(() => props.filePath, load);
+const onChange = markDirty;
 </script>
 
 <template>

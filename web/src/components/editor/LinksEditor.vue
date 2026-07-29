@@ -17,15 +17,14 @@
  * the lines are built from the entries in hand, so a link that exists only in the
  * form is already on the map.
  */
-import { ref, computed, onMounted, onUnmounted, watch } from "vue";
+import { ref, computed } from "vue";
 import StateMessage from "@/components/app/StateMessage.vue";
 import TooltipButton from "@/components/app/TooltipButton.vue";
 // `Map` is aliased: unaliased it shadows the global `Map` constructor, which is
 // used below and fails in a way that points at the wrong line entirely.
 import { List, Map as MapIcon, Plus, Trash2, X } from "@lucide/vue";
 
-import { getYamlSection, putYamlSection } from "@/api/versions";
-import { errorDetail } from "@/api/errors";
+import { useSectionEditor } from "@/composables/useSectionEditor";
 import EditorMapPane from "./EditorMapPane.vue";
 import EditorToolbar from "./EditorToolbar.vue";
 import LinkFields from "./LinkFields.vue";
@@ -40,7 +39,6 @@ import { FIELD, FIELD_LABEL, GHOST_BUTTON } from "@/lib/formClasses";
 import { cn } from "@/lib/utils";
 import { useModelGeo } from "@/composables/useModelGeo";
 import { useTabsStore } from "@/stores/tabs";
-import { useSectionDataStore } from "@/stores/sectionData";
 import { useComponentTreeStore } from "@/stores/componentTree";
 import { useTemplatesStore } from "@/stores/templates";
 import { useUiStore } from "@/stores/ui";
@@ -65,17 +63,12 @@ const props = defineProps<{
   entryName?: string | null;
 }>();
 
+// Only for `openEntry`; the dirty/clean bookkeeping is the composable's.
 const tabsStore = useTabsStore();
-const sectionDataStore = useSectionDataStore();
 const componentTreeStore = useComponentTreeStore();
 const templatesStore = useTemplatesStore();
 const ui = useUiStore();
 
-const isLoading = ref(true);
-const isSaving = ref(false);
-const error = ref<string | null>(null);
-/** Kept apart from `error`, which replaces the editor and so the unsaved work. */
-const saveError = ref<string | null>(null);
 
 const entries = ref<LinkEntry[]>([]);
 /** The section as loaded, so entries owned by TechsEditor survive a save. */
@@ -201,18 +194,6 @@ function owned(name: string): boolean {
   return isTransmission(originalSection.value[name] ?? null, templatesData.value);
 }
 
-async function fetchSection(file: string, section: string) {
-  const cached = sectionDataStore.get(props.versionId, file, section);
-  if (cached !== null) return cached;
-  try {
-    const data = await getYamlSection(props.versionId, file, section);
-    sectionDataStore.set(props.versionId, file, section, data);
-    return data;
-  } catch {
-    return {};
-  }
-}
-
 /**
  * The model's templates, resolved.
  *
@@ -225,27 +206,6 @@ async function loadTemplates() {
   await templatesStore.load(props.versionId);
 }
 
-async function load() {
-  isLoading.value = true;
-  error.value = null;
-  try {
-    await loadTemplates();
-    const section = (await fetchSection(props.filePath, "techs")) as Record<
-      string,
-      RawTech
-    >;
-    originalSection.value = section;
-    entries.value = Object.entries(section)
-      .filter(([, raw]) => isTransmission(raw, templatesData.value))
-      .map(([name, raw]) => rawToLink(name, raw));
-  } catch (caught: any) {
-    error.value =
-      caught?.response?.data?.detail ?? "Failed to load transmission technologies.";
-  } finally {
-    isLoading.value = false;
-  }
-}
-
 function buildPayload(): Record<string, RawTech> {
   const edited: Record<string, RawTech> = {};
   for (const entry of entries.value) {
@@ -254,34 +214,36 @@ function buildPayload(): Record<string, RawTech> {
   return mergeIntoSection(originalSection.value, edited, owned);
 }
 
-async function save() {
-  isSaving.value = true;
-  saveError.value = null;
-  try {
-    const payload = buildPayload();
-    await putYamlSection(props.versionId, props.filePath, "techs", payload);
-    sectionDataStore.set(props.versionId, props.filePath, "techs", payload);
-    originalSection.value = payload;
-    tabsStore.markClean(props.tabId);
+const { isLoading, isSaving, error, saveError, save, markDirty } = useSectionEditor({
+  versionId: () => props.versionId,
+  filePath: () => props.filePath,
+  tabId: () => props.tabId,
+  section: "techs",
+  label: "transmission technologies",
+  async apply(data) {
+    // Templates first: `base_tech: transmission` usually arrives through one, so
+    // nothing can be classified as a link without them.
+    await loadTemplates();
+    originalSection.value = data as Record<string, RawTech>;
+    entries.value = Object.entries(originalSection.value)
+      .filter(([, raw]) => isTransmission(raw, templatesData.value))
+      .map(([name, raw]) => rawToLink(name, raw));
+  },
+  build: buildPayload,
+  async after(written) {
+    // The merged whole becomes the new baseline: TechsEditor owns the rest of
+    // this section, and the next save has to merge against what was written.
+    if (written) originalSection.value = written as Record<string, RawTech>;
     // Adding or removing a link changes the explorer and the map.
     await componentTreeStore.refresh(props.versionId);
     // A save can change what entries inherit, so the resolved templates the
     // forms display have to be re-read too.
     await templatesStore.refresh(props.versionId);
     await reloadGeo();
-  } catch (caught) {
-    // Only the PUT can reach here: the three refreshes below it each swallow
-    // their own failure by design, so this cannot report a successful write as a
-    // failed one.
-    saveError.value = errorDetail(caught, "Failed to save links.");
-  } finally {
-    isSaving.value = false;
-  }
-}
+  },
+});
 
-function onChange() {
-  tabsStore.markDirty(props.tabId);
-}
+const onChange = markDirty;
 
 function addEntry() {
   entries.value.push({
@@ -354,26 +316,6 @@ function openElsewhere() {
   }
 }
 
-function onKeydown(event: KeyboardEvent) {
-  if ((event.metaKey || event.ctrlKey) && event.key === "s") {
-    event.preventDefault();
-    save();
-  }
-  if (event.key === "Escape" && pendingFrom.value) pendingFrom.value = null;
-}
-
-onMounted(() => {
-  window.addEventListener("keydown", onKeydown);
-  load();
-});
-
-onUnmounted(() => window.removeEventListener("keydown", onKeydown));
-
-watch(() => props.filePath, load);
-// Leaving the map abandons a half-drawn link rather than remembering it.
-watch(showMap, (visible) => {
-  if (!visible) pendingFrom.value = null;
-});
 </script>
 
 <template>

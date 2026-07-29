@@ -16,8 +16,7 @@ import StateMessage from "@/components/app/StateMessage.vue";
 import TooltipButton from "@/components/app/TooltipButton.vue";
 import { Plus, Trash2 } from "@lucide/vue";
 
-import { errorDetail } from "@/api/errors";
-import { getYamlSection, putYamlSection } from "@/api/versions";
+import { useSectionEditor } from "@/composables/useSectionEditor";
 import CsvGrid from "./CsvGrid.vue";
 import DataTableFields from "./DataTableFields.vue";
 import EditorToolbar from "./EditorToolbar.vue";
@@ -52,10 +51,6 @@ const tabsStore = useTabsStore();
 const schemaStore = useSchemaStore();
 const ui = useUiStore();
 
-const isLoading = ref(true);
-const isSaving = ref(false);
-const error = ref<string | null>(null);
-const saveError = ref<string | null>(null);
 
 // Each entry holds the table name (dict key) and the raw data object from YAML.
 // SchemaObjectEditor takes care of the comma-separated and key/value shapes.
@@ -186,24 +181,7 @@ const formDirty = ref(false);
 
 function touchForm() {
   formDirty.value = true;
-  tabsStore.markDirty(props.tabId);
-}
-
-async function load() {
-  isLoading.value = true;
-  error.value = null;
-  try {
-    const d = await getYamlSection(props.versionId, props.filePath, "data_tables");
-    entries.value = Object.entries(d).map(([name, raw]: [string, any]) => ({
-      name,
-      data: raw ?? {},
-    }));
-    formDirty.value = false;
-  } catch (caught) {
-    error.value = errorDetail(caught, "Failed to load data_tables section.");
-  } finally {
-    isLoading.value = false;
-  }
+  markDirty();
 }
 
 function buildPayload(): Record<string, any> {
@@ -233,26 +211,43 @@ function buildPayload(): Record<string, any> {
  * the whole file through `csv.writer`, so a no-op rewrite can still change
  * quoting and line endings.
  */
-async function save() {
-  isSaving.value = true;
-  saveError.value = null;
-  try {
+const { isLoading, isSaving, error, saveError, save, markDirty } = useSectionEditor({
+  versionId: () => props.versionId,
+  filePath: () => props.filePath,
+  tabId: () => props.tabId,
+  section: "data_tables",
+  label: "data tables",
+  apply(data) {
+    entries.value = Object.entries(data).map(([name, raw]: [string, any]) => ({
+      name,
+      data: raw ?? {},
+    }));
+    formDirty.value = false;
+  },
+  build: buildPayload,
+  /**
+   * The CSV goes first, and `data:` is the pointer. If the CSV write fails after
+   * the YAML write landed, the model names a file whose edits were lost; the
+   * other way round leaves at worst an orphan CSV at a path the user just typed,
+   * which is visible and recoverable. Cell edits are the expensive thing.
+   */
+  async beforeWrite() {
     if (csvDirty.value && csv.loadedPath.value) {
       await tabsStore.saveCsvFile(csv.loadedPath.value, csv.columns, csv.toRows());
       csv.markSaved();
     }
-    if (formDirty.value) {
-      await putYamlSection(props.versionId, props.filePath, "data_tables", buildPayload());
-      formDirty.value = false;
-    }
-    tabsStore.markClean(props.tabId);
-  } catch (caught) {
-    // The tab stays dirty: something did not land.
-    saveError.value = errorDetail(caught, "Failed to save data tables.");
-  } finally {
-    isSaving.value = false;
-  }
-}
+  },
+  /**
+   * Neither half is written unless it is dirty. `serialize_csv` rewrites the
+   * whole file through `csv.writer`, so a no-op rewrite can still change quoting
+   * and line endings — which makes this a correctness requirement rather than an
+   * optimisation, and is what `save-check` asserts.
+   */
+  shouldWrite: () => formDirty.value,
+  after(written) {
+    if (written) formDirty.value = false;
+  },
+});
 
 // ---------------------------------------------------------------------------
 // Entry management
@@ -282,29 +277,13 @@ function onEntryDataChange(index: number, data: Record<string, any>) {
 // Keyboard shortcut
 // ---------------------------------------------------------------------------
 
-function onKeydown(e: KeyboardEvent) {
-  if ((e.metaKey || e.ctrlKey) && e.key === "s") {
-    e.preventDefault();
-    save();
-  }
-}
-
-onMounted(async () => {
-  window.addEventListener("keydown", onKeydown);
-  // The CSV follows from `data:`, so the watch above picks it up once the
-  // section has loaded; nothing to kick off here.
-  await Promise.all([load(), schemaStore.load()]);
-});
-
-// Without this, opening the overview and then a single table leaves two
-// listeners alive, and Cmd+S saves the destroyed component's stale `entries`
-// over the live one's.
-onUnmounted(() => {
-  window.removeEventListener("keydown", onKeydown);
-  clearTimeout(reloadTimer);
-});
-
-watch(() => props.filePath, load);
+// The section load, its keybinding and its cleanup are the composable's — that
+// listener leak (opening the overview and then a single table leaves two alive,
+// and Cmd+S saves the destroyed component's stale entries over the live one's)
+// is now impossible to reintroduce per editor. The CSV follows from `data:`, so
+// the watch above picks it up once the section has loaded.
+onMounted(() => void schemaStore.load());
+onUnmounted(() => clearTimeout(reloadTimer));
 </script>
 
 <template>

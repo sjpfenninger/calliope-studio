@@ -14,13 +14,12 @@
  * - **A name that resolves to nothing is flagged.** A typo currently fails at
  *   run time, with a message that does not say which scenario was at fault.
  */
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, ref } from "vue";
 import StateMessage from "@/components/app/StateMessage.vue";
 import { entryKey } from "@/lib/entries";
 import { ChevronDown, ChevronUp, Plus, TriangleAlert, Trash2, X } from "@lucide/vue";
 
-import { getYamlSection, putYamlSection } from "@/api/versions";
-import { errorDetail } from "@/api/errors";
+import { useSectionEditor } from "@/composables/useSectionEditor";
 import EditorToolbar from "./EditorToolbar.vue";
 import { MultiSelect } from "@/components/ui/multi-select";
 import FieldRow from "@/components/app/FieldRow.vue";
@@ -28,7 +27,6 @@ import InfoTip from "@/components/app/InfoTip.vue";
 import TooltipButton from "@/components/app/TooltipButton.vue";
 import { FIELD, GHOST_BUTTON } from "@/lib/formClasses";
 import { useComponentTreeStore } from "@/stores/componentTree";
-import { useTabsStore } from "@/stores/tabs";
 
 const props = defineProps<{
   versionId: string;
@@ -37,14 +35,7 @@ const props = defineProps<{
   entryName?: string | null;
 }>();
 
-const tabsStore = useTabsStore();
 const componentTree = useComponentTreeStore();
-
-const isLoading = ref(true);
-const isSaving = ref(false);
-const error = ref<string | null>(null);
-/** Kept apart from `error`, which replaces the editor and so the unsaved work. */
-const saveError = ref<string | null>(null);
 
 interface ScenarioEntry {
   name: string;
@@ -78,46 +69,24 @@ function unresolved(entry: ScenarioEntry): string[] {
   return entry.overrides.filter((name) => !knownOverrides.value.includes(name));
 }
 
-async function load() {
-  isLoading.value = true;
-  error.value = null;
-  try {
-    const data = await getYamlSection(props.versionId, props.filePath, "scenarios");
+const { isLoading, isSaving, error, saveError, save, markDirty } = useSectionEditor({
+  versionId: () => props.versionId,
+  filePath: () => props.filePath,
+  tabId: () => props.tabId,
+  section: "scenarios",
+  label: "scenarios",
+  apply(data) {
     entries.value = Object.entries(data).map(([name, value]) => ({
       name,
       // Calliope accepts a bare string as well as a list.
       overrides: Array.isArray(value) ? value.map(String) : value ? [String(value)] : [],
     }));
-  } catch (caught) {
-    error.value = errorDetail(caught, "Failed to load scenarios.");
-  } finally {
-    isLoading.value = false;
-    await nextTick();
-    tabsStore.markClean(props.tabId);
-  }
-}
-
-async function save() {
-  isSaving.value = true;
-  saveError.value = null;
-  try {
-    await putYamlSection(
-      props.versionId,
-      props.filePath,
-      "scenarios",
-      Object.fromEntries(
-        entries.value
-          .filter((entry) => entry.name)
-          .map((entry) => [entry.name, entry.overrides]),
-      ),
-    );
-    tabsStore.markClean(props.tabId);
-  } catch (caught) {
-    saveError.value = errorDetail(caught, "Failed to save scenarios.");
-  } finally {
-    isSaving.value = false;
-  }
-}
+  },
+  build: () =>
+    Object.fromEntries(
+      entries.value.filter((entry) => entry.name).map((entry) => [entry.name, entry.overrides]),
+    ),
+});
 
 function addEntry() {
   entries.value.push({ name: "", overrides: [] });
@@ -156,25 +125,7 @@ function setOverrides(entry: ScenarioEntry, chosen: string[]) {
   onChange();
 }
 
-function onChange() {
-  tabsStore.markDirty(props.tabId);
-}
-
-function onKeydown(event: KeyboardEvent) {
-  if ((event.metaKey || event.ctrlKey) && event.key === "s") {
-    event.preventDefault();
-    save();
-  }
-}
-
-onMounted(() => {
-  window.addEventListener("keydown", onKeydown);
-  load();
-});
-
-onUnmounted(() => window.removeEventListener("keydown", onKeydown));
-
-watch(() => props.filePath, load);
+const onChange = markDirty;
 </script>
 
 <template>

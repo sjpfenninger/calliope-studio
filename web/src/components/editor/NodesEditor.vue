@@ -17,14 +17,15 @@
  * payload is for is the rest of the model: the links, and any node defined in a
  * file this editor did not load, which is drawn but not movable.
  */
-import { ref, computed, onMounted, onUnmounted, watch } from "vue";
+import { ref, computed } from "vue";
 import StateMessage from "@/components/app/StateMessage.vue";
 import TooltipButton from "@/components/app/TooltipButton.vue";
 // `Map` is aliased so it cannot shadow the global `Map` constructor.
 import { List, Map as MapIcon, Plus, Trash2 } from "@lucide/vue";
 
-import { getDataTableParams, getYamlSection, putYamlSection } from "@/api/versions";
-import { errorDetail } from "@/api/errors";
+import { getDataTableParams } from "@/api/versions";
+import { useSectionEditor } from "@/composables/useSectionEditor";
+import { useTabsStore } from "@/stores/tabs";
 import EditorMapPane from "./EditorMapPane.vue";
 import EditorToolbar from "./EditorToolbar.vue";
 import NodeFields, { type DataTableParam } from "./NodeFields.vue";
@@ -37,8 +38,6 @@ import {
 import { GHOST_BUTTON } from "@/lib/formClasses";
 
 import { useModelGeo } from "@/composables/useModelGeo";
-import { useTabsStore } from "@/stores/tabs";
-import { useSectionDataStore } from "@/stores/sectionData";
 import { useComponentTreeStore } from "@/stores/componentTree";
 import { useTemplatesStore } from "@/stores/templates";
 import { useUiStore } from "@/stores/ui";
@@ -64,16 +63,11 @@ const props = defineProps<{
   entryName?: string | null;
 }>();
 
-const tabsStore = useTabsStore();
-const sectionDataStore = useSectionDataStore();
 const componentTreeStore = useComponentTreeStore();
 const templatesStore = useTemplatesStore();
 const ui = useUiStore();
-const isLoading = ref(true);
-const isSaving = ref(false);
-const error = ref<string | null>(null);
-/** Kept apart from `error`, which replaces the editor and so the unsaved work. */
-const saveError = ref<string | null>(null);
+// Only for `openEntry`; the dirty/clean bookkeeping is the composable's.
+const tabsStore = useTabsStore();
 
 const entries = ref<NodeEntry[]>([]);
 const templatesData = computed(() => templatesStore.templates);
@@ -153,31 +147,6 @@ const activeElsewhere = computed(() => {
   return typeof found === "string" || !found ? null : found;
 });
 
-async function load() {
-  isLoading.value = true;
-  error.value = null;
-  try {
-    const cached = sectionDataStore.get(props.versionId, props.filePath, "nodes");
-    if (cached !== null) {
-      entries.value = Object.entries(cached).map(([name, raw]) =>
-        rawToNode(name, raw as Record<string, any> | null)
-      );
-    } else {
-      const d = await getYamlSection(props.versionId, props.filePath, "nodes");
-      sectionDataStore.set(props.versionId, props.filePath, "nodes", d);
-      entries.value = Object.entries(d).map(([name, raw]) =>
-        rawToNode(name, raw as Record<string, any> | null)
-      );
-    }
-    await loadTemplatesSection();
-    await loadDataTableParams();
-  } catch (e: any) {
-    error.value = e?.response?.data?.detail ?? "Failed to load nodes section.";
-  } finally {
-    isLoading.value = false;
-  }
-}
-
 /**
  * The model's templates, resolved.
  *
@@ -207,14 +176,21 @@ function buildPayload(): Record<string, any> {
   return result;
 }
 
-async function save() {
-  isSaving.value = true;
-  saveError.value = null;
-  try {
-    const payload = buildPayload();
-    await putYamlSection(props.versionId, props.filePath, "nodes", payload);
-    sectionDataStore.set(props.versionId, props.filePath, "nodes", payload);
-    tabsStore.markClean(props.tabId);
+const { isLoading, isSaving, error, saveError, save, markDirty } = useSectionEditor({
+  versionId: () => props.versionId,
+  filePath: () => props.filePath,
+  tabId: () => props.tabId,
+  section: "nodes",
+  label: "nodes",
+  async apply(data) {
+    entries.value = Object.entries(data).map(([name, raw]) =>
+      rawToNode(name, raw as Record<string, any> | null),
+    );
+    await loadTemplatesSection();
+    await loadDataTableParams();
+  },
+  build: buildPayload,
+  async after() {
     // A node added, removed or renamed changes the explorer, and moves the links
     // the server draws between them.
     await componentTreeStore.refresh(props.versionId);
@@ -222,19 +198,10 @@ async function save() {
     // forms display have to be re-read too.
     await templatesStore.refresh(props.versionId);
     await reloadGeo();
-  } catch (caught) {
-    // Only the PUT can reach here: the three refreshes below it each swallow
-    // their own failure by design, so this cannot report a successful write as a
-    // failed one.
-    saveError.value = errorDetail(caught, "Failed to save nodes.");
-  } finally {
-    isSaving.value = false;
-  }
-}
+  },
+});
 
-function onChange() {
-  tabsStore.markDirty(props.tabId);
-}
+const onChange = markDirty;
 
 /**
  * A node was dragged to a new position.
@@ -274,23 +241,6 @@ function openElsewhere() {
   }
 }
 
-function onKeydown(e: KeyboardEvent) {
-  if ((e.metaKey || e.ctrlKey) && e.key === "s") {
-    e.preventDefault();
-    save();
-  }
-}
-
-onMounted(() => {
-  window.addEventListener("keydown", onKeydown);
-  load();
-});
-
-onUnmounted(() => {
-  window.removeEventListener("keydown", onKeydown);
-});
-
-watch(() => props.filePath, load);
 </script>
 
 <template>

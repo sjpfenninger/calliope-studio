@@ -106,6 +106,12 @@ jobs:
       - name: Faithful-save check
         run: pixi run -- pnpm --dir web run save-check http://127.0.0.1:8791
 
+      # The guard between a user and their unsaved edits. A no-op guard fails
+      # silently — no error, no console output, just the edits gone — so the
+      # only way to know it still works is to dirty a tab and try to leave.
+      - name: Unsaved-changes guard
+        run: pixi run -- pnpm --dir web run confirm-check http://127.0.0.1:8791
+
       # The map as an input: it has a size at all, a node drags, a link draws.
       - name: Map editing
         run: pixi run -- pnpm --dir web run map-edit http://127.0.0.1:8791

@@ -22,7 +22,7 @@
  * asked for once when the tab opens and never silently repeated.
  */
 import { computed, onMounted, watch } from "vue";
-import { FileCode2, RefreshCw, Sigma, TriangleAlert, X } from "@lucide/vue";
+import { FileCode2, RefreshCw, Sigma, X } from "@lucide/vue";
 
 import Eyebrow from "@/components/app/Eyebrow.vue";
 import PanelHeader from "@/components/app/PanelHeader.vue";
@@ -36,6 +36,18 @@ import { hasRenderError, renderLatex } from "@/lib/mathRender";
 import { useMathStore } from "@/stores/math";
 import { useTabsStore } from "@/stores/tabs";
 import type { MathComponent } from "@/api/versions";
+
+/**
+ * A badge that warns without shouting.
+ *
+ * The hairline is the one every other badge has — `border-warning` is the
+ * *saturated* token, meant for a fill, and using it as a 1px rule made these the
+ * loudest thing in a sidebar of otherwise neutral rows. The soft wash behind it
+ * is what the shared `Badge`'s own `destructive` variant does, so this is the
+ * existing language rather than a fifth treatment.
+ */
+const WARNING_BADGE =
+  "shrink-0 border-border-subtle bg-warning-soft px-1 font-normal text-warning-text";
 
 const props = defineProps<{ versionId: string }>();
 
@@ -186,12 +198,16 @@ watch(
          silently re-rendering (seconds of unexplained work) nor silently leaving
          it (notation that is not this model's, which looks exactly like notation
          that is) is honest, so it says so and offers the button. -->
+    <!-- No icon here: `StateMessage` draws its own for a non-muted tone, and the
+         button goes in the `action` slot rather than the default one, which is
+         wrapped in a `<p>`. -->
     <StateMessage v-if="math.isStale && !rendering" variant="inline" tone="warning">
-      <TriangleAlert class="size-3.5 shrink-0" />
-      <span>The model has changed since this was rendered.</span>
-      <button type="button" :class="SECONDARY_BUTTON" @click="refresh">
-        Render again
-      </button>
+      The model has changed since this was rendered.
+      <template #action>
+        <button type="button" :class="SECONDARY_BUTTON" @click="refresh">
+          Render again
+        </button>
+      </template>
     </StateMessage>
 
     <div class="flex min-h-0 flex-1">
@@ -281,7 +297,7 @@ watch(
               <Badge
                 v-if="component.overridden"
                 variant="outline"
-                class="shrink-0 border-warning px-1 font-normal text-warning-text"
+                :class="WARNING_BADGE"
                 data-testid="math-overridden"
               >
                 override
@@ -340,11 +356,7 @@ watch(
             <!-- The single most important thing a custom-math author needs to
                  see, and the one thing that is invisible in the YAML: this name
                  was already defined, and their file replaced it. -->
-            <Badge
-              v-if="selected.overridden"
-              variant="outline"
-              class="border-warning text-warning-text"
-            >
+            <Badge v-if="selected.overridden" variant="outline" :class="WARNING_BADGE">
               replaces {{ selected.sources.slice(0, -1).join(", ") }}
             </Badge>
             <Badge v-if="selected.unit" variant="outline">{{ selected.unit }}</Badge>

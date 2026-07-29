@@ -294,7 +294,7 @@ function validate() {
             :class="[
               'ml-auto shrink-0 px-1 font-normal',
               mathNote(item as ModelTreeNode)!.tone === 'warning'
-                ? 'border-warning text-warning-text'
+                ? 'border-border-subtle bg-warning-soft text-warning-text'
                 : 'border-border-subtle text-text-faint',
             ]"
           >

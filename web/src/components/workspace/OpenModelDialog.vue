@@ -12,7 +12,7 @@ import { PRIMARY_BUTTON, SECONDARY_BUTTON } from "@/lib/formClasses";
 import { cn } from "@/lib/utils";
 import { FolderPlus } from "@lucide/vue";
 
-import client from "@/api/client";
+import { openProject } from "@/api/projects";
 import FolderBrowser from "./FolderBrowser.vue";
 import type { Listing } from "./browse";
 import {
@@ -42,7 +42,7 @@ async function openHere() {
   if (!path || opening.value) return;
   opening.value = true;
   try {
-    const project = (await client.post("/api/projects/", { path })).data;
+    const project = await openProject(path);
     open.value = false;
     emit("opened", project.id);
   } catch (caught) {

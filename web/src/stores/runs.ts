@@ -1,7 +1,10 @@
 import { computed, reactive, ref } from "vue";
 import { defineStore } from "pinia";
 
-import client from "../api/client";
+import { errorDetail } from "../api/errors";
+import * as api from "../api/runs";
+import { runLogsUrl } from "../api/runs";
+import { getScenarioCatalog, getSettings, patchSettings } from "../api/versions";
 import { useTabsStore } from "./tabs";
 
 /**
@@ -17,45 +20,10 @@ import { useTabsStore } from "./tabs";
  * because there isn't one.
  */
 
-/** Matches `TERMINAL_STATUSES` in src/calliope_studio/runs/manager.py. */
-export type RunStatus =
-  | "pending"
-  | "running"
-  | "success"
-  | "infeasible"
-  | "failed"
-  | "cancelled";
-
-/** One run, as `RunManager.get` derives it from the run directory. */
-export interface RunRecord {
-  id: string;
-  status: RunStatus;
-  created_at: string;
-
-  label: string | null;
-  workspace: string | null;
-  scenario: string | null;
-  override_dict: Record<string, unknown>;
-  build_only: boolean;
-
-  started_at: string | null;
-  completed_at: string | null;
-  duration_seconds: number | null;
-  termination_condition: string | null;
-  solver: string | null;
-  objective: number | null;
-  timings: Record<string, number>;
-  error: string | null;
-  traceback: string | null;
-
-  has_results: boolean;
-  has_snapshot: boolean;
-  snapshot_complete: boolean | null;
-  solved_from: string | null;
-  size_bytes: number;
-  /** Minted by the server for a run that produced results; null otherwise. */
-  results_handle: string | null;
-}
+// `RunStatus` and `RunRecord` moved to `api/runs.ts`, where the calls that
+// return them live. Re-exported because much of the app imports them from here.
+export type { RunRecord, RunStatus } from "../api/runs";
+import type { RunRecord, RunStatus } from "../api/runs";
 
 export interface RunOptions {
   label?: string | null;
@@ -255,8 +223,7 @@ export const useRunsStore = defineStore("runs", () => {
 
   async function refresh(runId: string): Promise<RunRecord | null> {
     try {
-      const res = await client.get<RunRecord>(`/api/runs/${runId}/`);
-      return absorb(res.data);
+      return absorb(await api.getRun(runId));
     } catch {
       // A run deleted from under us, or a server that went away. Neither is
       // worth an error banner over a list that is still perfectly readable.
@@ -300,7 +267,7 @@ export const useRunsStore = defineStore("runs", () => {
 
     // Same origin as the app, so no token in the query string: EventSource
     // cannot set headers, which is why the Django version needed one.
-    const source = new EventSource(`/api/runs/${runId}/logs/`);
+    const source = new EventSource(runLogsUrl(runId));
     streams.set(runId, source);
     streaming.add(runId);
 
@@ -376,14 +343,9 @@ export const useRunsStore = defineStore("runs", () => {
 
   // -- history ---------------------------------------------------------------
 
-  interface Settings {
-    run_retention: number | null;
-  }
-
   async function loadSettings(versionId: string): Promise<void> {
     try {
-      const res = await client.get<Settings>(`/api/versions/${versionId}/settings/`);
-      retention.value = res.data.run_retention;
+      retention.value = (await getSettings(versionId)).run_retention;
     } catch {
       // A viewer-mode server has no workspace to have settings; the control
       // simply does not appear.
@@ -408,12 +370,10 @@ export const useRunsStore = defineStore("runs", () => {
       scenarioVersionId.value = versionId;
     }
     try {
-      const res = await client.get<Partial<ScenarioCatalog>>(
-        `/api/versions/${versionId}/scenarios/`,
-      );
+      const catalog = await getScenarioCatalog<Partial<ScenarioCatalog>>(versionId);
       scenarios.value = {
-        scenarios: res.data?.scenarios ?? [],
-        overrides: res.data?.overrides ?? [],
+        scenarios: catalog?.scenarios ?? [],
+        overrides: catalog?.overrides ?? [],
       };
     } catch {
       // A viewer-mode server has no workspace to have scenarios; the strip
@@ -436,10 +396,8 @@ export const useRunsStore = defineStore("runs", () => {
    * trap, so lowering the limit only takes effect next time.
    */
   async function setRetention(versionId: string, keep: number | null): Promise<void> {
-    const res = await client.patch<Settings>(`/api/versions/${versionId}/settings/`, {
-      run_retention: keep,
-    });
-    retention.value = res.data.run_retention;
+    const settings = await patchSettings(versionId, { run_retention: keep });
+    retention.value = settings.run_retention;
   }
 
   async function load(versionId: string): Promise<void> {
@@ -448,16 +406,16 @@ export const useRunsStore = defineStore("runs", () => {
     void loadSettings(versionId);
     void loadScenarios(versionId);
     try {
-      const res = await client.get<RunRecord[]>(`/api/versions/${versionId}/runs/`);
+      const history = await api.listRuns(versionId);
       records.clear();
-      for (const record of res.data) absorb(record);
+      for (const record of history) absorb(record);
       // A run left behind by a previous session may still be solving; the
       // history list is where we find that out.
-      for (const record of res.data) {
+      for (const record of history) {
         if (!isTerminal(record.status)) watchRun(record.id);
       }
     } catch (caught) {
-      error.value = (caught as Error).message ?? String(caught);
+      error.value = errorDetail(caught, "Could not read the run history.");
     } finally {
       isLoading.value = false;
     }
@@ -467,24 +425,19 @@ export const useRunsStore = defineStore("runs", () => {
     versionId: string,
     options: RunOptions = {},
   ): Promise<RunRecord> {
-    const res = await client.post<RunRecord>(
-      `/api/versions/${versionId}/runs/`,
-      options,
-    );
-    const record = absorb(res.data);
+    const record = absorb(await api.startRun(versionId, options));
     connectLogs(record.id);
     watchRun(record.id);
     return record;
   }
 
   async function cancel(runId: string): Promise<void> {
-    const res = await client.post<RunRecord>(`/api/runs/${runId}/cancel/`);
-    absorb({ ...res.data, results_handle: res.data.results_handle ?? null });
+    const record = await api.cancelRun(runId);
+    absorb({ ...record, results_handle: record.results_handle ?? null });
   }
 
   async function rename(runId: string, label: string): Promise<void> {
-    const res = await client.patch<RunRecord>(`/api/runs/${runId}/`, { label });
-    absorb(res.data);
+    absorb(await api.renameRun(runId, label));
   }
 
   /**
@@ -494,7 +447,7 @@ export const useRunsStore = defineStore("runs", () => {
    * file that no longer exists, and the user has just said they are done with it.
    */
   async function remove(runId: string): Promise<void> {
-    await client.delete(`/api/runs/${runId}/`);
+    await api.deleteRun(runId);
     unwatchRun(runId);
     disconnectLogs(runId);
     records.delete(runId);

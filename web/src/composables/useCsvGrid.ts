@@ -1,6 +1,6 @@
 import { ref, shallowRef, type Ref } from "vue";
 
-import client from "@/api/client";
+import { getCsv } from "@/api/versions";
 
 /**
  * Loads a CSV into AG Grid shape, and serialises it back unchanged.
@@ -83,19 +83,17 @@ export function useCsvGrid(versionId: Ref<string | null>) {
     isLoading.value = true;
     error.value = null;
     try {
-      const res = await client.get<{ columns: CsvColumn[]; rows: string[][] }>(
-        `/api/versions/${versionId.value}/csv/${path}`
-      );
+      const payload = await getCsv(versionId.value!, path);
       if (mine !== token) return;
 
-      columns = res.data.columns ?? [];
+      columns = (payload.columns as CsvColumn[]) ?? [];
       columnDefs.value = columns.map((col, i) => ({
         field: fieldFor(i),
         headerName: col.name || "(unnamed)",
         editable: true,
         type: col.type === "numeric" ? "numericColumn" : undefined,
       }));
-      rowData.value = (res.data.rows ?? []).map((row) => {
+      rowData.value = (payload.rows ?? []).map((row) => {
         const obj: Record<string, string> = {};
         columns.forEach((_, i) => {
           obj[fieldFor(i)] = row[i] ?? "";

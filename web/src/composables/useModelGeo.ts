@@ -1,6 +1,7 @@
 import { onMounted, onScopeDispose, ref, watch, type Ref } from "vue";
 
-import client from "../api/client";
+import { errorDetail } from "../api/errors";
+import { getGeo } from "../api/versions";
 import type { GeoPayload } from "../lib/mapGeo";
 
 /** How the server got the geometry it sent. */
@@ -53,10 +54,8 @@ export function useModelGeo(versionId: Ref<string>) {
     stopPolling();
     error.value = null;
     try {
-      const response = await client.get<GeoResponse>(
-        `/api/versions/${versionId.value}/geo/`,
-      );
-      const { source: from, resolve_task, resolve_error, ...payload } = response.data;
+      const { source: from, resolve_task, resolve_error, ...payload } =
+        await getGeo<GeoResponse>(versionId.value!);
       geo.value = payload as GeoPayload;
       source.value = from ?? "resolved";
       error.value = resolve_error ?? null;
@@ -67,10 +66,9 @@ export function useModelGeo(versionId: Ref<string>) {
       } else {
         polls = 0;
       }
-    } catch (caught: any) {
+    } catch (caught) {
       geo.value = null;
-      error.value =
-        caught?.response?.data?.detail ?? "Could not read the model's geography.";
+      error.value = errorDetail(caught, "Could not read the model's geography.");
     }
   }
 

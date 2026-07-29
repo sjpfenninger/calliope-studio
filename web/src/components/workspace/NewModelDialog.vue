@@ -16,7 +16,8 @@ import { FIELD } from "@/lib/formClasses";
 import { PRIMARY_BUTTON, SECONDARY_BUTTON } from "@/lib/formClasses";
 import { cn } from "@/lib/utils";
 
-import client from "@/api/client";
+import { createProject } from "@/api/projects";
+import { getModelTemplates } from "@/api/system";
 import FolderBrowser from "./FolderBrowser.vue";
 import type { Listing } from "./browse";
 import {
@@ -52,9 +53,7 @@ watch(open, async (isOpen) => {
   error.value = null;
   if (templates.value.length) return;
   try {
-    const body = (
-      await client.get<{ templates: string[]; default: string }>("/api/model-templates/")
-    ).data;
+    const body = await getModelTemplates();
     templates.value = body.templates;
     if (body.templates.includes(body.default)) template.value = body.default;
   } catch {
@@ -93,13 +92,11 @@ async function create() {
   creating.value = true;
   error.value = null;
   try {
-    const project = (
-      await client.post("/api/projects/new/", {
-        parent: listing.value.path,
-        name: name.value.trim(),
-        template: template.value,
-      })
-    ).data;
+    const project = await createProject({
+      parent: listing.value.path,
+      name: name.value.trim(),
+      template: template.value,
+    });
     open.value = false;
     name.value = "";
     emit("opened", project.id);

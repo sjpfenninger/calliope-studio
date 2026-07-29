@@ -24,7 +24,7 @@ import TooltipButton from "@/components/app/TooltipButton.vue";
 // used below and fails in a way that points at the wrong line entirely.
 import { List, Map as MapIcon, Plus, Trash2, X } from "@lucide/vue";
 
-import client from "@/api/client";
+import { getYamlSection, putYamlSection } from "@/api/versions";
 import { errorDetail } from "@/api/errors";
 import EditorMapPane from "./EditorMapPane.vue";
 import EditorToolbar from "./EditorToolbar.vue";
@@ -205,10 +205,7 @@ async function fetchSection(file: string, section: string) {
   const cached = sectionDataStore.get(props.versionId, file, section);
   if (cached !== null) return cached;
   try {
-    const response = await client.get<{ section: string; data: any }>(
-      `/api/versions/${props.versionId}/yaml-section/${file}?section=${section}`,
-    );
-    const data = response.data.data ?? {};
+    const data = await getYamlSection(props.versionId, file, section);
     sectionDataStore.set(props.versionId, file, section, data);
     return data;
   } catch {
@@ -262,10 +259,7 @@ async function save() {
   saveError.value = null;
   try {
     const payload = buildPayload();
-    await client.put(
-      `/api/versions/${props.versionId}/yaml-section/${props.filePath}?section=techs`,
-      { data: payload },
-    );
+    await putYamlSection(props.versionId, props.filePath, "techs", payload);
     sectionDataStore.set(props.versionId, props.filePath, "techs", payload);
     originalSection.value = payload;
     tabsStore.markClean(props.tabId);

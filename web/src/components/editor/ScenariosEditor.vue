@@ -19,7 +19,7 @@ import StateMessage from "@/components/app/StateMessage.vue";
 import { entryKey } from "@/lib/entries";
 import { ChevronDown, ChevronUp, Plus, TriangleAlert, Trash2, X } from "@lucide/vue";
 
-import client from "@/api/client";
+import { getYamlSection, putYamlSection } from "@/api/versions";
 import { errorDetail } from "@/api/errors";
 import EditorToolbar from "./EditorToolbar.vue";
 import { MultiSelect } from "@/components/ui/multi-select";
@@ -82,17 +82,14 @@ async function load() {
   isLoading.value = true;
   error.value = null;
   try {
-    const res = await client.get<{ section: string; data: any }>(
-      `/api/versions/${props.versionId}/yaml-section/${props.filePath}?section=scenarios`,
-    );
-    const data = res.data.data ?? {};
+    const data = await getYamlSection(props.versionId, props.filePath, "scenarios");
     entries.value = Object.entries(data).map(([name, value]) => ({
       name,
       // Calliope accepts a bare string as well as a list.
       overrides: Array.isArray(value) ? value.map(String) : value ? [String(value)] : [],
     }));
-  } catch (e: any) {
-    error.value = e?.response?.data?.detail ?? "Failed to load scenarios.";
+  } catch (caught) {
+    error.value = errorDetail(caught, "Failed to load scenarios.");
   } finally {
     isLoading.value = false;
     await nextTick();
@@ -104,15 +101,15 @@ async function save() {
   isSaving.value = true;
   saveError.value = null;
   try {
-    await client.put(
-      `/api/versions/${props.versionId}/yaml-section/${props.filePath}?section=scenarios`,
-      {
-        data: Object.fromEntries(
-          entries.value
-            .filter((entry) => entry.name)
-            .map((entry) => [entry.name, entry.overrides]),
-        ),
-      },
+    await putYamlSection(
+      props.versionId,
+      props.filePath,
+      "scenarios",
+      Object.fromEntries(
+        entries.value
+          .filter((entry) => entry.name)
+          .map((entry) => [entry.name, entry.overrides]),
+      ),
     );
     tabsStore.markClean(props.tabId);
   } catch (caught) {

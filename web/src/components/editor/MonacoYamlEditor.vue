@@ -12,7 +12,7 @@
 import { computed, ref, watch, onMounted, onUnmounted } from "vue";
 import * as monaco from "monaco-editor";
 import { stringify as yamlStringify, parse as yamlParse } from "yaml";
-import client from "../../api/client";
+import { getFile, getYamlSection, putYamlSection } from "../../api/versions";
 import {
   applyMonacoTheme,
   monacoFontSize,
@@ -59,10 +59,7 @@ async function ensureFileModel(path: string): Promise<monaco.editor.ITextModel> 
 
   let content = "";
   if (props.versionId) {
-    const res = await client.get<{ content: string }>(
-      `/api/versions/${props.versionId}/files/${path}`
-    );
-    content = res.data.content;
+    content = await getFile(props.versionId, path);
   }
 
   const uri = monaco.Uri.parse(`file:///${path}`);
@@ -95,10 +92,7 @@ async function ensureVirtualModel(
   let content = "";
   if (props.versionId) {
     try {
-      const res = await client.get<{ section: string; data: any }>(
-        `/api/versions/${props.versionId}/yaml-section/${filePath}?section=${section}`
-      );
-      const sectionData = res.data.data ?? {};
+      const sectionData = await getYamlSection(props.versionId, filePath, section);
       content = entryName
         ? yamlStringify({ [entryName]: sectionData[entryName] ?? null })
         : yamlStringify(sectionData);
@@ -143,26 +137,17 @@ async function saveVirtualTab(tab: SectionTab | EntryTab) {
 
   if (entryName) {
     // Read-modify-write: fetch full section, replace this entry, PUT back
-    const sectionRes = await client.get<{ section: string; data: any }>(
-      `/api/versions/${props.versionId}/yaml-section/${filePath}?section=${section}`
-    );
-    const fullSection = sectionRes.data.data ?? {};
+    const fullSection = await getYamlSection(props.versionId!, filePath, section);
     const parsed = yamlParse(currentContent);
     if (parsed && typeof parsed === "object" && entryName in (parsed as object)) {
       fullSection[entryName] = (parsed as Record<string, any>)[entryName];
     }
-    await client.put(
-      `/api/versions/${props.versionId}/yaml-section/${filePath}?section=${section}`,
-      { data: fullSection }
-    );
+    await putYamlSection(props.versionId!, filePath, section, fullSection);
     sectionDataStore.invalidate(props.versionId!, filePath, section);
   } else {
     // Section tab: parse and PUT the whole section
     const parsed = yamlParse(currentContent);
-    await client.put(
-      `/api/versions/${props.versionId}/yaml-section/${filePath}?section=${section}`,
-      { data: parsed ?? {} }
-    );
+    await putYamlSection(props.versionId!, filePath, section, parsed ?? {});
     sectionDataStore.invalidate(props.versionId!, filePath, section);
   }
   tabsStore.markClean(tab.id);

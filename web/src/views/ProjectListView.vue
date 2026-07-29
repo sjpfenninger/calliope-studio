@@ -26,7 +26,7 @@ import { cn } from "@/lib/utils";
 import { useRouter } from "vue-router";
 import { FolderOpen, FolderPlus, FolderSearch, X } from "@lucide/vue";
 
-import client from "@/api/client";
+import { getHealth } from "@/api/system";
 import ModelDialogs from "@/components/workspace/ModelDialogs.vue";
 import { formatRelativeTime, formatTimestamp } from "@/lib/format";
 
@@ -50,7 +50,7 @@ onMounted(async () => {
   await projectStore.loadModels();
   isLoading.value = false;
   try {
-    const health = (await client.get("/api/health")).data;
+    const health = await getHealth();
     registryPath.value = health.registry_path ?? null;
     currentId.value = health.workspace_id ?? null;
   } catch {

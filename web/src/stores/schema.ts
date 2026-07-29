@@ -1,6 +1,6 @@
 import { ref } from "vue";
 import { defineStore } from "pinia";
-import client from "../api/client";
+import { getCalliopeSchema } from "../api/system";
 import { withSiblingSchemas } from "../lib/calliopeSchema";
 
 /**
@@ -61,8 +61,7 @@ export const useSchemaStore = defineStore("schema", () => {
   async function load() {
     if (isLoaded.value) return;
     try {
-      const res = await client.get<Record<string, any>>("/api/schema/calliope/");
-      const schema = withSiblingSchemas(res.data);
+      const schema = withSiblingSchemas(await getCalliopeSchema());
       const defs: Record<string, any> = schema.$defs ?? schema.definitions ?? {};
       resolved.value = deref(schema, defs);
       isLoaded.value = true;

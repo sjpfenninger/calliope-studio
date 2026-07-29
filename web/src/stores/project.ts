@@ -1,6 +1,6 @@
 import { ref } from "vue";
 import { defineStore } from "pinia";
-import client from "../api/client";
+import * as api from "../api/projects";
 
 export interface Project {
   id: string;
@@ -28,7 +28,7 @@ export const useProjectStore = defineStore("project", () => {
   async function loadProject(projectId: string): Promise<void> {
     if (currentProject.value?.id === projectId) return;
     try {
-      const res = await client.get<Project>(`/api/projects/${projectId}/`);
+      const res = { data: await api.getProject(projectId) };
       currentProject.value = res.data;
     } catch {
       currentProject.value = null;
@@ -41,7 +41,7 @@ export const useProjectStore = defineStore("project", () => {
 
   async function loadModels(): Promise<void> {
     try {
-      models.value = (await client.get<Project[]>("/api/projects/")).data;
+      models.value = await api.listProjects();
       modelsError.value = null;
     } catch {
       modelsError.value = "The list of models could not be read.";
@@ -50,7 +50,7 @@ export const useProjectStore = defineStore("project", () => {
 
   /** Removes a model from the recents list. Nothing on disk is touched. */
   async function forgetModel(projectId: string): Promise<void> {
-    await client.delete(`/api/projects/${projectId}/`);
+    await api.forgetProject(projectId);
     models.value = models.value.filter((model) => model.id !== projectId);
   }
 

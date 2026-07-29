@@ -10,7 +10,7 @@
 import { onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
-import client from "@/api/client";
+import { listVersions } from "@/api/projects";
 
 const route = useRoute();
 const router = useRouter();
@@ -19,9 +19,7 @@ const error = ref<string | null>(null);
 onMounted(async () => {
   const projectId = route.params.projectId as string;
   try {
-    const versions = (
-      await client.get<Array<{ id: string }>>(`/api/projects/${projectId}/versions/`)
-    ).data;
+    const versions = await listVersions(projectId);
     if (!versions.length) {
       error.value = "This model has no version to open.";
       return;

@@ -19,7 +19,8 @@
  */
 import { ref } from "vue";
 import { defineStore } from "pinia";
-import client from "../api/client";
+import { cancelTask, getTask } from "../api/system";
+import { startValidation } from "../api/versions";
 
 export type ValidationTier = "syntax" | "build";
 
@@ -96,12 +97,9 @@ export const useValidationStore = defineStore("validation", () => {
     phase.value = "syntax";
 
     try {
-      const res = await client.post<TaskEnvelope>(
-        `/api/versions/${versionId}/validate/`,
-      );
+      const envelope = await startValidation<TaskEnvelope>(versionId);
       if (mine !== generation) return;
 
-      const envelope = res.data;
       if (envelope.status === "done" || !envelope.task_id) {
         finish(envelope.result?.errors ?? []);
         return;
@@ -122,7 +120,7 @@ export const useValidationStore = defineStore("validation", () => {
     pollTimer = setTimeout(async () => {
       if (mine !== generation) return;
       try {
-        const res = await client.get<TaskEnvelope>(`/api/tasks/${id}/`);
+        const res = { data: await getTask<TaskEnvelope>(id) };
         if (mine !== generation) return;
 
         if (res.data.status === "done") {
@@ -154,7 +152,7 @@ export const useValidationStore = defineStore("validation", () => {
     taskId.value = null;
     if (!id) return;
     try {
-      await client.post(`/api/tasks/${id}/cancel/`);
+      await cancelTask(id);
     } catch {
       // The task was already gone, which is the state we wanted anyway.
     }

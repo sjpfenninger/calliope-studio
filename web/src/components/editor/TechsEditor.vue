@@ -17,7 +17,7 @@ import FieldRow from "@/components/app/FieldRow.vue";
 import TooltipButton from "@/components/app/TooltipButton.vue";
 import { Plus, Trash2 } from "@lucide/vue";
 
-import client from "@/api/client";
+import { getDataTableParams, getYamlSection, putYamlSection } from "@/api/versions";
 import { errorDetail } from "@/api/errors";
 import EditorToolbar from "./EditorToolbar.vue";
 import ParamRows from "./ParamRows.vue";
@@ -91,10 +91,11 @@ async function load() {
     if (cached !== null) {
       section = cached as Record<string, RawTech>;
     } else {
-      const res = await client.get<{ section: string; data: any }>(
-        `/api/versions/${props.versionId}/yaml-section/${props.filePath}?section=techs`
-      );
-      section = (res.data.data ?? {}) as Record<string, RawTech>;
+      section = (await getYamlSection(
+        props.versionId,
+        props.filePath,
+        "techs",
+      )) as Record<string, RawTech>;
       sectionDataStore.set(props.versionId, props.filePath, "techs", section);
     }
 
@@ -104,8 +105,8 @@ async function load() {
       .map(([name, raw]) => rawToTech(name, raw));
 
     await loadDataTableParams();
-  } catch (e: any) {
-    error.value = e?.response?.data?.detail ?? "Failed to load techs section.";
+  } catch (caught) {
+    error.value = errorDetail(caught, "Failed to load techs section.");
   } finally {
     isLoading.value = false;
   }
@@ -125,10 +126,7 @@ async function loadTemplatesSection() {
 
 async function loadDataTableParams() {
   try {
-    const res = await client.get(
-      `/api/versions/${props.versionId}/data-table-params/?kind=tech`
-    );
-    dataTableParams.value = res.data.params ?? {};
+    dataTableParams.value = await getDataTableParams(props.versionId, "tech");
   } catch {
     dataTableParams.value = {};
   }
@@ -156,10 +154,7 @@ async function save() {
   saveError.value = null;
   try {
     const payload = buildPayload();
-    await client.put(
-      `/api/versions/${props.versionId}/yaml-section/${props.filePath}?section=techs`,
-      { data: payload }
-    );
+    await putYamlSection(props.versionId, props.filePath, "techs", payload);
     sectionDataStore.set(props.versionId, props.filePath, "techs", payload);
     originalSection.value = payload;
     tabsStore.markClean(props.tabId);

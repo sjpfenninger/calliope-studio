@@ -23,7 +23,7 @@
 import { defineStore } from "pinia";
 import { computed, ref, watch } from "vue";
 
-import client from "../api/client";
+import { getSchemaKinds } from "../api/versions";
 import { effectiveKind, type FileKind } from "../lib/calliopeSchema";
 import { KEY_PREFIX } from "../lib/storageKeys";
 import { setSchemaAssignments } from "../monacoSetup";
@@ -73,12 +73,10 @@ export const useSchemaKindsStore = defineStore("schemaKinds", () => {
     versionId.value = id;
     overrides.value = read(id);
     try {
-      const res = await client.get<{ kinds: Record<string, FileKind> }>(
-        `/api/versions/${id}/schema/files/`,
-      );
+      const kinds = await getSchemaKinds<FileKind>(id);
       // A late reply for a model the user has already left must not be applied.
       if (versionId.value !== id) return;
-      detected.value = res.data.kinds ?? {};
+      detected.value = kinds;
     } catch {
       // No classification is the pre-existing behaviour, minus the wrong schema.
       detected.value = {};

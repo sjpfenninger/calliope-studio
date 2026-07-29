@@ -16,7 +16,7 @@ import InfoTip from "@/components/app/InfoTip.vue";
 import { RefreshCw } from "@lucide/vue";
 import { VueFlow, type Node, type Edge, Position } from "@vue-flow/core";
 
-import client from "@/api/client";
+import { getImportGraph } from "@/api/versions";
 import {
   Dialog,
   DialogContent,
@@ -55,10 +55,7 @@ async function load() {
   isLoading.value = true;
   error.value = null;
   try {
-    const res = await client.get<GraphData>(
-      `/api/versions/${props.versionId}/import-graph/`,
-    );
-    graphData.value = res.data;
+    graphData.value = await getImportGraph<GraphData>(props.versionId);
   } catch {
     error.value = "Failed to load import graph.";
   } finally {

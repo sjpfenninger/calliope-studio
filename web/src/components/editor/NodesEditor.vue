@@ -23,7 +23,7 @@ import TooltipButton from "@/components/app/TooltipButton.vue";
 // `Map` is aliased so it cannot shadow the global `Map` constructor.
 import { List, Map as MapIcon, Plus, Trash2 } from "@lucide/vue";
 
-import client from "@/api/client";
+import { getDataTableParams, getYamlSection, putYamlSection } from "@/api/versions";
 import { errorDetail } from "@/api/errors";
 import EditorMapPane from "./EditorMapPane.vue";
 import EditorToolbar from "./EditorToolbar.vue";
@@ -163,10 +163,7 @@ async function load() {
         rawToNode(name, raw as Record<string, any> | null)
       );
     } else {
-      const res = await client.get<{ section: string; data: any }>(
-        `/api/versions/${props.versionId}/yaml-section/${props.filePath}?section=nodes`
-      );
-      const d = res.data.data ?? {};
+      const d = await getYamlSection(props.versionId, props.filePath, "nodes");
       sectionDataStore.set(props.versionId, props.filePath, "nodes", d);
       entries.value = Object.entries(d).map(([name, raw]) =>
         rawToNode(name, raw as Record<string, any> | null)
@@ -195,10 +192,7 @@ async function loadTemplatesSection() {
 
 async function loadDataTableParams() {
   try {
-    const res = await client.get(
-      `/api/versions/${props.versionId}/data-table-params/?kind=node`
-    );
-    dataTableParams.value = res.data.params ?? {};
+    dataTableParams.value = await getDataTableParams(props.versionId, "node");
   } catch {
     dataTableParams.value = {};
   }
@@ -218,10 +212,7 @@ async function save() {
   saveError.value = null;
   try {
     const payload = buildPayload();
-    await client.put(
-      `/api/versions/${props.versionId}/yaml-section/${props.filePath}?section=nodes`,
-      { data: payload }
-    );
+    await putYamlSection(props.versionId, props.filePath, "nodes", payload);
     sectionDataStore.set(props.versionId, props.filePath, "nodes", payload);
     tabsStore.markClean(props.tabId);
     // A node added, removed or renamed changes the explorer, and moves the links

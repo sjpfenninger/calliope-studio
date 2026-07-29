@@ -22,7 +22,7 @@ import StateMessage from "@/components/app/StateMessage.vue";
 import { entryKey } from "@/lib/entries";
 import { Plus, Trash2, X } from "@lucide/vue";
 
-import client from "@/api/client";
+import { getOverrides, putOverrides } from "@/api/versions";
 import { errorDetail } from "@/api/errors";
 import EditorToolbar from "./EditorToolbar.vue";
 import ScalarOrDataVar from "./ScalarOrDataVar.vue";
@@ -107,15 +107,13 @@ async function load() {
   isLoading.value = true;
   error.value = null;
   try {
-    const res = await client.get<{ overrides: Record<string, Setting[]> }>(
-      `/api/versions/${props.versionId}/overrides/${props.filePath}`,
-    );
-    entries.value = Object.entries(res.data.overrides).map(([name, settings]) => ({
+    const overrides = await getOverrides<Setting>(props.versionId, props.filePath);
+    entries.value = Object.entries(overrides).map(([name, settings]) => ({
       name,
       settings: settings.map((setting) => ({ ...setting })),
     }));
-  } catch (e: any) {
-    error.value = e?.response?.data?.detail ?? "Failed to load overrides.";
+  } catch (caught) {
+    error.value = errorDetail(caught, "Failed to load overrides.");
   } finally {
     isLoading.value = false;
     await nextTick();
@@ -127,8 +125,10 @@ async function save() {
   isSaving.value = true;
   saveError.value = null;
   try {
-    await client.put(`/api/versions/${props.versionId}/overrides/${props.filePath}`, {
-      overrides: Object.fromEntries(
+    await putOverrides<Setting>(
+      props.versionId,
+      props.filePath,
+      Object.fromEntries(
         entries.value
           .filter((entry) => entry.name)
           .map((entry) => [
@@ -136,7 +136,7 @@ async function save() {
             entry.settings.filter((setting) => setting.path.trim()),
           ]),
       ),
-    });
+    );
     tabsStore.markClean(props.tabId);
   } catch (caught) {
     // A path that cannot exist — `config.init.name.deeper`, where `name` holds a

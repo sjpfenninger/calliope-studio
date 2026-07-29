@@ -3,7 +3,7 @@ import { ref, reactive, computed, nextTick, onMounted, onUnmounted, watch } from
 import StateMessage from "@/components/app/StateMessage.vue";
 import FieldRow from "@/components/app/FieldRow.vue";
 
-import client from "@/api/client";
+import { getYamlSection, putYamlSection } from "@/api/versions";
 import { errorDetail } from "@/api/errors";
 import EditorToolbar from "./EditorToolbar.vue";
 import { FIELD, FIELD_WIDTH, SECTION, SECTION_HEADING } from "@/lib/formClasses";
@@ -125,10 +125,7 @@ async function load() {
   isLoading.value = true;
   error.value = null;
   try {
-    const res = await client.get<{ section: string; data: any }>(
-      `/api/versions/${props.versionId}/yaml-section/${props.filePath}?section=config`
-    );
-    const d = res.data.data ?? {};
+    const d = await getYamlSection(props.versionId, props.filePath, "config");
     configData.init = d.init ?? {};
     configData.build = d.build ?? {};
     configData.solve = d.solve ?? {};
@@ -138,8 +135,8 @@ async function load() {
     const ts = configData.init.subset?.timesteps ?? configData.init.time_subset ?? null;
     timeSubsetStart.value = Array.isArray(ts) ? (ts[0] ?? "") : "";
     timeSubsetEnd.value = Array.isArray(ts) ? (ts[1] ?? "") : "";
-  } catch (e: any) {
-    error.value = e?.response?.data?.detail ?? "Failed to load config section.";
+  } catch (caught) {
+    error.value = errorDetail(caught, "Failed to load config section.");
   } finally {
     isLoading.value = false;
     // The dirty watchers below are post-flush, so they fire once *after*
@@ -175,10 +172,7 @@ async function save() {
   isSaving.value = true;
   saveError.value = null;
   try {
-    await client.put(
-      `/api/versions/${props.versionId}/yaml-section/${props.filePath}?section=config`,
-      { data: buildPayload() }
-    );
+    await putYamlSection(props.versionId, props.filePath, "config", buildPayload());
     tabsStore.markClean(props.tabId);
   } catch (caught) {
     saveError.value = errorDetail(caught, "Failed to save config section.");

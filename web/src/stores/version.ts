@@ -1,7 +1,7 @@
 import { ref } from "vue";
 import { defineStore } from "pinia";
-import client from "../api/client";
 import { errorDetail } from "../api/errors";
+import { listFiles } from "../api/versions";
 import { buildFileTree, type FileEntry, type FileTreeNode } from "../lib/fileTree";
 
 export type { FileEntry, FileTreeNode };
@@ -29,8 +29,7 @@ export const useVersionStore = defineStore("version", () => {
     isLoading.value = true;
     error.value = null;
     try {
-      const res = await client.get<FileEntry[]>(`/api/versions/${versionId}/files/`);
-      fileTree.value = buildFileTree(res.data);
+      fileTree.value = buildFileTree(await listFiles(versionId));
     } catch (caught) {
       fileTree.value = [];
       error.value = errorDetail(caught, "Could not list this model's files.");

@@ -1,7 +1,7 @@
 import { ref } from "vue";
 import { defineStore } from "pinia";
 
-import client from "../api/client";
+import { getTemplates } from "../api/versions";
 
 /**
  * The model's templates, each already resolved against the ones it inherits from.
@@ -23,10 +23,7 @@ export const useTemplatesStore = defineStore("templates", () => {
   async function load(versionId: string): Promise<void> {
     if (loadedVersionId.value === versionId) return;
     try {
-      const response = await client.get<{ templates: Record<string, any> }>(
-        `/api/versions/${versionId}/templates/`,
-      );
-      templates.value = response.data.templates ?? {};
+      templates.value = await getTemplates(versionId);
       loadedVersionId.value = versionId;
     } catch {
       // A model whose templates cannot be read is one being written. The editors

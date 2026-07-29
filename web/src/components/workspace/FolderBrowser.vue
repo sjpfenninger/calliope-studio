@@ -19,7 +19,7 @@ import StateMessage from "@/components/app/StateMessage.vue";
 import TooltipButton from "@/components/app/TooltipButton.vue";
 import { ChevronRight, CornerLeftUp, Folder, FolderCheck } from "@lucide/vue";
 
-import client from "@/api/client";
+import { browse as fetchFolder } from "@/api/system";
 import type { Listing } from "./browse";
 import { ICON_STROKE_WIDTH_TIGHT } from "@/lib/icons";
 
@@ -35,9 +35,7 @@ async function browse(path?: string) {
   isLoading.value = true;
   error.value = null;
   try {
-    listing.value = (
-      await client.get<Listing>("/api/browse/", { params: path ? { path } : {} })
-    ).data;
+    listing.value = (await fetchFolder(path)) as Listing;
   } catch {
     error.value = "That folder could not be listed.";
   } finally {

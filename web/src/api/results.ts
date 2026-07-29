@@ -5,6 +5,7 @@ import {
   type Table,
 } from "apache-arrow";
 import client from "./client";
+import { seg } from "./paths";
 
 /** How a chart asks for data. Changing any field re-fetches the chart. */
 export interface ResultQuery {
@@ -113,17 +114,17 @@ export interface Catalog {
 }
 
 export async function fetchCatalog(handle: string): Promise<Catalog> {
-  const response = await client.get<Catalog>(`/api/results/${handle}/catalog/`);
+  const response = await client.get<Catalog>(`/api/results/${seg(handle)}/catalog/`);
   return response.data;
 }
 
 export async function fetchGeo(handle: string) {
-  const response = await client.get(`/api/results/${handle}/geo/`);
+  const response = await client.get(`/api/results/${seg(handle)}/geo/`);
   return response.data;
 }
 
 export async function fetchSummary(handle: string) {
-  const response = await client.get(`/api/results/${handle}/summary/`);
+  const response = await client.get(`/api/results/${seg(handle)}/summary/`);
   return response.data;
 }
 
@@ -148,7 +149,7 @@ export async function* streamFrame(
   query: ResultQuery,
   signal?: AbortSignal,
 ): AsyncGenerator<ResultFrame> {
-  const response = await fetch(`/api/results/${handle}/frame/`, {
+  const response = await fetch(`/api/results/${seg(handle)}/frame/`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(query),

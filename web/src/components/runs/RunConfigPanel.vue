@@ -27,7 +27,7 @@ import { cn } from "@/lib/utils";
 import { FileWarning } from "@lucide/vue";
 
 import { Tree } from "@/components/ui/tree";
-import client from "@/api/client";
+import { getSnapshot, getSnapshotCsv, getSnapshotFile, listSnapshotFiles } from "@/api/runs";
 import { fetchSummary } from "@/api/results";
 import { buildFileTree, type FileEntry, type FileTreeNode } from "@/lib/fileTree";
 import { formatBytes } from "@/lib/format";
@@ -69,12 +69,10 @@ const external = computed(() => manifest.value?.external ?? []);
 watch(
   () => props.runId,
   async (runId) => {
-    manifest.value = (
-      await client.get<Manifest>(`/api/runs/${runId}/snapshot/`)
-    ).data;
-    if (!manifest.value.available) return;
+    manifest.value = await getSnapshot<Manifest>(runId);
+    if (!manifest.value?.available) return;
 
-    const files = (await client.get<FileEntry[]>(`/api/runs/${runId}/files/`)).data;
+    const files = await listSnapshotFiles(runId);
     tree.value = buildFileTree(files);
     // Opening on the model's entry point rather than on nothing: it is the file
     // anyone reading a frozen configuration starts from.
@@ -104,11 +102,9 @@ async function show(path: string, type: string) {
   content.value = null;
   csv.value = null;
   if (type === "csv") {
-    csv.value = (await client.get(`/api/runs/${props.runId}/csv/${path}`)).data;
+    csv.value = await getSnapshotCsv(props.runId, path);
   } else {
-    content.value = (
-      await client.get<{ content: string }>(`/api/runs/${props.runId}/files/${path}`)
-    ).data.content;
+    content.value = await getSnapshotFile(props.runId, path);
   }
 }
 

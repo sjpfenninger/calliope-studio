@@ -1,7 +1,7 @@
 import { computed, reactive, ref } from "vue";
 import { defineStore } from "pinia";
 
-import client from "../api/client";
+import { putCsv, putFile } from "../api/versions";
 import { KEY_PREFIX } from "../lib/storageKeys";
 import {
   entryTabId,
@@ -599,7 +599,7 @@ export const useTabsStore = defineStore("tabs", () => {
 
   async function saveYamlFile(path: string, content: string): Promise<void> {
     if (!versionId.value) return;
-    await client.put(`/api/versions/${versionId.value}/files/${path}`, { content });
+    await putFile(versionId.value, path, content);
     markClean(fileTabId(path));
   }
 
@@ -609,7 +609,7 @@ export const useTabsStore = defineStore("tabs", () => {
     rows: unknown[][],
   ): Promise<void> {
     if (!versionId.value) return;
-    await client.put(`/api/versions/${versionId.value}/csv/${path}`, { columns, rows });
+    await putCsv(versionId.value, path, columns, rows);
     markClean(fileTabId(path));
   }
 

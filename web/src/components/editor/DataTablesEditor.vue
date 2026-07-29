@@ -16,7 +16,8 @@ import StateMessage from "@/components/app/StateMessage.vue";
 import TooltipButton from "@/components/app/TooltipButton.vue";
 import { Plus, Trash2 } from "@lucide/vue";
 
-import client from "@/api/client";
+import { errorDetail } from "@/api/errors";
+import { getYamlSection, putYamlSection } from "@/api/versions";
 import CsvGrid from "./CsvGrid.vue";
 import DataTableFields from "./DataTableFields.vue";
 import EditorToolbar from "./EditorToolbar.vue";
@@ -192,17 +193,14 @@ async function load() {
   isLoading.value = true;
   error.value = null;
   try {
-    const res = await client.get<{ section: string; data: any }>(
-      `/api/versions/${props.versionId}/yaml-section/${props.filePath}?section=data_tables`
-    );
-    const d = res.data.data ?? {};
+    const d = await getYamlSection(props.versionId, props.filePath, "data_tables");
     entries.value = Object.entries(d).map(([name, raw]: [string, any]) => ({
       name,
       data: raw ?? {},
     }));
     formDirty.value = false;
-  } catch (e: any) {
-    error.value = e?.response?.data?.detail ?? "Failed to load data_tables section.";
+  } catch (caught) {
+    error.value = errorDetail(caught, "Failed to load data_tables section.");
   } finally {
     isLoading.value = false;
   }
@@ -244,16 +242,13 @@ async function save() {
       csv.markSaved();
     }
     if (formDirty.value) {
-      await client.put(
-        `/api/versions/${props.versionId}/yaml-section/${props.filePath}?section=data_tables`,
-        { data: buildPayload() }
-      );
+      await putYamlSection(props.versionId, props.filePath, "data_tables", buildPayload());
       formDirty.value = false;
     }
     tabsStore.markClean(props.tabId);
-  } catch (e: any) {
+  } catch (caught) {
     // The tab stays dirty: something did not land.
-    saveError.value = e?.response?.data?.detail ?? "Save failed.";
+    saveError.value = errorDetail(caught, "Failed to save data tables.");
   } finally {
     isSaving.value = false;
   }

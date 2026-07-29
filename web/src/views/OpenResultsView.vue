@@ -19,34 +19,22 @@
 import { onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
-import client from "@/api/client";
+import { getRun, listRuns } from "@/api/runs";
+import { getHealth, type Health } from "@/api/system";
 import { runTabId } from "@/lib/tabId";
 
 const route = useRoute();
 const router = useRouter();
 const error = ref<string | null>(null);
 
-interface Health {
-  mode: "workspace" | "results" | "unknown";
-  workspace_id: string | null;
-  results_handle: string | null;
-  run_id: string | null;
-}
-
-interface RunRecord {
-  id: string;
-  results_handle: string | null;
-  workspace?: string | null;
-}
-
 onMounted(async () => {
   const runId = (route.params.runId as string) ?? null;
 
   try {
-    const health = (await client.get<Health>("/api/health")).data;
+    const health = await getHealth();
 
     if (runId) {
-      const run = (await client.get<RunRecord>(`/api/runs/${runId}/`)).data;
+      const run = await getRun(runId);
       return openIn(health, runTabId(run.id, run.results_handle));
     }
 
@@ -57,9 +45,7 @@ onMounted(async () => {
     }
 
     if (health.workspace_id) {
-      const runs = (
-        await client.get<RunRecord[]>(`/api/versions/${health.workspace_id}/runs/`)
-      ).data;
+      const runs = await listRuns(health.workspace_id);
       const newest = runs.find((run) => run.results_handle);
       if (newest) {
         return openIn(health, runTabId(newest.id, newest.results_handle));

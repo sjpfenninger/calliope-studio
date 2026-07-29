@@ -222,7 +222,6 @@ function chooseResolution(next: unknown): string {
         <TooltipButton
           label="Export this table as CSV"
           :icon="Download"
-          size="sm"
           testid="table-download"
           :disabled="!seriesCount"
           @click="exportCsv"

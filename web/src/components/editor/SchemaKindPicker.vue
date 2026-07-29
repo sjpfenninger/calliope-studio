@@ -79,7 +79,7 @@ function choose(value: unknown) {
       v-if="overridden"
       label="Use the detected schema again"
       :icon="RotateCcw"
-      size="sm"
+      size="xs"
       testid="schema-kind-reset"
       @click="schemaKinds.clearOverride(props.path)"
     />

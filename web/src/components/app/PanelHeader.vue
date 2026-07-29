@@ -24,8 +24,14 @@ const props = withDefaults(
   defineProps<{
     /** `chrome` spans a pane and sits on the panel tone; `card` divides a box. */
     tone?: "chrome" | "card";
-    /** 32px (`md`) for a primary strip, 28px (`sm`) for one nested inside a pane. */
-    size?: "sm" | "md";
+    /**
+     * 32px (`lg`) for a primary strip, 28px (`md`) for one nested inside a pane.
+     *
+     * Named for the height, so that `md` is 28px here and 28px everywhere else.
+     * These were `md`/`sm`, one step above what the same words meant on a
+     * button — which is how a header ended up holding controls at three sizes.
+     */
+    size?: "md" | "lg";
     /**
      * Let the strip grow and wrap instead of pinning its height.
      *
@@ -35,7 +41,7 @@ const props = withDefaults(
     wrap?: boolean;
     class?: HTMLAttributes["class"];
   }>(),
-  { tone: "chrome", size: "md", wrap: false },
+  { tone: "chrome", size: "lg", wrap: false },
 );
 
 const classes = computed(() =>
@@ -45,8 +51,8 @@ const classes = computed(() =>
       ? "border-b border-border bg-panel"
       : "border-b border-border-subtle",
     props.wrap
-      ? ["flex-wrap py-1", props.size === "md" ? "min-h-8" : "min-h-7"]
-      : props.size === "md"
+      ? ["flex-wrap py-1", props.size === "lg" ? "min-h-8" : "min-h-7"]
+      : props.size === "lg"
         ? "h-8"
         : "h-7",
     props.class,

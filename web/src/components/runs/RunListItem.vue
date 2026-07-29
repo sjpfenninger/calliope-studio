@@ -18,7 +18,7 @@
 import { computed, nextTick, ref } from "vue";
 import InfoTip from "@/components/app/InfoTip.vue";
 import Metric from "@/components/app/Metric.vue";
-import { FIELD } from "@/lib/formClasses";
+import { FIELD_SM } from "@/lib/formClasses";
 import { cn } from "@/lib/utils";
 import { MoreHorizontal, Pencil, Square, Trash2 } from "@lucide/vue";
 
@@ -103,7 +103,7 @@ function commitRename() {
         v-model="draft"
         type="text"
         data-testid="run-rename"
-        :class="cn(FIELD, 'h-5 flex-1 px-1')"
+        :class="cn(FIELD_SM, 'flex-1')"
         @keydown.enter.prevent="commitRename"
         @keydown.esc.prevent="renaming = false"
         @blur="commitRename"

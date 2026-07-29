@@ -195,7 +195,6 @@ const mapVariableName = computed(
       <TooltipButton
         label="Export the map's data as CSV"
         :icon="Download"
-        size="sm"
         testid="export-map"
         :disabled="!mapSources.length"
         @click="

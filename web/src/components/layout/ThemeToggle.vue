@@ -36,7 +36,7 @@ const label = computed(
   <TooltipButton
     :label="label"
     :icon="icon"
-    size="sm"
+    size="xs"
     testid="theme-toggle"
     @click="ui.cycleTheme()"
   />

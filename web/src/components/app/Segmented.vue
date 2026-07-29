@@ -57,7 +57,7 @@ const props = withDefaults(
      * `fill` also squares the selection off, because at that height there is no
      * strip left around it for a rounded one to sit on.
      */
-    size?: "sm" | "md" | "fill";
+    size?: "md" | "lg" | "fill";
     /**
      * Which surface the active segment opens into — whatever is below the strip.
      * `surface` over an editor or a card, `panel` over more sidebar, `none` for a
@@ -74,7 +74,7 @@ const props = withDefaults(
     edges?: boolean;
     class?: HTMLAttributes["class"];
   }>(),
-  { mode: "nav", size: "sm", seam: "surface", fill: false, edges: false },
+  { mode: "nav", size: "md", seam: "surface", fill: false, edges: false },
 );
 
 const model = defineModel<T>();

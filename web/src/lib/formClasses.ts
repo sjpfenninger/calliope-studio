@@ -26,9 +26,46 @@
  * which is precisely what a user notices without being able to name it.
  */
 
+/**
+ * The four control heights, and the only names for them.
+ *
+ * One prop name meant three heights before this. `size="sm"` was 24px on
+ * `ui/button`, `SelectTrigger` and `ToggleGroup`, 20px on `TooltipButton`, and
+ * 28px on `PanelHeader` and `Segmented` — the `ui/` family and the `app/` family
+ * offset by a full step, and `TooltipButton` offset the other way. Writing
+ * `size="sm"` on every control in one header therefore produced 20, 24 and 28px
+ * side by side, which is exactly what four figure headers did.
+ *
+ * Named for the height rather than relative to a component, so `sm` is 24px
+ * wherever it is written.
+ */
+export const CONTROL_HEIGHT = {
+  /** 20px — an affordance inside a 24px row, or a control in a 28px strip. */
+  xs: "h-5",
+  /** 24px — a field, a row action, a control in a 32px strip. */
+  sm: "h-6",
+  /** 28px — a nested strip, or a standalone action in a dialog or page header. */
+  md: "h-7",
+  /** 32px — a primary chrome strip. */
+  lg: "h-8",
+} as const;
+
+export type ControlSize = keyof typeof CONTROL_HEIGHT;
+
 /** A 24px text/number/select control that fills its column. */
 export const FIELD =
   "h-6 w-full min-w-0 rounded-sm border border-input bg-surface px-1.5 text-sm transition-colors focus-visible:border-ring disabled:opacity-50";
+
+/**
+ * The same at 20px, for a control inside a 24px row.
+ *
+ * It existed twice as `cn(FIELD, "h-5 …")` — in the log filter and the run
+ * rename field — with different extra classes each time, and both kept `FIELD`'s
+ * `rounded-sm`, which is the radius a *24px* control gets. That is the failure
+ * `DANGER_ICON_BUTTON_SM` was added for: 20px at the wrong roundness.
+ */
+export const FIELD_SM =
+  "h-5 w-full min-w-0 rounded-xs border border-input bg-surface px-1 text-2xs transition-colors focus-visible:border-ring disabled:opacity-50";
 
 /**
  * The same, for a control whose *value* is an identifier: a parameter name, a
@@ -115,6 +152,26 @@ export const SECTION = "flex flex-col gap-2 rounded-md border border-border p-2"
 export const PRIMARY_BUTTON =
   "inline-flex h-6 items-center gap-1.5 rounded-sm border border-accent-border bg-accent-soft px-2 text-sm font-medium text-accent-text transition-colors hover:bg-accent-soft-2 disabled:opacity-50";
 
+/**
+ * The 28px tier: a dialog footer's action, or a button standing alone on a page.
+ *
+ * These existed only as `cn(PRIMARY_BUTTON, "h-7 px-3")` written at the call
+ * site — six times at `px-3` and twice at `px-2.5`, so the same button was two
+ * widths across four files, and neither matched the `px-2.5` that
+ * `ui/dialog/DialogFooter`'s own built-in Close button renders at. `px-2.5` wins
+ * because the primitive already said so.
+ */
+export const PRIMARY_BUTTON_MD =
+  "inline-flex h-7 items-center gap-1.5 rounded-sm border border-accent-border bg-accent-soft px-2.5 text-sm font-medium text-accent-text transition-colors hover:bg-accent-soft-2 disabled:opacity-50";
+
+/** The neutral 28px action — the "Cancel" beside `PRIMARY_BUTTON_MD`. */
+export const SECONDARY_BUTTON_MD =
+  "inline-flex h-7 items-center gap-1.5 rounded-sm border border-border px-2.5 text-sm transition-colors hover:bg-hover disabled:opacity-50";
+
+/** The destructive 28px action, for a confirmation dialog's own button. */
+export const DANGER_BUTTON_MD =
+  "inline-flex h-7 items-center gap-1.5 rounded-sm border border-danger-soft bg-danger-soft px-2.5 text-sm font-medium text-danger-text transition-colors hover:border-destructive hover:bg-destructive hover:text-destructive-foreground disabled:opacity-50";
+
 /** A quiet toolbar or row action. */
 export const GHOST_BUTTON =
   "inline-flex h-6 items-center gap-1.5 rounded-sm px-2 text-sm text-text-dim transition-colors hover:bg-hover hover:text-foreground disabled:opacity-50";
@@ -132,6 +189,18 @@ export const SECONDARY_BUTTON =
  */
 export const DANGER_BUTTON =
   "inline-flex h-6 items-center gap-1.5 rounded-sm border border-danger-soft bg-danger-soft px-2 text-sm font-medium text-danger-text transition-colors hover:border-destructive hover:bg-destructive hover:text-destructive-foreground disabled:opacity-50";
+
+/**
+ * A bare text action at the micro step: "All", "None", "Reset", "Clear".
+ *
+ * There were five copies of this and none of them shared a definition. Four were
+ * byte-identical across the three sidebar filter panels — the most-repeated
+ * literal class string in the tree — one inherited its size from the footer it
+ * sat in and set no colour at all, and one used `text-accent-text`. No height on
+ * any of them, so the row decided.
+ */
+export const TEXT_BUTTON_SM =
+  "rounded-xs px-1 text-2xs text-text-faint transition-colors hover:bg-hover hover:text-foreground disabled:opacity-40";
 
 /** A square icon-only button, for row-level add/remove. */
 export const ICON_BUTTON =

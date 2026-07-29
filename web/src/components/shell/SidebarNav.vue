@@ -106,7 +106,7 @@ const active = computed(() =>
     :items="segments"
     mode="nav"
     seam="panel"
-    size="sm"
+    size="md"
     fill
     edges
     class="border-b border-border bg-background"

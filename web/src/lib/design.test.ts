@@ -175,6 +175,38 @@ describe("design language", () => {
     expect(found).toEqual([]);
   });
 
+  it("does not resize a shared constant at the call site", () => {
+    // `cn(PRIMARY_BUTTON, "h-7 px-3")` is a new size tier invented in a template
+    // — which is how the same dialog button came to exist at three paddings
+    // across four files, none of them matching what `ui/button` renders. A tier
+    // that does not exist should be added to `formClasses` and named, where the
+    // re-typing rule above can then see it. Width, margin and flex are fine;
+    // height, text size and radius are the contract.
+    expect(
+      offenders(
+        "resize",
+        /\bcn\(\s*[A-Z_]*(?:BUTTON|FIELD)[A-Z_]*\s*,[^)]*["'][^"']*\b(?:h-\d|size-\d|text-(?:2xs|xs|sm|base|lg)|rounded-)/,
+      ),
+    ).toEqual([]);
+  });
+
+  it("fills a segmented control to the strip that holds it", () => {
+    // A `PanelHeader` is `h-7`/`h-8` *including* its `border-b`, so its content
+    // box is a pixel short of any named height. An `h-7` segment in an `h-7`
+    // strip overflowed by that pixel and `items-center` split it — half a pixel
+    // over the hairline above and half over the one below, which is what a
+    // smudged edge on both sides actually is. `SEGMENT_SIZE.fill` measures the
+    // box rather than guessing at it. Two of the three nested strips got this
+    // wrong, including the run sub-tabs.
+    const bad = FILES.filter(({ rel, text }) => {
+      if (!rel.startsWith("components/") || rel.startsWith("components/app/")) return false;
+      // Only where a Segmented is nested inside a PanelHeader in the same file.
+      if (!/<PanelHeader/.test(text) || !/<Segmented/.test(text)) return false;
+      return /<Segmented\b[^>]*\bsize="(?!fill)/s.test(text);
+    }).map(({ rel }) => rel);
+    expect(bad).toEqual([]);
+  });
+
   it("keeps chrome-strip and footer geometry in components/app", () => {
     expect(
       offenders("strip", /\bh-[78]\b[^"']*\bborder-b\b[^"']*\bbg-panel\b/, isComponent),

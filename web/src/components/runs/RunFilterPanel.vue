@@ -12,7 +12,7 @@
  * pure waste.
  */
 import { inject } from "vue";
-import { SECTION_HEADING } from "@/lib/formClasses";
+import { SECTION_HEADING, TEXT_BUTTON_SM } from "@/lib/formClasses";
 
 import { Checkbox } from "@/components/ui/checkbox";
 import { MultiSelect } from "@/components/ui/multi-select";
@@ -72,14 +72,14 @@ function toggle(section: FilterSection, member: string, checked: boolean) {
         <div class="flex-1" />
         <button
           type="button"
-          class="rounded-xs px-1 text-2xs text-text-faint hover:bg-hover hover:text-foreground"
+          :class="TEXT_BUTTON_SM"
           @click="store.selectAll(section.name)"
         >
           All
         </button>
         <button
           type="button"
-          class="rounded-xs px-1 text-2xs text-text-faint hover:bg-hover hover:text-foreground"
+          :class="TEXT_BUTTON_SM"
           @click="store.selectNone(section.name)"
         >
           None

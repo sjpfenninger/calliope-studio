@@ -137,10 +137,16 @@ const viewSegments = computed(() => [
 
 <template>
   <div class="flex min-h-0 flex-1 flex-col" data-testid="run-config">
-    <PanelHeader size="sm">
+    <PanelHeader size="md">
       <!-- These swap the whole body below, so under the one selection rule they
-           navigate: an accent bar, not the `bg-active` fill they used to carry. -->
-      <Segmented v-model="view" :items="viewSegments" mode="nav" seam="none" size="sm" />
+           navigate: an accent bar, not the `bg-active` fill they used to carry.
+
+           `size="fill"`, not a named height: a 28px strip has a 27px content box
+           once its `border-b` is counted, so an h-7 segment overflowed it by a
+           pixel and `items-center` split that — half over the hairline above and
+           half over the one below. `SEGMENT_SIZE.fill` measures the box instead,
+           which is what ResultsLayoutBar already did and this did not. -->
+      <Segmented v-model="view" :items="viewSegments" mode="nav" seam="none" size="fill" />
 
       <div class="flex-1" />
 

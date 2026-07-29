@@ -209,14 +209,14 @@ const onChange = markDirty;
               <TooltipButton
                 label="Apply earlier"
                 :icon="ChevronUp"
-                size="sm"
+                size="xs"
                 :disabled="index === 0"
                 @click="move(entry, index, -1)"
               />
               <TooltipButton
                 label="Apply later"
                 :icon="ChevronDown"
-                size="sm"
+                size="xs"
                 :disabled="index === entry.overrides.length - 1"
                 @click="move(entry, index, 1)"
               />
@@ -224,7 +224,7 @@ const onChange = markDirty;
                 label="Remove"
                 :icon="X"
                 tone="danger"
-                size="sm"
+                size="xs"
                 @click="drop(entry, index)"
               />
             </li>

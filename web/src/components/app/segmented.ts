@@ -158,7 +158,9 @@ export const SEGMENT_VALUE_ACTIVE_FILL = "rounded-none";
  * measures the box instead of guessing at it.
  */
 export const SEGMENT_SIZE = {
-  sm: "h-7",
-  md: "h-8",
+  /** 28px, for a strip that is 32px. */
+  md: "h-7",
+  /** 32px, for a strip that is the full chrome height. */
+  lg: "h-8",
   fill: "h-full",
 } as const;

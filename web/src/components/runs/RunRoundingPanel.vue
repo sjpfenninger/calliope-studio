@@ -18,7 +18,7 @@ import { computed } from "vue";
 
 import { Checkbox } from "@/components/ui/checkbox";
 import InfoTip from "@/components/app/InfoTip.vue";
-import { FIELD, SECTION_HEADING } from "@/lib/formClasses";
+import { FIELD, SECTION_HEADING, TEXT_BUTTON_SM } from "@/lib/formClasses";
 import { MAX_PRECISION, isBadPrecision } from "@/lib/precision";
 import { useRoundingStore } from "@/stores/rounding";
 
@@ -49,7 +49,7 @@ function toggleExports() {
       <button
         v-if="rounding.isCustomised"
         type="button"
-        class="rounded-xs px-1 text-2xs text-text-faint hover:bg-hover hover:text-foreground"
+        :class="TEXT_BUTTON_SM"
         data-testid="rounding-reset"
         @click="rounding.clear()"
       >

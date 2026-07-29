@@ -16,8 +16,11 @@ import PanelFooter from "@/components/app/PanelFooter.vue";
 import PanelHeader from "@/components/app/PanelHeader.vue";
 import InfoTip from "@/components/app/InfoTip.vue";
 import TooltipButton from "@/components/app/TooltipButton.vue";
-import { DANGER_BUTTON, PRIMARY_BUTTON, SECONDARY_BUTTON } from "@/lib/formClasses";
-import { cn } from "@/lib/utils";
+import {
+  DANGER_BUTTON_MD,
+  PRIMARY_BUTTON,
+  SECONDARY_BUTTON_MD,
+} from "@/lib/formClasses";
 import { Check, HardDrive, Play, RefreshCw, TriangleAlert } from "@lucide/vue";
 
 import RunListItem from "@/components/runs/RunListItem.vue";
@@ -308,7 +311,7 @@ function setRetention(keep: number | null) {
         <DialogFooter>
           <button
             type="button"
-            :class="cn(SECONDARY_BUTTON, 'h-7 px-3')"
+            :class="SECONDARY_BUTTON_MD"
             @click="pendingDelete = null"
           >
             Cancel
@@ -316,7 +319,7 @@ function setRetention(keep: number | null) {
           <button
             type="button"
             data-testid="confirm-delete-run"
-            :class="cn(DANGER_BUTTON, 'h-7 px-3')"
+            :class="DANGER_BUTTON_MD"
             @click="confirmDelete"
           >
             Delete

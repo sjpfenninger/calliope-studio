@@ -258,7 +258,7 @@ onUnmounted(() => {
          fragment by construction, so it has nothing to choose. -->
     <!-- `bg-surface`: it is what the active tab opens onto, and Monaco's own
          background below it is that colour too. -->
-    <PanelHeader v-if="filePath" size="sm" class="bg-surface">
+    <PanelHeader v-if="filePath" size="md" class="bg-surface">
       <SchemaKindPicker :path="filePath" />
     </PanelHeader>
     <div ref="containerRef" class="monaco-container min-h-0 flex-1" />

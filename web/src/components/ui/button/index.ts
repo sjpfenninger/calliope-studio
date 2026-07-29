@@ -18,7 +18,17 @@ export { default as Button } from "./Button.vue"
  *
  * Neither `default` nor `destructive` is a solid fill any more; the saturated
  * end of each ramp belongs to state indicators.
+ *
+ * **The heights come from `formClasses`, not from a second copy of the scale.**
+ * The retuning above was done here and the app-layer call sites were never
+ * migrated to it, so the two systems described the same four buttons twice and
+ * then drifted: `size: "default"` is `h-7 px-2.5`, while the dialogs that could
+ * not reach this primitive wrote `h-7 px-3` by hand — including the three whose
+ * footers sit beside `DialogFooter`'s own built-in `<Button variant="outline">`.
+ * Composing from the shared strings is what makes that impossible rather than
+ * merely fixed.
  */
+import { CONTROL_HEIGHT } from "@/lib/formClasses"
 export const buttonVariants = cva(
   "inline-flex shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-sm text-sm font-medium transition-colors disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5 aria-invalid:border-destructive",
   {
@@ -36,10 +46,13 @@ export const buttonVariants = cva(
         link: "text-accent-text underline-offset-2 hover:underline",
       },
       size: {
-        "default": "h-7 px-2.5 has-[>svg]:px-2",
-        "xs": "h-5 gap-1 rounded-xs px-1.5 text-2xs has-[>svg]:px-1 [&_svg:not([class*='size-'])]:size-3",
-        "sm": "h-6 gap-1 px-2 has-[>svg]:px-1.5",
-        "lg": "h-8 px-3 has-[>svg]:px-2.5",
+        // `default` is the 28px tier, and its `px-2.5` is the same padding
+        // PRIMARY_BUTTON_MD carries — the number the hand-rolled dialog buttons
+        // disagreed with.
+        "default": `${CONTROL_HEIGHT.md} px-2.5 has-[>svg]:px-2`,
+        "xs": `${CONTROL_HEIGHT.xs} gap-1 rounded-xs px-1.5 text-2xs has-[>svg]:px-1 [&_svg:not([class*='size-'])]:size-3`,
+        "sm": `${CONTROL_HEIGHT.sm} gap-1 px-2 has-[>svg]:px-1.5`,
+        "lg": `${CONTROL_HEIGHT.lg} px-3 has-[>svg]:px-2.5`,
         "icon": "size-7",
         "icon-xs": "size-5 rounded-xs [&_svg:not([class*='size-'])]:size-3",
         "icon-sm": "size-6",

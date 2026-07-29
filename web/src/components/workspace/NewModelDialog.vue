@@ -12,8 +12,7 @@
  * the request rather than after it.
  */
 import { computed, ref, watch } from "vue";
-import { FIELD } from "@/lib/formClasses";
-import { PRIMARY_BUTTON, SECONDARY_BUTTON } from "@/lib/formClasses";
+import { FIELD, PRIMARY_BUTTON_MD, SECONDARY_BUTTON_MD } from "@/lib/formClasses";
 import { cn } from "@/lib/utils";
 
 import { createProject } from "@/api/projects";
@@ -158,7 +157,7 @@ async function create() {
       <DialogFooter>
         <button
           type="button"
-          :class="cn(SECONDARY_BUTTON, 'h-7 px-3')"
+          :class="SECONDARY_BUTTON_MD"
           @click="open = false"
         >
           Cancel
@@ -167,7 +166,7 @@ async function create() {
           type="button"
           data-testid="create-model"
           :disabled="!canCreate"
-          :class="cn(PRIMARY_BUTTON, 'h-7 px-3')"
+          :class="PRIMARY_BUTTON_MD"
           @click="create"
         >
           Create model

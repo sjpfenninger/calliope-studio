@@ -328,7 +328,7 @@ function flushKV(key: string) {
           <TooltipButton
             label="Add a row"
             :icon="Plus"
-            size="sm"
+            size="xs"
             @click="addKVRow(entry.key)"
           />
         </div>

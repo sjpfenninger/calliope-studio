@@ -51,7 +51,7 @@ const segments = computed(() =>
 </script>
 
 <template>
-  <PanelHeader size="sm" data-testid="results-layout-bar">
+  <PanelHeader size="md" data-testid="results-layout-bar">
     <!-- `size="fill"`: the switcher takes the strip's own height exactly, square.
          At `sm` it was an h-7 control in an h-7 strip — one pixel taller than the
          box, split by `items-center`, so the selection lapped the hairline above
@@ -68,7 +68,7 @@ const segments = computed(() =>
       v-if="!ui.resultsLayoutIsDefault"
       label="Put this layout back the way it started"
       :icon="RotateCcw"
-      size="sm"
+      size="xs"
       testid="results-layout-reset"
       @click="ui.resetResultsLayout()"
     />

@@ -8,7 +8,7 @@
  * dead end telling the user to go and run `calliope new` in a terminal.
  */
 import { ref } from "vue";
-import { PRIMARY_BUTTON, SECONDARY_BUTTON } from "@/lib/formClasses";
+import { PRIMARY_BUTTON_MD, SECONDARY_BUTTON, SECONDARY_BUTTON_MD } from "@/lib/formClasses";
 import { cn } from "@/lib/utils";
 import { FolderPlus } from "@lucide/vue";
 
@@ -86,7 +86,7 @@ async function openHere() {
       <DialogFooter>
         <button
           type="button"
-          :class="cn(SECONDARY_BUTTON, 'h-7 px-3')"
+          :class="SECONDARY_BUTTON_MD"
           @click="open = false"
         >
           Cancel
@@ -95,7 +95,7 @@ async function openHere() {
           type="button"
           data-testid="open-this-folder"
           :disabled="!listing?.is_model || opening"
-          :class="cn(PRIMARY_BUTTON, 'h-7 px-3')"
+          :class="PRIMARY_BUTTON_MD"
           @click="openHere"
         >
           Open this folder

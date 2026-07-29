@@ -21,8 +21,7 @@ import Panel from "@/components/app/Panel.vue";
 import StateMessage from "@/components/app/StateMessage.vue";
 import InfoTip from "@/components/app/InfoTip.vue";
 import TooltipButton from "@/components/app/TooltipButton.vue";
-import { PRIMARY_BUTTON, SECONDARY_BUTTON } from "@/lib/formClasses";
-import { cn } from "@/lib/utils";
+import { PRIMARY_BUTTON_MD, SECONDARY_BUTTON_MD } from "@/lib/formClasses";
 import { useRouter } from "vue-router";
 import { FolderOpen, FolderPlus, FolderSearch, X } from "@lucide/vue";
 
@@ -73,7 +72,7 @@ function open(id: string) {
       <button
         type="button"
         data-testid="open-model"
-        :class="cn(SECONDARY_BUTTON, 'h-7 px-2.5')"
+        :class="SECONDARY_BUTTON_MD"
         @click="dialog = 'open'"
       >
         <FolderSearch class="size-3.5" />
@@ -82,7 +81,7 @@ function open(id: string) {
       <button
         type="button"
         data-testid="new-model"
-        :class="cn(PRIMARY_BUTTON, 'h-7 px-2.5')"
+        :class="PRIMARY_BUTTON_MD"
         @click="dialog = 'new'"
       >
         <FolderPlus class="size-3.5" />
@@ -143,7 +142,7 @@ function open(id: string) {
         <TooltipButton
           label="Remove from this list (nothing is deleted)"
           :icon="X"
-          size="sm"
+          size="xs"
           testid="forget-model"
           class="opacity-0 group-hover:opacity-100 hover:bg-active hover:text-foreground focus-visible:opacity-100"
           @click="projectStore.forgetModel(model.id)"

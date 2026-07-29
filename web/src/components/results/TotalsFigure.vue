@@ -109,7 +109,6 @@ function chooseSum(next: unknown, current: SumBy, variable: string | null): SumB
       <TooltipButton
         label="Export this chart's data as CSV"
         :icon="Download"
-        size="sm"
         testid="export-static"
         :disabled="!hasData(props.frame)"
         @click="

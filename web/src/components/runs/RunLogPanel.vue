@@ -20,7 +20,7 @@ import RunProgress from "./RunProgress.vue";
 import RunStatusPill from "./RunStatusPill.vue";
 import { cn } from "@/lib/utils";
 import { formatDuration, formatObjective, formatTimestamp } from "@/lib/format";
-import { FIELD } from "@/lib/formClasses";
+import { FIELD_SM } from "@/lib/formClasses";
 
 import {
   isTerminal,
@@ -93,7 +93,7 @@ watch(
 
 <template>
   <div class="flex min-h-0 flex-1 flex-col" data-testid="run-log">
-    <PanelHeader size="sm">
+    <PanelHeader size="md">
       <RunStatusPill v-if="run" :status="run.status" />
       <RunProgress :stage="stage" :running="running" />
 
@@ -103,7 +103,7 @@ watch(
         v-model="runs.logFilter"
         data-testid="log-filter"
         aria-label="Log detail"
-        :class="cn(FIELD, 'h-5 w-auto py-0 text-2xs text-text-dim')"
+        :class="cn(FIELD_SM, 'w-auto text-text-dim')"
       >
         <option v-for="option in FILTERS" :key="option.id" :value="option.id">
           {{ option.label }}

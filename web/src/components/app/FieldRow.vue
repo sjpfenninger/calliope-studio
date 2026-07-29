@@ -142,7 +142,7 @@ const sourceLabel = computed(() => {
         v-if="isSet && inherited && revertable"
         :label="`Revert to the value from ${inherited.sources.join(', ')}`"
         :icon="Undo2"
-        size="sm"
+        size="xs"
         @click="$emit('revert')"
       />
 

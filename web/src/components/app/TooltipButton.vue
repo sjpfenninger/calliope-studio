@@ -27,14 +27,21 @@ const props = withDefaults(
     label: string;
     icon: Component;
     tone?: "quiet" | "danger";
-    /** 24px (`md`) by default; 20px (`sm`) for an affordance inside a 24px row. */
-    size?: "sm" | "md";
+    /**
+     * 24px (`sm`) by default; 20px (`xs`) for an affordance inside a 24px row.
+     *
+     * Named for the height, like every other control — this was the one place in
+     * the app where `sm` meant 20px while `SelectTrigger` and `ToggleGroup` next
+     * to it read the same word as 24px. Four figure headers wrote `size="sm"` on
+     * all three and got a 20px button beside two 24px controls.
+     */
+    size?: "xs" | "sm";
     side?: "top" | "right" | "bottom" | "left";
     disabled?: boolean;
     testid?: string;
     class?: string;
   }>(),
-  { tone: "quiet", size: "md", side: "top", disabled: false },
+  { tone: "quiet", size: "sm", side: "top", disabled: false },
 );
 
 const emit = defineEmits<{ click: [event: MouseEvent] }>();
@@ -42,17 +49,17 @@ const emit = defineEmits<{ click: [event: MouseEvent] }>();
 const body = computed(() =>
   cn(
     props.tone === "danger"
-      ? props.size === "sm"
+      ? props.size === "xs"
         ? DANGER_ICON_BUTTON_SM
         : DANGER_ICON_BUTTON
-      : props.size === "sm"
+      : props.size === "xs"
         ? ICON_BUTTON_SM
         : ICON_BUTTON,
     props.class,
   ),
 );
 
-const glyph = computed(() => (props.size === "sm" ? "size-3" : "size-3.5"));
+const glyph = computed(() => (props.size === "xs" ? "size-3" : "size-3.5"));
 
 /**
  * A `size-3` glyph is below the 14px where the global 1.75 renders under a
@@ -60,7 +67,7 @@ const glyph = computed(() => (props.size === "sm" ? "size-3" : "size-3.5"));
  * every caller to remember it.
  */
 const stroke = computed(() =>
-  props.size === "sm" ? ICON_STROKE_WIDTH_TIGHT : ICON_STROKE_WIDTH,
+  props.size === "xs" ? ICON_STROKE_WIDTH_TIGHT : ICON_STROKE_WIDTH,
 );
 </script>
 

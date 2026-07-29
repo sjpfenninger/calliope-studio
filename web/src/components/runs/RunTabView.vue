@@ -113,13 +113,13 @@ watch(
     <!-- `bg-surface`: the first strip under the tab bar, which the active tab
          opens onto. The segments inside keep `seam="none"` — there is no single
          surface under *this* strip, which is a different question. -->
-    <PanelHeader data-testid="run-subtabs" size="sm" class="px-1 bg-surface">
+    <PanelHeader data-testid="run-subtabs" size="md" class="px-1 bg-surface">
       <Segmented
         :model-value="tab.subView"
         :items="segments"
         mode="nav"
         seam="none"
-        size="sm"
+        size="fill"
         @update:model-value="$event && tabs.setSubView(tab.id, $event)"
       />
 

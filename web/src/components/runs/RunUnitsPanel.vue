@@ -19,7 +19,7 @@
 import { computed, inject } from "vue";
 
 import InfoTip from "@/components/app/InfoTip.vue";
-import { FIELD, SECTION_HEADING } from "@/lib/formClasses";
+import { FIELD, SECTION_HEADING, TEXT_BUTTON_SM } from "@/lib/formClasses";
 import { parseScale, quantitiesIn, type Quantity } from "@/lib/units";
 import { RUN_SELECTION } from "@/stores/runSelection";
 import { useUnitsStore } from "@/stores/units";
@@ -68,7 +68,7 @@ function setLabel(quantity: Quantity, label: string) {
       <button
         v-if="units.isCustomised"
         type="button"
-        class="rounded-xs px-1 text-2xs text-text-faint hover:bg-hover hover:text-foreground"
+        :class="TEXT_BUTTON_SM"
         data-testid="units-reset"
         @click="units.clear()"
       >

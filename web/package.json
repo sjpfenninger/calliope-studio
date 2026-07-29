@@ -26,7 +26,8 @@
     "smoke:results": "node scripts/smoke-results.mjs",
     "smoke:table": "node scripts/smoke-table.mjs",
     "test": "vitest run",
-    "token-check": "node scripts/token-check.mjs"
+    "token-check": "node scripts/token-check.mjs",
+    "tree-search": "node scripts/tree-search.mjs"
   },
   "dependencies": {
     "@fontsource-variable/inter": "^5.3.0",

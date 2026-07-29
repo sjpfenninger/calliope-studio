@@ -112,6 +112,13 @@ jobs:
       - name: Unsaved-changes guard
         run: pixi run -- pnpm --dir web run confirm-check http://127.0.0.1:8791
 
+      # The explorer filters. A search borrows Reka's expansion model and has to
+      # give it back exactly as it was, which nothing but a rendered tree shows:
+      # with the two sets confused, collapsing a branch mid-search silently does
+      # nothing and clearing the field loses the expansion the user built.
+      - name: Tree search
+        run: pixi run -- pnpm --dir web run tree-search http://127.0.0.1:8791
+
       # Every popup lands where a person can see it. A popper with no anchor
       # stays at Reka's off-screen default while the DOM looks entirely healthy,
       # so presence is not the property — position is.

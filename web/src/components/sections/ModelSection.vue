@@ -15,12 +15,15 @@ import { computed, ref, watch } from "vue";
 import { Badge } from "@/components/ui/badge";
 import PanelHeader from "@/components/app/PanelHeader.vue";
 import InfoTip from "@/components/app/InfoTip.vue";
+import StateMessage from "@/components/app/StateMessage.vue";
 import TooltipButton from "@/components/app/TooltipButton.vue";
+import TreeSearch from "@/components/app/TreeSearch.vue";
 import { GHOST_BUTTON } from "@/lib/formClasses";
-import { Loader2, Network, RefreshCw, ShieldCheck } from "@lucide/vue";
+import { Loader2, Network, RefreshCw, SearchX, ShieldCheck } from "@lucide/vue";
 
 import ImportGraphDialog from "@/components/layout/ImportGraphDialog.vue";
 import { Tree } from "@/components/ui/tree";
+import { useTreeSearch } from "@/composables/useTreeSearch";
 import { sectionIcon } from "@/lib/icons";
 import { buildModelTree, STRUCTURED_SECTIONS, type ModelTreeNode } from "@/lib/modelTree";
 import { openIntent } from "@/lib/openIntent";
@@ -36,6 +39,15 @@ const showImportGraph = ref(false);
 const selected = ref<ModelTreeNode>();
 
 const nodes = computed(() => buildModelTree(componentTree.tree));
+
+// Matched on the label, which is the row as it is written: an entry's key is
+// `techs:ccgt`, so matching that would let `s:c` hit a technology.
+const {
+  query,
+  items: visible,
+  expanded,
+  isEmpty,
+} = useTreeSearch("model", nodes, (node) => node.label, selected);
 
 // The version arrives from the route after this mounts, so loading only on
 // mount leaves the tree permanently empty.
@@ -114,9 +126,23 @@ function validate() {
       <TooltipButton label="Reload the model tree" :icon="RefreshCw" @click="refresh" />
     </PanelHeader>
 
+    <TreeSearch
+      v-model="query"
+      label="Filter the model tree"
+      placeholder="Filter components"
+      testid="model-search"
+    />
+
+    <!-- Above the tree, not instead of it: the `role="tree"` element stays
+         mounted, so every `data-testid` selector keeps resolving. -->
+    <StateMessage v-if="isEmpty" variant="inline" :icon="SearchX">
+      Nothing in the model matches “{{ query }}”
+    </StateMessage>
+
     <Tree
       v-model="selected"
-      :items="nodes"
+      v-model:expanded="expanded"
+      :items="visible"
       :get-key="(node) => (node as ModelTreeNode).key"
       :get-children="(node) => (node as ModelTreeNode).children"
       :get-label="(node) => (node as ModelTreeNode).label"

@@ -85,6 +85,19 @@ describe("Tree", () => {
   });
 
   /**
+   * Both sections bind `expanded` so a search can open the branches hiding its
+   * matches, and route the emitted set to one of two stores depending on whether
+   * a query is live. A toggle that stayed inside Reka would leave the user's own
+   * expansion unrecoverable once a search had rewritten it.
+   */
+  it("emits the expanded set when a branch is toggled", async () => {
+    const wrapper = render({ expanded: [] });
+    await wrapper.findAll('[role="treeitem"]')[0].trigger("click");
+
+    expect(wrapper.emitted("update:expanded")!.at(-1)![0]).toEqual(["techs"]);
+  });
+
+  /**
    * Both explorer trees open from this rather than from a `modelValue` watcher,
    * which could see neither the modifier keys — so Cmd-click could not mean "a
    * tab that stays" — nor a click on the row that is already selected.

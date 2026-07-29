@@ -39,6 +39,7 @@ from calliope_studio.server.deps import (
     get_storage,
     get_workspace,
     require_file,
+    require_text,
     resolve_within,
 )
 from calliope_studio.server.storage import LocalStorage, Workspace
@@ -304,7 +305,7 @@ def snapshot_file(
 ) -> dict:
     """One frozen file's text. Read-only: history is not editable."""
     path = require_file(resolve_within(_snapshot_root(run_id, runs), file_path))
-    return {"content": path.read_text(errors="replace")}
+    return {"content": require_text(path)}
 
 
 @router.get("/runs/{run_id}/csv/{file_path:path}")

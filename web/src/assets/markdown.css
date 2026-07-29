@@ -1,0 +1,175 @@
+/**
+ * Rendered Markdown, in the file viewer.
+ *
+ * A stylesheet rather than utilities on the elements, because the markup comes
+ * out of markdown-it through `v-html` and there is nothing to put a class on.
+ * It lives here and is imported from `style.css` for the same reason the
+ * maplibre overrides do: a stylesheet imported from a lazily-loaded component
+ * lands in a later chunk and wins on order alone.
+ *
+ * Every colour is a `--cg-*` token and every size is one of the five type steps.
+ * `tokens.css` stays the only file in the app where a literal colour is written,
+ * and there is no new scale here — headings borrow the steps that already exist
+ * rather than inventing a sixth.
+ *
+ * Prose is the one place in this app that is *read* rather than scanned, so the
+ * measure is capped and the leading is looser than the 13px/18px UI default.
+ * Everything else in Calliope Studio is a dense control surface; a README is
+ * not, and setting it at UI density would make it hard work.
+ */
+
+.cg-markdown {
+  max-width: 46rem;
+  padding: 1.5rem;
+  color: var(--cg-text);
+  font-size: var(--text-base);
+  line-height: 1.65;
+}
+
+.cg-markdown > *:first-child {
+  margin-top: 0;
+}
+
+.cg-markdown h1,
+.cg-markdown h2,
+.cg-markdown h3,
+.cg-markdown h4 {
+  margin: 1.5em 0 0.5em;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--cg-text);
+}
+
+.cg-markdown h1 {
+  font-size: var(--text-lg);
+}
+
+/* h2 rules off, because it is the section boundary in a README and there is no
+   size step between it and h3 large enough to say so on its own. */
+.cg-markdown h2 {
+  font-size: var(--text-base);
+  padding-bottom: 0.3em;
+  border-bottom: 1px solid var(--cg-border-subtle);
+}
+
+.cg-markdown h3,
+.cg-markdown h4 {
+  font-size: var(--text-base);
+}
+
+.cg-markdown h4 {
+  color: var(--cg-text-dim);
+}
+
+.cg-markdown p,
+.cg-markdown ul,
+.cg-markdown ol,
+.cg-markdown blockquote,
+.cg-markdown table,
+.cg-markdown pre {
+  margin: 0.75em 0;
+}
+
+.cg-markdown ul,
+.cg-markdown ol {
+  padding-left: 1.5em;
+}
+
+.cg-markdown ul {
+  list-style: disc;
+}
+
+.cg-markdown ol {
+  list-style: decimal;
+}
+
+.cg-markdown li {
+  margin: 0.25em 0;
+}
+
+.cg-markdown a {
+  color: var(--cg-accent-text);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.cg-markdown a:hover {
+  color: var(--cg-accent-hover);
+}
+
+.cg-markdown strong {
+  font-weight: 600;
+}
+
+.cg-markdown blockquote {
+  padding-left: 1em;
+  border-left: 2px solid var(--cg-border);
+  color: var(--cg-text-dim);
+}
+
+.cg-markdown hr {
+  margin: 1.5em 0;
+  border: 0;
+  border-top: 1px solid var(--cg-border);
+}
+
+/* Mono lives at the 11px step, which is the rule `design.test.ts` enforces for
+   the rest of the app; a code span inside 13px prose keeps that relationship. */
+.cg-markdown code {
+  font-family: var(--cg-font-mono);
+  font-size: var(--text-xs);
+  background: var(--cg-surface-2);
+  border-radius: 2px;
+  padding: 0.1em 0.35em;
+}
+
+.cg-markdown pre {
+  background: var(--cg-surface-2);
+  border: 1px solid var(--cg-border-subtle);
+  border-radius: 4px;
+  padding: 0.75em 1em;
+  overflow-x: auto;
+  line-height: var(--cg-code-line-height);
+}
+
+/* A fenced block already has the padding and the fill; the span inside it must
+   not paint a second one. */
+.cg-markdown pre code {
+  background: none;
+  padding: 0;
+  border-radius: 0;
+}
+
+.cg-markdown table {
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+
+.cg-markdown th,
+.cg-markdown td {
+  border: 1px solid var(--cg-border);
+  padding: 0.3em 0.6em;
+  text-align: left;
+}
+
+.cg-markdown th {
+  background: var(--cg-surface-2);
+  font-weight: 600;
+}
+
+.cg-markdown img {
+  max-width: 100%;
+}
+
+/* A task list is a list of states, not of bullets: the marker would sit beside
+   the box saying the same thing twice. */
+.cg-markdown li.cg-task-item {
+  list-style: none;
+  margin-left: -1.25em;
+}
+
+.cg-markdown .cg-task {
+  margin-right: 0.4em;
+  vertical-align: middle;
+  accent-color: var(--cg-accent);
+}

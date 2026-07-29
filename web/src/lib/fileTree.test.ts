@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildFileTree, type FileEntry } from "./fileTree";
+import { allPaths, buildFileTree, type FileEntry } from "./fileTree";
 
 function entry(path: string, type: FileEntry["type"] = "yaml", size = 10): FileEntry {
   return { path, type, size };
@@ -62,5 +62,57 @@ describe("buildFileTree", () => {
   it("handles an empty listing", () => {
     // A run with no snapshot answers with an empty list rather than a 404.
     expect(buildFileTree([])).toEqual([]);
+  });
+
+  it("keeps a directory that holds nothing", () => {
+    // The whole reason directories are listed rather than inferred: a folder
+    // the user has just created has no files in it yet, and inferring one from
+    // the `/` in a file path cannot see it.
+    const tree = buildFileTree([{ path: "scratch", type: "directory" }]);
+    expect(tree).toHaveLength(1);
+    expect(tree[0]).toMatchObject({ key: "scratch", type: "directory", leaf: false });
+    // Never `children: []` — Reka's `hasChildren` is a truthiness test, and an
+    // empty array gives a leaf a chevron onto nothing.
+    expect(tree[0].children).toEqual([]);
+  });
+
+  it("does not duplicate a directory that is both listed and implied", () => {
+    const tree = buildFileTree([
+      { path: "model_config", type: "directory" },
+      entry("model_config/techs.yaml"),
+    ]);
+    expect(tree).toHaveLength(1);
+    expect(tree[0].children).toHaveLength(1);
+  });
+
+  it("puts directories before files, whatever order they arrive in", () => {
+    const tree = buildFileTree([
+      entry("zzz.yaml"),
+      entry("aaa.yaml"),
+      { path: "model_config", type: "directory" },
+    ]);
+    expect(tree.map((node) => node.key)).toEqual(["model_config", "aaa.yaml", "zzz.yaml"]);
+  });
+
+  it("sorts numbered files the way a person reads them", () => {
+    const tree = buildFileTree([entry("node_10.yaml"), entry("node_9.yaml")]);
+    expect(tree.map((node) => node.key)).toEqual(["node_9.yaml", "node_10.yaml"]);
+  });
+});
+
+/**
+ * The set the new-file dialog checks a typed name against, so that "there is
+ * already something called that" arrives while typing rather than as a 409.
+ */
+describe("allPaths", () => {
+  it("collects files and directories at every depth", () => {
+    const tree = buildFileTree([
+      entry("model.yaml"),
+      entry("a/b/deep.yaml"),
+      { path: "empty", type: "directory" },
+    ]);
+    expect(allPaths(tree)).toEqual(
+      new Set(["model.yaml", "a", "a/b", "a/b/deep.yaml", "empty"]),
+    );
   });
 });

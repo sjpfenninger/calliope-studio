@@ -3,8 +3,11 @@ import {
   BarChart3,
   Copy,
   File,
+  FileArchive,
   FileCode2,
+  FileText,
   Folder,
+  Image,
   List,
   Map,
   MapPin,
@@ -55,6 +58,9 @@ export function sectionIcon(section: string): LucideIcon {
 export function fileIcon(type: string): LucideIcon {
   if (type === "csv") return Table2;
   if (type === "yaml") return FileCode2;
+  if (type === "markdown") return FileText;
+  if (type === "image") return Image;
+  if (type === "binary") return FileArchive;
   if (type === "directory") return Folder;
   return File;
 }

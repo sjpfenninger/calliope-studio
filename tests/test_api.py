@@ -7,6 +7,8 @@ breaks.
 
 import pytest
 
+from calliope_studio.server import deps
+
 
 @pytest.fixture
 def ws(client):
@@ -167,7 +169,32 @@ class TestFiles:
         paths = {entry["path"] for entry in entries}
         assert "model.yaml" in paths
         assert any(path.endswith(".csv") for path in paths)
-        assert {entry["type"] for entry in entries} <= {"yaml", "csv", "other"}
+        assert {entry["type"] for entry in entries} <= {
+            "yaml",
+            "csv",
+            "markdown",
+            "image",
+            "binary",
+            "other",
+            "directory",
+        }
+
+    def test_file_tree_lists_directories_in_their_own_right(
+        self, client, ws, national_scale
+    ):
+        """An empty folder must be listable, or it cannot be created.
+
+        The tree the frontend builds used to infer a folder from the `/` in a
+        file's path, so a folder with nothing in it did not exist as far as the
+        UI was concerned — it would vanish on the next listing.
+        """
+        (national_scale / "scratch").mkdir()
+        entries = client.get(f"/api/versions/{ws}/files/").json()
+        directories = {e["path"] for e in entries if e["type"] == "directory"}
+        assert "scratch" in directories
+        assert "model_config" in directories
+        # A directory has no meaningful size, so it carries none.
+        assert all("size" not in e for e in entries if e["type"] == "directory")
 
     @pytest.mark.parametrize(
         "data_dir", ["calliope-studio", "calligraph", ".calligraph"]
@@ -199,6 +226,110 @@ class TestFiles:
 
     def test_missing_file_is_404(self, client, ws):
         assert client.get(f"/api/versions/{ws}/files/nope.yaml").status_code == 404
+
+    def test_binary_file_is_refused_rather_than_mangled(
+        self, client, ws, national_scale
+    ):
+        """A binary must not come back as text, however plausible the text.
+
+        `read_text(errors="replace")` could not fail, so a `.png` was HTTP 200
+        holding a string of U+FFFD. Monaco opened it, and Ctrl/Cmd+S then wrote
+        that transcription back over the file. The read is where it has to stop:
+        by the time the editor has a buffer, the damage is one keystroke away.
+        """
+        (national_scale / "diagram.png").write_bytes(b"\x89PNG\r\n\x1a\n\x00\x00stuff")
+        response = client.get(f"/api/versions/{ws}/files/diagram.png")
+        assert response.status_code == 415
+        assert response.json()["detail"] == "This file is not text."
+
+    def test_a_stray_non_utf8_byte_still_opens(self, client, ws, national_scale):
+        """The tolerance `errors="replace"` was chosen for has to survive.
+
+        A YAML file carrying one Latin-1 byte is a file somebody is part-way
+        through editing. A strict decode would lock them out of it, which is why
+        the binary test is a NUL sniff and not a failed decode.
+        """
+        (national_scale / "note.yaml").write_bytes(b"comment: caf\xe9\n")
+        response = client.get(f"/api/versions/{ws}/files/note.yaml")
+        assert response.status_code == 200
+        assert "�" in response.json()["content"]
+
+    def test_an_oversized_file_is_refused(
+        self, client, ws, national_scale, monkeypatch
+    ):
+        """Nothing capped the path from a file on disk to `createModel`."""
+        monkeypatch.setattr(deps, "MAX_TEXT_BYTES", 16)
+        (national_scale / "big.yaml").write_text("x" * 64)
+        assert client.get(f"/api/versions/{ws}/files/big.yaml").status_code == 413
+
+    def test_raw_serves_bytes_with_a_conservative_type(
+        self, client, ws, national_scale
+    ):
+        """Only pictures are named; everything else is an opaque download.
+
+        An `.html` in a model folder served as `text/html` from the app's own
+        origin would be a script-execution hole, so the route names content
+        types from a closed list rather than guessing.
+        """
+        (national_scale / "diagram.png").write_bytes(b"\x89PNG\r\n\x1a\n\x00\x00stuff")
+        (national_scale / "page.html").write_text("<script>alert(1)</script>")
+
+        image = client.get(f"/api/versions/{ws}/raw/diagram.png")
+        assert image.status_code == 200
+        assert image.headers["content-type"] == "image/png"
+        assert image.content.startswith(b"\x89PNG")
+        assert image.headers["x-content-type-options"] == "nosniff"
+        assert image.headers["content-security-policy"] == "sandbox"
+
+        page = client.get(f"/api/versions/{ws}/raw/page.html")
+        assert page.headers["content-type"] == "application/octet-stream"
+
+    def test_create_file_and_folder(self, client, ws, national_scale):
+        assert (
+            client.post(f"/api/versions/{ws}/files/model_config/extra.yaml").status_code
+            == 200
+        )
+        assert (national_scale / "model_config" / "extra.yaml").read_text() == ""
+
+        assert (
+            client.post(f"/api/versions/{ws}/folders/scratch/deep").status_code == 200
+        )
+        assert (national_scale / "scratch" / "deep").is_dir()
+
+        paths = {e["path"] for e in client.get(f"/api/versions/{ws}/files/").json()}
+        assert "model_config/extra.yaml" in paths
+        assert "scratch/deep" in paths
+
+    def test_create_refuses_to_overwrite(self, client, ws):
+        """`PUT` replaces on purpose; `POST` must not.
+
+        Creating through `PUT` with an empty body would have silently truncated
+        whatever was there, and the client validates against a file tree that
+        may be seconds out of date.
+        """
+        response = client.post(f"/api/versions/{ws}/files/model.yaml")
+        assert response.status_code == 409
+
+    @pytest.mark.parametrize(
+        ("path", "reason"),
+        [
+            ("calliope-studio/notes.yaml", "hidden from the file tree"),
+            (".secret.yaml", "starting with a dot"),
+            ("model.yaml/child.yaml", "is a file"),
+        ],
+    )
+    def test_create_refuses_what_could_not_then_be_found(
+        self, client, ws, path, reason
+    ):
+        """Every one of these would appear to succeed and then show nothing."""
+        response = client.post(f"/api/versions/{ws}/files/{path}")
+        assert response.status_code == 400
+        assert reason in response.json()["detail"]
+
+    def test_create_rejects_path_traversal(self, client, ws):
+        response = client.post(f"/api/versions/{ws}/folders/%2e%2e%2fescape")
+        assert response.status_code == 400
+        assert response.json()["detail"] == "Invalid path."
 
     @pytest.mark.parametrize(
         "attack",

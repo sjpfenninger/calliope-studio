@@ -2,6 +2,7 @@ import { computed, reactive, ref } from "vue";
 import { defineStore } from "pinia";
 
 import { putCsv, putFile } from "../api/versions";
+import { fileKindOf, isTextFileType, type FileType } from "../lib/fileKind";
 import { KEY_PREFIX } from "../lib/storageKeys";
 import {
   entryTabId,
@@ -14,8 +15,10 @@ import {
   type TabSpec,
 } from "../lib/tabId";
 
-export type FileType = "yaml" | "csv" | "other";
+export type { FileType };
 export type EditorMode = "raw" | "structured";
+/** Markdown is text, so it is edited as well as read. */
+export type FileViewMode = "raw" | "preview";
 export type RunSubView = "results" | "table" | "config" | "log";
 
 interface TabCommon {
@@ -37,6 +40,13 @@ export interface FileTab extends TabCommon {
   kind: "file";
   path: string;
   fileType: FileType;
+  /**
+   * Only markdown has two views of itself, so only markdown reads this.
+   *
+   * Deliberately not on `TabCommon`: a YAML file has one view, and a field that
+   * is meaningless for five of six file types invites a switch that forgets one.
+   */
+  viewMode: FileViewMode;
   isDirty: boolean;
 }
 
@@ -105,11 +115,19 @@ export type EditableTab = FileTab | SectionTab | EntryTab;
  * validation results are a statement about the model — and enumerating them by
  * exclusion means every new one has to remember to add itself to two guards or
  * silently become writable.
+ *
+ * **A file tab is editable only if its file is text**, which is the second axis
+ * and the one that closes a real hole. A `.png` is `kind: "file"` like any
+ * other, so it passed this predicate, Monaco built a text model over a string of
+ * replacement characters, and Ctrl/Cmd+S wrote that back over the image. Both
+ * axes are allow-lists for the same reason: what must not be written is the
+ * growing half of both.
  */
 export function isEditableTab(
   tab: TabEntry | null | undefined,
 ): tab is EditableTab {
-  return tab != null && EDITABLE_KINDS.has(tab.kind);
+  if (tab == null || !EDITABLE_KINDS.has(tab.kind)) return false;
+  return tab.kind !== "file" || isTextFileType(tab.fileType);
 }
 
 const EDITABLE_KINDS: ReadonlySet<TabKind> = new Set<TabKind>([
@@ -139,10 +157,14 @@ export interface OpenOptions {
 /** How many run panes stay live before the least recently fronted is dropped. */
 const MAX_LIVE_RUN_PANES = 4;
 
-function fileTypeOf(path: string): FileType {
-  if (path.endsWith(".csv")) return "csv";
-  if (path.endsWith(".yaml") || path.endsWith(".yml")) return "yaml";
-  return "other";
+/**
+ * Markdown opens rendered.
+ *
+ * A README is written to be read; someone who wants the source can ask for it,
+ * and the toggle is right there. Every other kind has one view.
+ */
+function viewModeFor(fileType: FileType): FileViewMode {
+  return fileType === "markdown" ? "preview" : "raw";
 }
 
 function titleFor(spec: TabSpec, hint?: string): string {
@@ -358,12 +380,14 @@ export const useTabsStore = defineStore("tabs", () => {
     const id = fileTabId(path);
     const existed = openTabs.has(id);
     if (!existed) {
+      const fileType = options.fileType ?? fileKindOf(path);
       openTabs.set(id, {
         id,
         kind: "file",
         title: titleFor({ kind: "file", path }),
         path,
-        fileType: options.fileType ?? fileTypeOf(path),
+        fileType,
+        viewMode: viewModeFor(fileType),
         isDirty: false,
         mounted: false,
       });
@@ -554,6 +578,11 @@ export const useTabsStore = defineStore("tabs", () => {
     }
   }
 
+  function setFileViewMode(id: string, mode: FileViewMode) {
+    const tab = openTabs.get(id);
+    if (tab?.kind === "file") tab.viewMode = mode;
+  }
+
   function setSubView(id: string, view: RunSubView) {
     const tab = openTabs.get(id);
     if (tab?.kind !== "run") return;
@@ -642,6 +671,7 @@ export const useTabsStore = defineStore("tabs", () => {
     markDirty,
     markClean,
     setEditorMode,
+    setFileViewMode,
     setSubView,
     closeTab,
     jumpTo,

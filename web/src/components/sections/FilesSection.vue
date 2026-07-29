@@ -8,27 +8,72 @@
  * invisible to the URL; they are sibling routes now.
  */
 import { computed, ref, watch } from "vue";
-import { ChevronsDownUp, ChevronsUpDown, SearchX } from "@lucide/vue";
+import {
+  ChevronsDownUp,
+  ChevronsUpDown,
+  FilePlus,
+  FolderPlus,
+  SearchX,
+} from "@lucide/vue";
 
 import { Tree } from "@/components/ui/tree";
 import InfoTip from "@/components/app/InfoTip.vue";
 import PanelHeader from "@/components/app/PanelHeader.vue";
 import StateMessage from "@/components/app/StateMessage.vue";
+import TooltipButton from "@/components/app/TooltipButton.vue";
 import TreeSearch from "@/components/app/TreeSearch.vue";
+import NewFileDialog from "@/components/editor/NewFileDialog.vue";
 import { useTreeSearch } from "@/composables/useTreeSearch";
 import { GHOST_BUTTON } from "@/lib/formClasses";
 import { fileIcon } from "@/lib/icons";
-import { type FileTreeNode } from "@/lib/fileTree";
+import { allPaths, type FileTreeNode } from "@/lib/fileTree";
 import { openIntent } from "@/lib/openIntent";
 import { fileTabId } from "@/lib/tabId";
+import { ancestorKeys } from "@/lib/treeFilter";
+import { useExplorerStore } from "@/stores/explorer";
 import { useTabsStore } from "@/stores/tabs";
 import { useVersionStore } from "@/stores/version";
 
 const tabs = useTabsStore();
 const version = useVersionStore();
+const explorer = useExplorerStore();
 
 const selected = ref<FileTreeNode>();
 const nodes = computed(() => version.fileTree);
+
+const creating = ref<"file" | "folder" | null>(null);
+
+/**
+ * Where a new entry goes: the selected folder, or the folder holding the
+ * selected file, or the model root. What an editor does, and the only reading
+ * of a selection that does not surprise.
+ */
+const parent = computed(() => {
+  const node = selected.value;
+  if (!node) return "";
+  if (!node.leaf) return node.key;
+  return node.key.split("/").slice(0, -1).join("/");
+});
+
+const taken = computed(() => allPaths(nodes.value));
+
+/**
+ * Show the new entry rather than merely having made it.
+ *
+ * `loadFileTree` is the only refresh path there is, and nothing called it after
+ * a mutation before now — there were none to call it after.
+ */
+async function afterCreate(path: string, kind: "file" | "folder") {
+  const versionId = tabs.versionId;
+  if (!versionId) return;
+  await version.loadFileTree(versionId);
+  // After the reload, so the ancestors are looked up in the tree that now
+  // contains the new entry rather than the one that did not.
+  explorer.reveal("files", ancestorKeys(version.fileTree, path));
+  // Permanent, not a preview: a file the user deliberately created must not be
+  // evicted by the next plain click in the tree.
+  if (kind === "file") tabs.openFile(path);
+}
 
 // Matched on the whole relative path rather than the label, so `model/tech`
 // narrows: a file's label is only its last segment, and in a tree of `techs.yaml`
@@ -75,7 +120,33 @@ function open(node: FileTreeNode, event: MouseEvent | KeyboardEvent) {
         {{ allExpanded ? "Collapse all" : "Expand all" }}
       </button>
       <div class="flex-1" />
+
+      <!-- Both label their target, because where a new entry lands depends on
+           what is selected and that is not otherwise visible from the strip. -->
+      <TooltipButton
+        :label="`New file in ${parent || 'the model folder'}`"
+        :icon="FilePlus"
+        testid="new-file"
+        @click="creating = 'file'"
+      />
+      <TooltipButton
+        :label="`New folder in ${parent || 'the model folder'}`"
+        :icon="FolderPlus"
+        testid="new-folder"
+        @click="creating = 'folder'"
+      />
     </PanelHeader>
+
+    <NewFileDialog
+      v-if="tabs.versionId && creating"
+      :open="true"
+      :versionId="tabs.versionId"
+      :kind="creating"
+      :parent="parent"
+      :taken="taken"
+      @update:open="(value) => !value && (creating = null)"
+      @created="afterCreate"
+    />
 
     <TreeSearch
       v-model="query"

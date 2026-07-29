@@ -130,13 +130,17 @@ describe("filterTree", () => {
     // Two files called `techs.yaml` in different directories are otherwise
     // indistinguishable, and the path is the only thing that tells them apart.
     const result = filterTree(files, "model/", byKey);
-    expect(labels(result.items)).toEqual(["model", "techs.yaml", "nodes.yaml"]);
+    // Alphabetical within the directory: `buildFileTree` sorts, so this is not
+    // the order the entries were listed in above.
+    expect(labels(result.items)).toEqual(["model", "nodes.yaml", "techs.yaml"]);
   });
 });
 
 describe("branchKeys", () => {
   it("gives every openable node, at every depth", () => {
-    expect(branchKeys(files)).toEqual(["model", "data", "data/timeseries"]);
+    // `data` before `model` for the same reason: the file tree is sorted, not
+    // in listing order. Directories come first and then sort by name.
+    expect(branchKeys(files)).toEqual(["data", "data/timeseries", "model"]);
   });
 
   it("leaves out the leaves, including a childless root", () => {

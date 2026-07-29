@@ -152,6 +152,32 @@ export async function putFile(
   });
 }
 
+/**
+ * Where a file's raw bytes live.
+ *
+ * A URL rather than a request, because the one consumer is an `<img src>`: going
+ * through axios into a blob would cost a copy and lose the browser's own cache
+ * for no gain. It is still minted here so the route is written once, which is
+ * the point of this module.
+ */
+export function rawFileUrl(versionId: string, path: string): string {
+  return `/api/versions/${seg(versionId)}/raw/${filePath(path)}`;
+}
+
+/**
+ * Creates an empty file. Distinct from `putFile`, which overwrites on purpose.
+ *
+ * Rejects with 409 if anything is already there, and 400 for a name that would
+ * be hidden from the tree once created.
+ */
+export async function createFile(versionId: string, path: string): Promise<void> {
+  await client.post(`/api/versions/${seg(versionId)}/files/${filePath(path)}`);
+}
+
+export async function createFolder(versionId: string, path: string): Promise<void> {
+  await client.post(`/api/versions/${seg(versionId)}/folders/${filePath(path)}`);
+}
+
 export async function getCsv(versionId: string, path: string): Promise<CsvPayload> {
   const res = await client.get<CsvPayload>(
     `/api/versions/${seg(versionId)}/csv/${filePath(path)}`,

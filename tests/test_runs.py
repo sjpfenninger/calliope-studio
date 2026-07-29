@@ -411,7 +411,12 @@ class TestFrozenConfig:
         paths = {entry["path"] for entry in entries}
 
         assert "model.yaml" in paths
-        assert {"path", "type", "size"} <= set(entries[0])
+        # Keyed off a named file rather than `entries[0]`, which is a directory
+        # now that those are listed in their own right — and a directory carries
+        # no size, which is the whole of the difference between the two shapes.
+        model = next(entry for entry in entries if entry["path"] == "model.yaml")
+        assert {"path", "type", "size"} <= set(model)
+        assert any(entry["type"] == "directory" for entry in entries)
 
     def test_frozen_files_are_byte_identical_to_the_workspace(
         self, client, ws, finished

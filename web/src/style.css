@@ -17,6 +17,11 @@
 @import "maplibre-gl/dist/maplibre-gl.css";
 @import "./assets/maplibre-overrides.css";
 
+/* Rendered Markdown. Ours, not third-party, but here for the same reason: it
+   styles markup that arrives through `v-html`, so there is no component to
+   scope it to and no element to hang a utility on. */
+@import "./assets/markdown.css";
+
 /* shadcn-vue's generated components use `dark:` utilities and assume a `.dark`
    class. We switch on an attribute instead: charts/theme.ts already memoises on
    it, and an attribute leaves room for a third value (high-contrast) later where

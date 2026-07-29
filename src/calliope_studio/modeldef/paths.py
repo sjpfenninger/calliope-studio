@@ -67,36 +67,104 @@ def is_excluded(relative: Path) -> bool:
     )
 
 
+#: Extensions the frontend renders as a picture rather than as text.
+#:
+#: SVG is in here rather than with the text kinds because a user opening one
+#: wants to see the drawing. It is served as `image/svg+xml` and drawn through
+#: an `<img>`, which cannot run script, so treating it as an image is safe.
+IMAGE_SUFFIXES: frozenset[str] = frozenset(
+    {".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif", ".bmp", ".ico", ".svg"}
+)
+
+MARKDOWN_SUFFIXES: frozenset[str] = frozenset({".md", ".markdown"})
+
+#: Extensions known not to be text. Deliberately not exhaustive — it cannot be,
+#: which is why `read_file` sniffs for a NUL byte as well. This list only exists
+#: so the common cases get the right icon and skip the text request entirely.
+BINARY_SUFFIXES: frozenset[str] = frozenset(
+    {
+        ".nc",
+        ".h5",
+        ".hdf5",
+        ".zip",
+        ".gz",
+        ".tar",
+        ".xz",
+        ".7z",
+        ".parquet",
+        ".feather",
+        ".xlsx",
+        ".xls",
+        ".ods",
+        ".db",
+        ".sqlite",
+        ".sqlite3",
+        ".pdf",
+        ".pkl",
+        ".npy",
+        ".npz",
+        ".woff",
+        ".woff2",
+        ".ttf",
+        ".otf",
+        ".so",
+        ".dylib",
+        ".dll",
+        ".exe",
+    }
+)
+
+
 def file_type(name: str) -> str:
-    """Classifies a file for the frontend's file tree icons."""
+    """Classifies a file for the frontend's file tree icons.
+
+    Kept in step with `web/src/lib/fileKind.ts`, which answers the same question
+    for the *renderer*. The duplication is deliberate: a tab restored from a
+    `?tab=` URL is created before the file tree has been fetched, so the client
+    cannot wait for this answer. `tests/test_paths.py` and `fileKind.test.ts`
+    cover the same table on both sides.
+    """
     suffix = Path(name).suffix.lower()
     if suffix in (".yaml", ".yml"):
         return "yaml"
     if suffix == ".csv":
         return "csv"
+    if suffix in MARKDOWN_SUFFIXES:
+        return "markdown"
+    if suffix in IMAGE_SUFFIXES:
+        return "image"
+    if suffix in BINARY_SUFFIXES:
+        return "binary"
     return "other"
 
 
 def walk_files(base: Path) -> list[dict]:
-    """Lists every non-excluded file in a workspace, sorted by path."""
+    """Lists every non-excluded file and directory in a workspace, by path.
+
+    Directories are listed in their own right, not merely implied by the files
+    under them. The tree the frontend builds used to synthesise a folder from
+    the `/` in a file's path, which meant an *empty* folder could not be
+    represented at all — and so could not be created.
+    """
     root = Path(base)
     if not root.is_dir():
         return []
 
     entries = []
     for path in sorted(root.rglob("*")):
-        if not path.is_file():
-            continue
         relative = path.relative_to(root)
         if is_excluded(relative):
             continue
-        entries.append(
-            {
-                "path": str(relative),
-                "type": file_type(path.name),
-                "size": path.stat().st_size,
-            }
-        )
+        if path.is_dir():
+            entries.append({"path": str(relative), "type": "directory"})
+        elif path.is_file():
+            entries.append(
+                {
+                    "path": str(relative),
+                    "type": file_type(path.name),
+                    "size": path.stat().st_size,
+                }
+            )
     return entries
 
 

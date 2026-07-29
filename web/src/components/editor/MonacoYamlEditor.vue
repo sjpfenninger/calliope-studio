@@ -21,6 +21,7 @@ import {
 } from "../../editor/monacoTheme";
 import PanelHeader from "../app/PanelHeader.vue";
 import SchemaKindPicker from "./SchemaKindPicker.vue";
+import { fileModelUri } from "../../lib/monacoBuffer";
 import { fileTabId } from "../../lib/tabId";
 import {
   isEditableTab,
@@ -50,6 +51,7 @@ const changeDisposables = new Map<string, monaco.IDisposable>();
 function langForPath(path: string): string {
   const ext = path.split(".").pop()?.toLowerCase();
   if (ext === "yaml" || ext === "yml") return "yaml";
+  if (ext === "md" || ext === "markdown") return "markdown";
   return "plaintext";
 }
 
@@ -62,8 +64,14 @@ async function ensureFileModel(path: string): Promise<monaco.editor.ITextModel> 
     content = await getFile(props.versionId, path);
   }
 
-  const uri = monaco.Uri.parse(`file:///${path}`);
-  const model = monaco.editor.createModel(content, langForPath(path), uri);
+  // Through `fileModelUri` so the scheme is written once: the markdown preview
+  // reads this same model to render unsaved edits, and would silently fall back
+  // to the fetched text if the two ever disagreed.
+  const model = monaco.editor.createModel(
+    content,
+    langForPath(path),
+    fileModelUri(path),
+  );
 
   const disposable = model.onDidChangeContent(() => {
     // A file tab's id is derived from its path rather than being it, so this has

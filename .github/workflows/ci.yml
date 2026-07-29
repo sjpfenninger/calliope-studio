@@ -133,6 +133,13 @@ jobs:
       - name: Model picker
         run: pixi run -- pnpm --dir web run model-picker http://127.0.0.1:8791
 
+      # Creating a file and a folder, and what a file that is not text shows.
+      # A binary used to open in Monaco as a screenful of replacement
+      # characters, which Ctrl/Cmd+S then wrote back over the original bytes —
+      # so the save keystroke is asserted here, not only the message.
+      - name: File actions and viewers
+        run: pixi run -- pnpm --dir web run file-actions http://127.0.0.1:8791
+
       # Really solves, with CBC, and drives the run tab from log to charts.
       - name: Run lifecycle
         run: pixi run -- pnpm --dir web run run-lifecycle http://127.0.0.1:8791

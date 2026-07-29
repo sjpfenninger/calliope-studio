@@ -8,6 +8,14 @@ export type { FileEntry, FileTreeNode };
 
 export const useVersionStore = defineStore("version", () => {
   const fileTree = ref<FileTreeNode[]>([]);
+  /**
+   * The flat listing the tree was built from.
+   *
+   * Kept rather than discarded because `size` was already being fetched and
+   * thrown away: the binary viewer says how big the file it will not display
+   * is, and that costs no extra request.
+   */
+  const files = ref<FileEntry[]>([]);
   const currentVersionId = ref<string | null>(null);
   const isLoading = ref(false);
   const error = ref<string | null>(null);
@@ -29,8 +37,10 @@ export const useVersionStore = defineStore("version", () => {
     isLoading.value = true;
     error.value = null;
     try {
-      fileTree.value = buildFileTree(await listFiles(versionId));
+      files.value = await listFiles(versionId);
+      fileTree.value = buildFileTree(files.value);
     } catch (caught) {
+      files.value = [];
       fileTree.value = [];
       error.value = errorDetail(caught, "Could not list this model's files.");
     } finally {
@@ -38,5 +48,18 @@ export const useVersionStore = defineStore("version", () => {
     }
   }
 
-  return { fileTree, currentVersionId, isLoading, error, loadFileTree };
+  /** A file's size in bytes, or null if it is not in the current listing. */
+  function sizeOf(path: string): number | null {
+    return files.value.find((entry) => entry.path === path)?.size ?? null;
+  }
+
+  return {
+    fileTree,
+    files,
+    currentVersionId,
+    isLoading,
+    error,
+    loadFileTree,
+    sizeOf,
+  };
 });

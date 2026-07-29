@@ -3,6 +3,19 @@ import { defineStore } from "pinia";
 
 import { putCsv, putFile } from "../api/versions";
 import { fileKindOf, isTextFileType, type FileType } from "../lib/fileKind";
+import {
+  canGoBack as historyCanGoBack,
+  canGoForward as historyCanGoForward,
+  currentEntry,
+  emptyHistory,
+  forget,
+  stepBack,
+  stepForward,
+  visit,
+  type NavAnchor,
+  type NavEntry,
+  type NavHistory,
+} from "../lib/navHistory";
 import { KEY_PREFIX } from "../lib/storageKeys";
 import {
   entryTabId,
@@ -202,6 +215,15 @@ export const useTabsStore = defineStore("tabs", () => {
   const jumpTarget = ref<JumpTarget | null>(null);
 
   /**
+   * Where the user has been, for the back and forward buttons.
+   *
+   * In memory only. A session's history is not a preference — persisting it
+   * would mean a second storage key whose entries name tabs the model may no
+   * longer contain, restored into a window nobody has navigated in yet.
+   */
+  const history = ref<NavHistory>(emptyHistory());
+
+  /**
    * The one tab a plain click is allowed to reuse, if there is one.
    *
    * Browsing a model is mostly *looking*: opening a permanent tab per click
@@ -234,6 +256,9 @@ export const useTabsStore = defineStore("tabs", () => {
   );
 
   function setVersion(id: string) {
+    // The stack names this model's tabs, so it does not survive a change of
+    // model — back would otherwise offer to reopen a file that is not here.
+    if (versionId.value !== id) history.value = emptyHistory();
     versionId.value = id;
   }
 
@@ -309,7 +334,43 @@ export const useTabsStore = defineStore("tabs", () => {
    */
   let quiet = false;
 
-  function activate(id: string) {
+  /**
+   * Set while an activation is not the user going somewhere.
+   *
+   * Every `open*` funnels through `activate`, which is what lets the history be
+   * recorded in one place with no call site knowing about it — and is also why
+   * the exceptions have to say so, or walking backwards would append to the very
+   * stack it is walking.
+   */
+  let replaying = false;
+
+  /**
+   * Runs `body` without recording the activations it causes.
+   *
+   * Saves and restores rather than clearing the flag, because these nest: a
+   * replayed open can settle the preview slot, which closes a tab, which
+   * activates its neighbour. A `finally` that wrote `false` would hand the outer
+   * replay back an unsuppressed `activate` and quietly record half of it.
+   */
+  function withoutRecording<T>(body: () => T): T {
+    const was = replaying;
+    replaying = true;
+    try {
+      return body();
+    } finally {
+      replaying = was;
+    }
+  }
+
+  /**
+   * Brings a tab to the front, recording it as somewhere the user has been.
+   *
+   * `anchor` is set only by `jumpTo`: the position is what makes going *forward*
+   * to a provenance link land where it landed the first time, since `jumpTarget`
+   * is a one-shot signal Monaco nulls after consuming and the cursor is stored
+   * nowhere else.
+   */
+  function activate(id: string, anchor: NavAnchor | null = null) {
     if (quiet) return;
     const tab = openTabs.get(id);
     if (!tab) return;
@@ -320,6 +381,8 @@ export const useTabsStore = defineStore("tabs", () => {
     if (at >= 0) recency.splice(at, 1);
     recency.push(id);
     dropStaleRunPanes();
+
+    if (!replaying) history.value = visit(history.value, { tabId: id, anchor });
   }
 
   /**
@@ -373,9 +436,14 @@ export const useTabsStore = defineStore("tabs", () => {
     if (prior && prior !== id && !openTabs.get(prior)?.isDirty) closeTab(prior);
   }
 
+  /**
+   * `anchor` is deliberately here rather than on the shared `OpenOptions`: a
+   * position only means anything for a file, and putting it on the bag
+   * `openIntent` returns would have the other four `open*` accept and ignore it.
+   */
   function openFile(
     path: string,
-    options: OpenOptions & { fileType?: FileType } = {},
+    options: OpenOptions & { fileType?: FileType; anchor?: NavAnchor } = {},
   ): string {
     const id = fileTabId(path);
     const existed = openTabs.has(id);
@@ -392,7 +460,7 @@ export const useTabsStore = defineStore("tabs", () => {
         mounted: false,
       });
     }
-    activate(id);
+    activate(id, options.anchor ?? null);
     settlePreview(id, existed, options.preview ?? false);
     return id;
   }
@@ -607,13 +675,24 @@ export const useTabsStore = defineStore("tabs", () => {
 
     if (activeId.value !== id) return;
     const next = ids[at + 1] ?? ids[at - 1] ?? null;
-    if (next) activate(next);
+    // Not a step: the neighbour is where closing left you, not somewhere you
+    // went. Recording it would put the closed tab's successor into the stack
+    // twice over and make "back" mean "undo a close".
+    if (next) withoutRecording(() => activate(next));
     else activeId.value = null;
   }
 
-  /** Closes a run's tab, if it has one. For a run that has just been deleted. */
+  /**
+   * Closes a run's tab, if it has one. For a run that has just been deleted.
+   *
+   * The one case where history is discarded rather than kept. Every other closed
+   * tab is reopenable from its id — which is what makes going back to a tab the
+   * preview slot evicted work at all — but a deleted run is gone from disk, and
+   * `openFromId` would happily conjure a tab for it.
+   */
   function closeRun(runId: string) {
     const id = runTabId(runId);
+    history.value = forget(history.value, id);
     if (openTabs.has(id)) closeTab(id);
   }
 
@@ -631,8 +710,55 @@ export const useTabsStore = defineStore("tabs", () => {
     column: number,
     options: OpenOptions = { preview: true },
   ) {
-    openFile(path, options);
+    // The anchor goes in with the open, so one navigation records one entry
+    // rather than a bare landing followed by a positioned one — which would
+    // cost two presses of Back to undo one click.
+    openFile(path, { ...options, anchor: { line, column } });
     jumpTarget.value = { path, line, column };
+  }
+
+  // ── Back and forward ──────────────────────────────────────────────────────
+
+  const canGoBack = computed(() => historyCanGoBack(history.value));
+  const canGoForward = computed(() => historyCanGoForward(history.value));
+
+  /**
+   * Puts the user back at a place they have been.
+   *
+   * The tab may not be open any more — closed by hand, or evicted from the
+   * preview slot by the very navigation being undone, which is the case this
+   * whole feature exists for. Its id rebuilds it, and `openFromId` opens it
+   * *permanently*: going back is a deliberate act, and a previewed tab would be
+   * thrown away again by the next click in the tree.
+   */
+  function goTo(entry: NavEntry) {
+    const landed = withoutRecording(() => {
+      if (!openTabs.has(entry.tabId)) return openFromId(entry.tabId);
+      activate(entry.tabId);
+      return entry.tabId;
+    });
+    if (!landed) return;
+
+    const spec = parseTabId(entry.tabId);
+    if (entry.anchor && spec?.kind === "file") {
+      jumpTarget.value = { path: spec.path, ...entry.anchor };
+    }
+  }
+
+  function back() {
+    const next = stepBack(history.value);
+    if (next === history.value) return;
+    history.value = next;
+    const entry = currentEntry(next);
+    if (entry) goTo(entry);
+  }
+
+  function forward() {
+    const next = stepForward(history.value);
+    if (next === history.value) return;
+    history.value = next;
+    const entry = currentEntry(next);
+    if (entry) goTo(entry);
   }
 
   // ── Saving ────────────────────────────────────────────────────────────────
@@ -664,6 +790,10 @@ export const useTabsStore = defineStore("tabs", () => {
     runTabs,
     versionId,
     jumpTarget,
+    canGoBack,
+    canGoForward,
+    back,
+    forward,
     get,
     has,
     setVersion,

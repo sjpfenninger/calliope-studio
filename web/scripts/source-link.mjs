@@ -41,6 +41,24 @@ const links = (kind) =>
 const activeTab = () =>
   page.locator('[data-testid^="tab-"][data-active]').first().innerText();
 
+/**
+ * The text of the line Monaco has the cursor on.
+ *
+ * Read off the rendered rows rather than from the editor's API: the assertion is
+ * that the user is *looking* at the declaration, and a model whose cursor is set
+ * but whose viewport never scrolled would pass an API check.
+ */
+const cursorLine = () =>
+  page.evaluate(() => {
+    const current = document.querySelector(".current-line");
+    if (!current) return null;
+    const top = current.getBoundingClientRect().top;
+    for (const row of document.querySelectorAll(".view-line")) {
+      if (Math.abs(row.getBoundingClientRect().top - top) < 2) return row.textContent;
+    }
+    return null;
+  });
+
 /** Opens a model-tree section and waits for its editor. */
 async function openSection(name) {
   await calls.settle(() =>
@@ -65,6 +83,11 @@ try {
 
   // ── A data table, from the techs editor ──────────────────────────────────
   await openSection("techs");
+
+  // One place visited is no history. A pair of buttons that look live from the
+  // first click says the stack is recording something the user did not do.
+  check("nothing to go back to at the start", await testId("history-back").isDisabled());
+  check("nothing to go forward to either", await testId("history-forward").isDisabled());
 
   const labels = await page.locator('[data-testid="source-link"]').allTextContents();
   check("the techs editor shows source links", labels.length > 0);
@@ -103,19 +126,48 @@ try {
   // Monaco reveals the position, so the line under the cursor is the one that
   // declares the template. Landing at line 1 of a file of many is the failure
   // the server-side line number exists to prevent.
-  const line = await page.evaluate(() => {
-    const current = document.querySelector(".current-line");
-    if (!current) return null;
-    const top = current.getBoundingClientRect().top;
-    for (const row of document.querySelectorAll(".view-line")) {
-      if (Math.abs(row.getBoundingClientRect().top - top) < 2) return row.textContent;
-    }
-    return null;
-  });
+  const line = await cursorLine();
   check(
     `…scrolled to the line that declares ${name}`,
     line !== null && line.trim().startsWith(`${name}:`),
     `cursor line: ${JSON.stringify(line)}`,
+  );
+
+  // ── And back again ───────────────────────────────────────────────────────
+  //
+  // The jump above is the case back exists for, and it is worse than a dead end:
+  // every click here was a plain one, so each landed in the preview slot and
+  // evicted the last. The links editor's tab is not merely behind us, it was
+  // *closed* by the click that opened the template. Going back therefore has to
+  // rebuild it from its id, not re-select it.
+  check("back is offered after a jump", await testId("history-back").isEnabled());
+
+  await calls.settle(() => testId("history-back").click());
+  check(
+    "back returns to the editor the jump closed",
+    (await activeTab()).toLowerCase().includes("links"),
+    await activeTab(),
+  );
+  check(
+    "…in its structured editor, rebuilt",
+    (await testId("save").count()) === 1,
+  );
+
+  await calls.settle(() => testId("history-forward").click());
+  check(
+    "forward returns to the template file",
+    /\.ya?ml$/.test(await activeTab()),
+    await activeTab(),
+  );
+
+  // The reveal is one-shot — Monaco nulls `jumpTarget` once it has consumed it,
+  // and stores the cursor nowhere. Without the position on the history entry
+  // this comes back at line 1, which reads as forward half-working.
+  const again = await cursorLine();
+  check(
+    `…at the line it left, still declaring ${name}`,
+    again !== null && again.trim().startsWith(`${name}:`),
+    `cursor line: ${JSON.stringify(again)}`,
   );
 
   check("no console errors", consoleErrors.length === 0, consoleErrors.join("\n"));

@@ -474,6 +474,138 @@ describe("useTabsStore", () => {
     });
   });
 
+  describe("back and forward", () => {
+    it("has nowhere to go before anything is opened", () => {
+      const tabs = useTabsStore();
+      expect(tabs.canGoBack).toBe(false);
+      expect(tabs.canGoForward).toBe(false);
+    });
+
+    it("returns to the tab a jump left behind, and forward again", () => {
+      const tabs = useTabsStore();
+      tabs.openEntry("techs", "techs.yaml", "ccgt");
+      tabs.jumpTo("templates.yaml", 34, 1);
+
+      tabs.back();
+      expect(tabs.activeId).toBe(entryTabId("techs", "techs.yaml", "ccgt"));
+      expect(tabs.canGoForward).toBe(true);
+
+      tabs.forward();
+      expect(tabs.activeId).toBe(fileTabId("templates.yaml"));
+    });
+
+    it("replays the line, since Monaco keeps no position of its own", () => {
+      const tabs = useTabsStore();
+      tabs.openEntry("techs", "techs.yaml", "ccgt");
+      tabs.jumpTo("templates.yaml", 34, 1);
+      // The consumer nulls it, so forward has to set it again or the tab comes
+      // back at line 1 — which reads as the button half-working.
+      tabs.jumpTarget = null;
+
+      tabs.back();
+      tabs.forward();
+      expect(tabs.jumpTarget).toEqual({ path: "templates.yaml", line: 34, column: 1 });
+    });
+
+    it("reopens a tab the preview slot evicted", () => {
+      const tabs = useTabsStore();
+      // Exactly what a plain click in the model tree followed by a plain click
+      // on a provenance marker does: the second one closes the first one's tab.
+      const entry = tabs.openEntry("techs", "techs.yaml", "ccgt", { preview: true });
+      tabs.jumpTo("templates.yaml", 34, 1, { preview: true });
+      expect(tabs.has(entry)).toBe(false);
+
+      tabs.back();
+      expect(tabs.activeId).toBe(entry);
+      expect(tabs.has(entry)).toBe(true);
+      // Permanent, or the next click in the tree would throw it away again.
+      expect(tabs.previewId).not.toBe(entry);
+    });
+
+    it("records one step per jump, not two", () => {
+      const tabs = useTabsStore();
+      tabs.openFile("a.yaml");
+      tabs.jumpTo("b.yaml", 5, 1);
+
+      tabs.back();
+      expect(tabs.activeId).toBe(fileTabId("a.yaml"));
+      expect(tabs.canGoBack).toBe(false);
+    });
+
+    it("does not record re-activating the tab already in front", () => {
+      const tabs = useTabsStore();
+      tabs.openFile("a.yaml");
+      const id = tabs.openFile("b.yaml");
+      tabs.activate(id);
+      tabs.activate(id);
+
+      tabs.back();
+      expect(tabs.activeId).toBe(fileTabId("a.yaml"));
+    });
+
+    it("discards the forward tail once you go somewhere else", () => {
+      const tabs = useTabsStore();
+      tabs.openFile("a.yaml");
+      tabs.openFile("b.yaml");
+      tabs.back();
+      tabs.openFile("c.yaml");
+
+      expect(tabs.canGoForward).toBe(false);
+      tabs.back();
+      expect(tabs.activeId).toBe(fileTabId("a.yaml"));
+    });
+
+    it("does not record the neighbour a close falls back to", () => {
+      const tabs = useTabsStore();
+      tabs.openFile("a.yaml");
+      const b = tabs.openFile("b.yaml");
+      tabs.closeTab(b);
+      expect(tabs.activeId).toBe(fileTabId("a.yaml"));
+
+      // Closing is not going somewhere: back should still reach the state
+      // before b was opened, which is a.yaml, and stop there.
+      expect(tabs.canGoBack).toBe(true);
+      tabs.back();
+      expect(tabs.activeId).toBe(fileTabId("a.yaml"));
+      expect(tabs.canGoBack).toBe(false);
+    });
+
+    it("records nothing while a persisted tab set is restored", () => {
+      const store = useTabsStore();
+      store.setVersion("v1");
+      store.openFile("a.yaml");
+      store.openFile("b.yaml");
+      store.persist();
+
+      setActivePinia(createPinia());
+      const restored = useTabsStore();
+      restored.setVersion("v1");
+      restored.restore("v1");
+      expect(restored.canGoBack).toBe(false);
+      expect(restored.canGoForward).toBe(false);
+    });
+
+    it("forgets a deleted run, which no id can reopen", () => {
+      const tabs = useTabsStore();
+      tabs.openFile("a.yaml");
+      tabs.openRun({ id: "run-1" });
+      tabs.closeRun("run-1");
+
+      expect(tabs.canGoBack).toBe(false);
+      expect(tabs.activeId).toBe(fileTabId("a.yaml"));
+    });
+
+    it("starts over when the model changes", () => {
+      const tabs = useTabsStore();
+      tabs.setVersion("v1");
+      tabs.openFile("a.yaml");
+      tabs.openFile("b.yaml");
+      tabs.setVersion("v2");
+
+      expect(tabs.canGoBack).toBe(false);
+    });
+  });
+
   describe("editor mode", () => {
     it("switches for a section tab", () => {
       const tabs = useTabsStore();

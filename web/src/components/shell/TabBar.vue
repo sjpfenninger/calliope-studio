@@ -39,6 +39,7 @@ import {
   SEGMENT_NAV_SEAM,
   SEGMENT_STRIP_LINE_SCROLLED,
 } from "@/components/app/segmented";
+import TabHistory from "./TabHistory.vue";
 import { fileIcon, ICON_STROKE_WIDTH_TIGHT, sectionIcon } from "@/lib/icons";
 import { cn } from "@/lib/utils";
 import { useTabsStore, type TabEntry } from "@/stores/tabs";
@@ -111,71 +112,91 @@ function onAuxClick(id: string, event: MouseEvent) {
 </script>
 
 <template>
-  <!-- design-check: allow strip — the one hand-rolled strip. Close buttons,
+  <!-- The row is the strip; the tabs scroll *within* it, so back and forward
+       stay put rather than sliding off the left end with the first tab.
+
+       Both halves draw the bottom hairline with the same inset shadow. Two
+       mechanisms — a `border-b` here and a shadow there — would be two ways of
+       painting one pixel, and that is how they come to disagree by one.
+
+       design-check: allow strip — the one hand-rolled strip. Close buttons,
        dirty dots, preview italics, middle-click and overflow auto-reveal do not
        fit PanelHeader's slot, but the active-state classes below are imported
        from segmented.ts so the one selection rule still cannot drift.
        design-check: allow strip -->
   <div
     v-if="tabs.ordered.length"
-    ref="strip"
-    data-testid="tab-strip"
-    :class="
-      cn(
-        'scrollbar-none flex h-8 shrink-0 items-stretch overflow-x-auto bg-panel',
-        SEGMENT_STRIP_LINE_SCROLLED,
-      )
-    "
-    @wheel="onWheel"
+    class="flex h-8 shrink-0 items-stretch bg-panel"
   >
-    <!-- design-check: allow native-title — the tab's own label, which is
-         `max-w-40 truncate`; a tooltip here would be a portal per tab. -->
-    <button
-      v-for="tab in tabs.ordered"
-      :key="tab.id"
-      type="button"
-      :data-testid="`tab-${tab.kind}`"
-      :data-active="tab.id === tabs.activeId || undefined"
-      :data-preview="tab.id === tabs.previewId || undefined"
-      :title="tab.kind === 'entry' ? `${tab.entryName} · ${tab.section}` : tab.title"
-      :class="TAB_CLASS"
-      @click="tabs.activate(tab.id)"
-      @dblclick="tabs.promote(tab.id)"
-      @auxclick="onAuxClick(tab.id, $event)"
+    <div
+      :class="cn('flex items-center gap-0.5 px-1', SEGMENT_STRIP_LINE_SCROLLED)"
     >
-      <component
-        :is="iconFor(tab)"
-        class="size-3.5 shrink-0"
-      />
-      <span class="max-w-40 truncate">{{ label(tab) }}</span>
-      <span
-        v-if="tab.kind === 'entry'"
-        class="text-2xs text-text-faint"
-      >· {{ tab.section }}</span>
+      <TabHistory />
+    </div>
 
-      <!-- The dot takes the close button's place until hovered, so the tab does
-           not change width and the row does not shuffle under the cursor.
+    <!-- `min-w-0` is load-bearing: a flex child will not shrink below its
+         content without it, so the tabs would push the buttons off. -->
+    <div
+      ref="strip"
+      data-testid="tab-strip"
+      :class="
+        cn(
+          'scrollbar-none flex min-w-0 flex-1 items-stretch overflow-x-auto',
+          SEGMENT_STRIP_LINE_SCROLLED,
+        )
+      "
+      @wheel="onWheel"
+    >
+      <!-- design-check: allow native-title — the tab's own label, which is
+           `max-w-40 truncate`; a tooltip here would be a portal per tab. -->
+      <button
+        v-for="tab in tabs.ordered"
+        :key="tab.id"
+        type="button"
+        :data-testid="`tab-${tab.kind}`"
+        :data-active="tab.id === tabs.activeId || undefined"
+        :data-preview="tab.id === tabs.previewId || undefined"
+        :title="tab.kind === 'entry' ? `${tab.entryName} · ${tab.section}` : tab.title"
+        :class="TAB_CLASS"
+        @click="tabs.activate(tab.id)"
+        @dblclick="tabs.promote(tab.id)"
+        @auxclick="onAuxClick(tab.id, $event)"
+      >
+        <component
+          :is="iconFor(tab)"
+          class="size-3.5 shrink-0"
+        />
+        <span class="max-w-40 truncate">{{ label(tab) }}</span>
+        <span
+          v-if="tab.kind === 'entry'"
+          class="text-2xs text-text-faint"
+        >· {{ tab.section }}</span>
 
-           Which is also why it gets no tooltip: it is gone by the time a pointer
-           could rest on it, so the `title` it used to carry was unreachable. The
-           sr-only text is the part that was doing real work — it joins the tab's
-           own accessible name. -->
-      <span
-        v-if="tab.isDirty"
-        data-testid="tab-dirty"
-        class="size-1.5 shrink-0 rounded-full bg-primary group-hover:hidden"
-      >
-        <span class="sr-only">Unsaved changes</span>
-      </span>
-      <span
-        class="-mr-1 grid size-4 shrink-0 place-items-center rounded-xs text-text-faint opacity-0 hover:bg-active hover:text-foreground group-hover:opacity-100"
-        :class="tab.isDirty ? 'hidden group-hover:grid' : ''"
-        role="button"
-        aria-label="Close tab"
-        @click="close(tab.id, $event)"
-      >
-        <X class="size-3" :stroke-width="ICON_STROKE_WIDTH_TIGHT" />
-      </span>
-    </button>
+        <!-- The dot takes the close button's place until hovered, so the tab
+             does not change width and the row does not shuffle under the
+             cursor.
+
+             Which is also why it gets no tooltip: it is gone by the time a
+             pointer could rest on it, so the `title` it used to carry was
+             unreachable. The sr-only text is the part that was doing real work
+             — it joins the tab's own accessible name. -->
+        <span
+          v-if="tab.isDirty"
+          data-testid="tab-dirty"
+          class="size-1.5 shrink-0 rounded-full bg-primary group-hover:hidden"
+        >
+          <span class="sr-only">Unsaved changes</span>
+        </span>
+        <span
+          class="-mr-1 grid size-4 shrink-0 place-items-center rounded-xs text-text-faint opacity-0 hover:bg-active hover:text-foreground group-hover:opacity-100"
+          :class="tab.isDirty ? 'hidden group-hover:grid' : ''"
+          role="button"
+          aria-label="Close tab"
+          @click="close(tab.id, $event)"
+        >
+          <X class="size-3" :stroke-width="ICON_STROKE_WIDTH_TIGHT" />
+        </span>
+      </button>
+    </div>
   </div>
 </template>

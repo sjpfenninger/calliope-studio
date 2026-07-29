@@ -60,18 +60,18 @@ function read(id: string): UnitPrefs {
 export const useUnitsStore = defineStore("units", () => {
   const tabs = useTabsStore();
 
-  const modelId = computed(() => tabs.versionId || FALLBACK_ID);
-  const prefs = ref<UnitPrefs>(read(modelId.value));
+  const versionId = computed(() => tabs.versionId || FALLBACK_ID);
+  const prefs = ref<UnitPrefs>(read(versionId.value));
 
   // Switching models swaps the whole set, rather than carrying the last model's
   // units onto the next one's numbers.
-  watch(modelId, (id) => {
+  watch(versionId, (id) => {
     prefs.value = read(id);
   });
 
   function persist() {
     try {
-      const id = modelId.value;
+      const id = versionId.value;
       // An empty set is a removal, so a model reverts to no key at all rather
       // than accumulating `{}` for every model ever opened.
       if (!Object.keys(prefs.value).length) localStorage.removeItem(storageKey(id));
@@ -103,5 +103,5 @@ export const useUnitsStore = defineStore("units", () => {
 
   const isCustomised = computed(() => Object.keys(prefs.value).length > 0);
 
-  return { prefs, modelId, isCustomised, set, clear };
+  return { prefs, versionId, isCustomised, set, clear };
 });

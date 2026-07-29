@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from "vue-router";
 
+import { useConfirmStore } from "../stores/confirm";
 import { useTabsStore } from "../stores/tabs";
 
 /**
@@ -107,9 +108,20 @@ export const router = createRouter({
  * Moving *between* sections is not leaving, which is exactly what the shared
  * `AppShell` record expresses.
  */
-router.beforeEach((to, from) => {
+router.beforeEach(async (to, from) => {
   if (!from.meta.section || to.meta.section) return true;
   const tabs = useTabsStore();
   if (!tabs.hasDirtyTabs) return true;
-  return window.confirm("You have unsaved changes. Leave anyway?");
+  // Awaiting a real dialog. This was the app's one `window.confirm` — an
+  // OS-drawn surface that takes no token, no radius and no delay, in a codebase
+  // that bans the native `title` attribute for precisely that reason, and
+  // standing on the one path where misreading it costs a user's unsaved model.
+  // `beforeEach` may return a promise, so the navigation simply waits.
+  return useConfirmStore().ask({
+    title: "Leave with unsaved changes?",
+    message:
+      "Edits you have not saved will be lost. Files already written to disk are untouched.",
+    confirmLabel: "Leave",
+    destructive: true,
+  });
 });

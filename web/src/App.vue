@@ -6,6 +6,7 @@
  * the sidebar header, and the single "Results" link became the Runs section.
  */
 import { setLucideProps } from "@lucide/vue";
+import ConfirmDialog from "./components/app/ConfirmDialog.vue";
 import TooltipProvider from "./components/ui/tooltip/TooltipProvider.vue";
 import { ICON_STROKE_WIDTH } from "./lib/icons";
 import { useUiStore } from "./stores/ui";
@@ -28,5 +29,9 @@ setLucideProps({ strokeWidth: ICON_STROKE_WIDTH });
        tooltip on every incidental hover across a dense toolbar. -->
   <TooltipProvider :delay-duration="300" :skip-delay-duration="200">
     <RouterView />
+
+    <!-- Outside the routed view: the only thing that asks for it is the guard
+         that fires while the shell is being left. -->
+    <ConfirmDialog />
   </TooltipProvider>
 </template>

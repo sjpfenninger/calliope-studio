@@ -56,16 +56,16 @@ const isEmpty = (pref: RoundingPref) => !pref.digits && !pref.exports;
 export const useRoundingStore = defineStore("rounding", () => {
   const tabs = useTabsStore();
 
-  const modelId = computed(() => tabs.versionId || FALLBACK_ID);
-  const pref = ref<RoundingPref>(read(modelId.value));
+  const versionId = computed(() => tabs.versionId || FALLBACK_ID);
+  const pref = ref<RoundingPref>(read(versionId.value));
 
-  watch(modelId, (id) => {
+  watch(versionId, (id) => {
     pref.value = read(id);
   });
 
   function persist() {
     try {
-      const id = modelId.value;
+      const id = versionId.value;
       // Nothing set is no key at all, rather than a default record accumulating
       // for every model ever opened.
       if (isEmpty(pref.value)) localStorage.removeItem(storageKey(id));
@@ -124,7 +124,7 @@ export const useRoundingStore = defineStore("rounding", () => {
   return {
     digits,
     exports,
-    modelId,
+    versionId,
     precision,
     exportPrecision,
     isCustomised,

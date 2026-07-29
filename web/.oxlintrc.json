@@ -1,9 +1,15 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["typescript", "vue"],
+  "plugins": [
+    "typescript",
+    "vue"
+  ],
   "categories": {
     "correctness": "error"
   },
-  "ignorePatterns": ["dist", "node_modules", "src/components/ui"],
+  "ignorePatterns": [
+    "dist",
+    "node_modules"
+  ],
   "rules": {}
 }

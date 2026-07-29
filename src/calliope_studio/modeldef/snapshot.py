@@ -71,21 +71,50 @@ def _import_entries(document: Any) -> list[str]:
     return [str(entry) for entry in imports if entry]
 
 
-def math_paths(document: Any) -> list[str]:
-    """Math files named in `config.init.math_paths`.
+def math_path_entries(document: Any) -> dict[str, str]:
+    """Math files named in `config.init.math_paths`, keyed by their math *name*.
 
     These are *not* reachable through `import:`, so the import graph cannot see
     them. `urban_scale` refers to `additional_math.yaml` this way, and a snapshot
     missing it is not a model that builds.
 
     Public because it is the only implementation of this route in the package,
-    and `filekinds` needs the same answer for a different reason: a file Calliope
-    reads as math must not be validated against the model-definition schema.
+    and three callers need the same answer for different reasons: a snapshot must
+    copy the file, `filekinds` must not validate it against the model-definition
+    schema, and `mathdef` must say whether it is enabled — which is a question
+    about the *key*, since `config.init.extra_math` names math by key and not by
+    path. The keys used to be discarded here, so nothing could answer it.
     """
     config = document.get("config") if isinstance(document, dict) else None
     init = config.get("init") if isinstance(config, dict) else None
     paths = init.get("math_paths") if isinstance(init, dict) else None
-    return [str(value) for value in paths.values()] if isinstance(paths, dict) else []
+    if not isinstance(paths, dict):
+        return {}
+    return {str(name): str(value) for name, value in paths.items()}
+
+
+def math_paths(document: Any) -> list[str]:
+    """Just the paths from `math_path_entries`, for callers that copy files."""
+    return list(math_path_entries(document).values())
+
+
+def resolve_math_path(root: Path, name: str) -> Path:
+    """Where Calliope will look for a math file named in `math_paths`.
+
+    **Relative to the workspace root, never to the file that declares it.**
+    `prepare_model_definition` hands `initialise_math` the `definition_path` it
+    was given — the entry-point `model.yaml`, which `find_model_yaml` only ever
+    finds at the workspace root — and `relative_path` resolves against that. A
+    `math_paths:` entry written inside an imported subfolder therefore means
+    something different from every other relative path in that file.
+
+    Both callers used to resolve against the declaring file's parent, which is
+    right only for the common case of the entry being in the root `model.yaml`.
+    Declared one level down, the file was classified `unknown` (so the editor
+    validated math against the model-definition schema) and, worse, was left out
+    of the run snapshot — which makes the frozen model unbuildable.
+    """
+    return (Path(root) / name).resolve()
 
 
 def _data_files(config: dict) -> list[str]:
@@ -157,7 +186,7 @@ def collect(workspace: Path) -> Collected:
         for name in _import_entries(document):
             add(path.parent / name, path, "import")
         for name in math_paths(document):
-            add(path.parent / name, path, "math")
+            add(resolve_math_path(root, name), path, "math")
         for _, config, directory in collect_data_tables(path):
             for name in _data_files(config):
                 add(directory / name, path, "data_table")

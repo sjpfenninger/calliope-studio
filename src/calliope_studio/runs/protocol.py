@@ -53,6 +53,14 @@ RESULTS_FILE = "results.nc"
 #: model would fail every one of those queries.
 RESOLVED_FILE = "resolved.nc"
 
+#: The model's math, rendered to LaTeX per component. Written instead of
+#: `results.nc` when the request is `math_only`.
+#:
+#: JSON rather than a `.nc` because none of it is array data — it is a few hundred
+#: strings — and because the browser reads it directly rather than through the
+#: results store.
+MATH_FILE = "math.json"
+
 #: The frozen model definition, and the manifest describing it. Written by the
 #: parent before the run starts; see `calliope_studio.modeldef.snapshot`.
 SNAPSHOT_DIR = "snapshot"
@@ -101,6 +109,13 @@ class RunRequest:
     #: its answer from Calliope instead of from a second implementation of
     #: Calliope's rules. Cheaper than `build_only`, which assembles the math.
     init_only: bool = False
+    #: Read the model, render its math to LaTeX and stop, writing `math.json`.
+    #:
+    #: Like `init_only` this never calls `model.build()`: Calliope's LaTeX backend
+    #: is a backend in its own right and assembles nothing a solver would use. It
+    #: is still seconds of parsing on a real model, which is why it is out here
+    #: rather than in the request that serves the Math tab.
+    math_only: bool = False
     #: What the user called this run when they started it. `meta.json` overrides
     #: it if the run has since been renamed.
     label: str | None = None

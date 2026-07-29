@@ -23,6 +23,7 @@ import {
   parseTabId,
   runTabId,
   sectionTabId,
+  mathTabId,
   validationTabId,
   type TabKind,
   type TabSpec,
@@ -115,7 +116,24 @@ export interface ValidationTab extends TabCommon {
   isDirty: false;
 }
 
-export type TabEntry = FileTab | SectionTab | EntryTab | RunTab | ValidationTab;
+export interface MathTab extends TabCommon {
+  kind: "math";
+  /**
+   * The math is a reading of the model, not a buffer over it — a user math file
+   * is edited in its own file tab, in Monaco, against Calliope's math schema.
+   * Literal-typed for the same reason `RunTab` and `ValidationTab` are:
+   * `markDirty` on it should not compile.
+   */
+  isDirty: false;
+}
+
+export type TabEntry =
+  | FileTab
+  | SectionTab
+  | EntryTab
+  | RunTab
+  | ValidationTab
+  | MathTab;
 
 /** The three kinds that have a buffer and can therefore be saved. */
 export type EditableTab = FileTab | SectionTab | EntryTab;
@@ -192,6 +210,8 @@ function titleFor(spec: TabSpec, hint?: string): string {
       return hint ?? (spec.runId ? `Run ${spec.runId.slice(0, 8)}` : "Results");
     case "validation":
       return "Validation";
+    case "math":
+      return "Math";
   }
 }
 
@@ -582,6 +602,31 @@ export const useTabsStore = defineStore("tabs", () => {
   }
 
   /**
+   * Opens the Math tab, always permanently.
+   *
+   * No `OpenOptions`, for the same reason `openValidation` takes none: rendering
+   * the math is an explicit action that takes seconds, and the preview slot is
+   * emptied by the next plain click in the model tree — which is exactly what a
+   * user does next, since the Math group's rows are what open this.
+   */
+  function openMath(): string {
+    const id = mathTabId();
+    const existed = openTabs.has(id);
+    if (!existed) {
+      openTabs.set(id, {
+        id,
+        kind: "math",
+        title: titleFor({ kind: "math" }),
+        isDirty: false,
+        mounted: false,
+      });
+    }
+    activate(id);
+    settlePreview(id, existed, false);
+    return id;
+  }
+
+  /**
    * Folds a run's current state into its tab, if it has one open.
    *
    * Called by the runs store on every poll. A run tab is opened the instant the
@@ -619,6 +664,8 @@ export const useTabsStore = defineStore("tabs", () => {
         return openRun({ id: spec.runId, handle: spec.handle });
       case "validation":
         return openValidation();
+      case "math":
+        return openMath();
     }
   }
 
@@ -805,6 +852,7 @@ export const useTabsStore = defineStore("tabs", () => {
     openEntry,
     openRun,
     openValidation,
+    openMath,
     openFromId,
     promote,
     updateRun,

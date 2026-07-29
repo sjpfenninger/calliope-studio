@@ -20,9 +20,7 @@ import math
 from functools import lru_cache
 from typing import Any
 
-#: Math files whose parameter definitions are merged, in order. Later files
-#: describe optional modes and only add to the vocabulary.
-MATH_SOURCES = ("base", "milp", "operate", "spores", "storage_inter_cluster")
+from calliope_studio.modeldef.mathdef import builtin_math_names
 
 #: Sections of the math registry that describe model inputs, and so are useful
 #: for annotating editor fields. Constraints and variables are not.
@@ -69,7 +67,7 @@ def _parameter_registry() -> dict:
     all_math = model_math.initialise_math()
 
     registry: dict[str, dict] = {section: {} for section in REGISTRY_SECTIONS}
-    for source in MATH_SOURCES:
+    for source in builtin_math_names():
         block = all_math.get(source) or {}
         for section in REGISTRY_SECTIONS:
             for name, definition in (block.get(section) or {}).items():
@@ -100,7 +98,7 @@ def component_units() -> dict[str, str]:
     all_math = model_math.initialise_math()
 
     units: dict[str, str] = {}
-    for source in MATH_SOURCES:
+    for source in builtin_math_names():
         block = all_math.get(source) or {}
         for section in UNIT_SECTIONS:
             for name, definition in (block.get(section) or {}).items():

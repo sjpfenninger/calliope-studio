@@ -108,12 +108,12 @@ def task_status(task_id: str, runs: RunManager = Depends(get_runs)) -> dict:
 
 @router.post("/tasks/{task_id}/cancel/")
 async def cancel_task(task_id: str, runs: RunManager = Depends(get_runs)) -> dict:
-    """Stops a validation's build by killing its process group.
+    """Stops a background task by killing its process group.
 
     A build on a large model takes long enough that leaving no way out of it is
     its own defect. Same mechanism as cancelling a run, because a validation *is*
     a run — Calliope has no interrupt API, so the process group is the only
-    lever.
+    lever. Rendering math goes through here too, being the same kind of thing.
     """
     try:
         await runs.cancel(task_id)
@@ -121,4 +121,26 @@ async def cancel_task(task_id: str, runs: RunManager = Depends(get_runs)) -> dic
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Task not found."
         ) from None
-    return {"task_id": task_id, "status": "done", "phase": "build", "result": None}
+    return {
+        "task_id": task_id,
+        "status": "done",
+        # Derived rather than the literal "build" this used to return: the route
+        # is generic over run directories, so it answers for math renderings and
+        # resolutions as well, and a client matching on `phase` was being told
+        # the wrong thing about both.
+        "phase": _phase(runs, task_id),
+        "result": None,
+    }
+
+
+def _phase(runs: RunManager, task_id: str) -> str:
+    """What kind of task this is, read from the request that started it."""
+    try:
+        request = protocol.RunRequest.read(runs.run_dir(task_id))
+    except (KeyError, OSError, ValueError):
+        return "build"
+    if request.math_only:
+        return "math"
+    if request.init_only:
+        return "resolve"
+    return "build"

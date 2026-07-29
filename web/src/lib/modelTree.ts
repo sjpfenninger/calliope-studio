@@ -11,6 +11,7 @@ import type { ComponentTree } from "../stores/componentTree";
 /** Sections shown, in display order. */
 export const SECTIONS = [
   "config",
+  "math",
   "data_tables",
   "techs",
   "nodes",
@@ -26,6 +27,12 @@ export const SECTIONS = [
  * `overrides` is here despite an override being an arbitrary partial model: its
  * editor shows the *settings* an override makes, one row per leaf, rather than
  * trying to be the whole editor again recursively.
+ *
+ * `math` is absent for a different reason from `templates`: it does not open a
+ * file at all. A math *source* is a name, and two of the names are Calliope's
+ * own base and mode math, which live inside the installed package and have no
+ * file in the workspace to open. `ModelSection` routes it to the Math tab
+ * before this set is consulted.
  */
 export const STRUCTURED_SECTIONS = new Set<string>([
   "config",
@@ -57,6 +64,13 @@ export interface ModelTreeNode {
   settingCount?: number;
   /** Which overrides a scenario composes. */
   overrides?: string[];
+  /** Math sources: whether Calliope reads this one, and what kind it is. */
+  mathKind?: "builtin" | "user" | "unknown";
+  applied?: boolean;
+  missing?: boolean;
+  shadowsBuiltin?: boolean;
+  /** How many components of each kind a user math file defines. */
+  counts?: Record<string, number>;
   children?: ModelTreeNode[];
 }
 
@@ -100,6 +114,12 @@ export function buildModelTree(tree: ComponentTree | null): ModelTreeNode[] {
         template: typeof entry === "string" ? undefined : entry.template,
         settingCount: typeof entry === "string" ? undefined : entry.setting_count,
         overrides: typeof entry === "string" ? undefined : entry.overrides,
+        mathKind: typeof entry === "string" ? undefined : entry.kind,
+        applied: typeof entry === "string" ? undefined : entry.applied,
+        missing: typeof entry === "string" ? undefined : entry.missing,
+        shadowsBuiltin:
+          typeof entry === "string" ? undefined : entry.shadows_builtin,
+        counts: typeof entry === "string" ? undefined : entry.counts,
       };
     });
 

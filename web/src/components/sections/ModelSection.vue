@@ -28,12 +28,14 @@ import { sectionIcon } from "@/lib/icons";
 import { buildModelTree, STRUCTURED_SECTIONS, type ModelTreeNode } from "@/lib/modelTree";
 import { openIntent } from "@/lib/openIntent";
 import { useComponentTreeStore } from "@/stores/componentTree";
+import { useMathStore } from "@/stores/math";
 import { useTabsStore } from "@/stores/tabs";
 import { useValidationStore } from "@/stores/validation";
 
 const tabs = useTabsStore();
 const componentTree = useComponentTreeStore();
 const validation = useValidationStore();
+const math = useMathStore();
 
 const showImportGraph = ref(false);
 const selected = ref<ModelTreeNode>();
@@ -64,6 +66,17 @@ function refresh() {
 }
 
 function open(node: ModelTreeNode, event: MouseEvent | KeyboardEvent) {
+  // Math first, because it is the one group whose rows do not open a file. A
+  // math *source* is a name: `base` and any mode math live inside the installed
+  // Calliope and have nothing in the workspace to open, and even a user's own
+  // file is more usefully met as rendered notation than as YAML — which the tab
+  // then links back to. Clicking the group itself clears the filter.
+  if (node.section === "math") {
+    math.focusSource(node.entryName ?? null);
+    tabs.openMath();
+    return;
+  }
+
   if (!node.file) return;
   const intent = openIntent(event);
 
@@ -80,6 +93,54 @@ function open(node: ModelTreeNode, event: MouseEvent | KeyboardEvent) {
 
   if (node.entryName) tabs.openEntry(node.section, node.file, node.entryName, intent);
   else tabs.openSection(node.section, node.file, intent);
+}
+
+/**
+ * The badge beside a math source, if it has anything to say.
+ *
+ * Three things are worth a word here and nothing else is. "Not enabled" is the
+ * silent failure — declared in `math_paths`, missing from `extra_math`, and so
+ * read by nobody. "Missing" is a path that is not on disk. "Replaces base" is a
+ * user file that has taken a built-in name, which substitutes itself for that
+ * whole math file with only a log line from Calliope to say so.
+ */
+function mathNote(
+  node: ModelTreeNode,
+): { text: string; label: string; tone: "warning" | "muted" } | null {
+  if (node.section !== "math" || !node.entryName) return null;
+  if (node.missing) {
+    return {
+      text: "missing",
+      label: "This file is declared in config.init.math_paths but is not on disk.",
+      tone: "warning",
+    };
+  }
+  if (!node.applied) {
+    return {
+      text: "not enabled",
+      label:
+        "Declared in config.init.math_paths but not listed in config.init.extra_math, " +
+        "so Calliope does not read it.",
+      tone: "warning",
+    };
+  }
+  if (node.shadowsBuiltin) {
+    return {
+      text: "replaces base",
+      label: `This file has taken the built-in name "${node.entryName}", so it is used instead of Calliope's own.`,
+      tone: "warning",
+    };
+  }
+  if (node.mathKind === "unknown") {
+    return {
+      text: "undefined",
+      label:
+        "Listed in config.init.extra_math but not declared in config.init.math_paths. " +
+        "Calliope will refuse to read this model.",
+      tone: "warning",
+    };
+  }
+  return null;
 }
 
 const validating = computed(
@@ -178,6 +239,27 @@ function validate() {
         >
           {{ (item as ModelTreeNode).settingCount }}
         </span>
+
+        <!-- A math file that is registered and never enabled is read by nobody
+             and warned about by nothing: Calliope's view is that you did not ask
+             for it. Saying so in the tree is the only place a user finds out
+             before wondering why their constraint changed no numbers. -->
+        <InfoTip
+          v-else-if="mathNote(item as ModelTreeNode)"
+          :label="mathNote(item as ModelTreeNode)!.label"
+        >
+          <Badge
+            variant="outline"
+            :class="[
+              'ml-auto shrink-0 px-1 font-normal',
+              mathNote(item as ModelTreeNode)!.tone === 'warning'
+                ? 'border-warning text-warning-text'
+                : 'border-border-subtle text-text-faint',
+            ]"
+          >
+            {{ mathNote(item as ModelTreeNode)!.text }}
+          </Badge>
+        </InfoTip>
       </template>
     </Tree>
 

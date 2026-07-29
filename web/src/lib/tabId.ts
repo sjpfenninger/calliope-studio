@@ -20,10 +20,16 @@
  *     run:{runId}          a run started in this workspace
  *     run:~{handle}        a bare results file, which has no run
  *     validation           this model's validation results
+ *     math                 this model's math, rendered
  *
- * `validation` carries no segment. A window holds one model version, and its
- * results are about that model as a whole rather than about anything in it, so
- * there is nothing to name — which makes it the one id with an empty tail.
+ * `validation` and `math` carry no segment. A window holds one model version,
+ * and both are about that model as a whole rather than about anything in it, so
+ * there is nothing to name — which makes them the ids with an empty tail.
+ *
+ * `math` is deliberately not `math:{source}`, though the tab does filter by math
+ * source. The point of the tab is to *cross-reference* — following a `Uses` link
+ * from a user's constraint into the base math it builds on — and a source in the
+ * id would make each of those hops a new tab, which is the opposite.
  */
 
 export type TabSpec =
@@ -31,7 +37,8 @@ export type TabSpec =
   | { kind: "section"; section: string; filePath: string }
   | { kind: "entry"; section: string; filePath: string; entryName: string }
   | { kind: "run"; runId: string | null; handle: string | null }
-  | { kind: "validation" };
+  | { kind: "validation" }
+  | { kind: "math" };
 
 export type TabKind = TabSpec["kind"];
 
@@ -56,6 +63,8 @@ export function tabId(spec: TabSpec): string {
         : `run:~${encode(spec.handle ?? "")}`;
     case "validation":
       return "validation";
+    case "math":
+      return "math";
   }
 }
 
@@ -96,10 +105,13 @@ export function parseTabId(id: string): TabSpec | null {
         : { kind: "run", runId: decode(reference), handle: null };
     }
 
-    // The one kind with no segments: `"validation".split(":")` leaves `rest`
+    // The kinds with no segments: `"validation".split(":")` leaves `rest`
     // empty, so the length check that guards every other kind reads `0` here.
     case "validation":
       return rest.length === 0 ? { kind: "validation" } : null;
+
+    case "math":
+      return rest.length === 0 ? { kind: "math" } : null;
 
     default:
       return null;
@@ -123,3 +135,5 @@ export const runTabId = (runId: string | null, handle: string | null = null): st
   tabId({ kind: "run", runId, handle });
 
 export const validationTabId = (): string => tabId({ kind: "validation" });
+
+export const mathTabId = (): string => tabId({ kind: "math" });

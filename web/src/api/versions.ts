@@ -37,6 +37,13 @@ export interface ComponentTreeEntry {
   setting_count?: number;
   /** Scenarios: which overrides this one composes. */
   overrides?: string[];
+  /** Math sources: see `MathSource`, whose shape this group's entries share. */
+  kind?: "builtin" | "user" | "unknown";
+  applied?: boolean;
+  path?: string;
+  missing?: boolean;
+  shadows_builtin?: boolean;
+  counts?: Record<string, number>;
 }
 
 export interface ComponentTreeSection {
@@ -53,6 +60,7 @@ export interface ComponentTree {
   templates?: ComponentTreeSection;
   overrides?: ComponentTreeSection;
   scenarios?: ComponentTreeSection;
+  math?: ComponentTreeSection;
 }
 
 // `lib/fileTree` already owned this one, and owns the builder that consumes it.
@@ -284,5 +292,108 @@ export async function patchSettings(
 
 export async function startValidation<T>(versionId: string): Promise<T> {
   const res = await client.post<T>(`/api/versions/${seg(versionId)}/validate/`);
+  return res.data;
+}
+
+// ---------------------------------------------------------------------------
+// Math
+// ---------------------------------------------------------------------------
+
+/** One math source, as `config.init.math_paths` and `extra_math` describe it. */
+export interface MathSource {
+  name: string;
+  kind: "builtin" | "user" | "unknown";
+  /** Whether Calliope will read it. A file can be declared and never enabled. */
+  applied: boolean;
+  /** User math only: the file, workspace-relative. */
+  path?: string;
+  /** Where the `math_paths` entry itself is written, for a jump-to. */
+  file?: string;
+  line?: number;
+  /** The declared path is not on disk. */
+  missing?: boolean;
+  /** Has taken a built-in name, and so replaces that whole math file. */
+  shadows_builtin?: boolean;
+  counts?: Record<string, number>;
+}
+
+/** Where a component declared by a user math file is written. */
+export interface MathComponentLocation {
+  source: string;
+  file: string;
+  line?: number;
+}
+
+export interface MathSourcesPayload {
+  sources: MathSource[];
+  /** `{group: {name: location}}`, user math only. */
+  components: Record<string, Record<string, MathComponentLocation>>;
+  fingerprint: string;
+}
+
+/** One rendered math component. */
+export interface MathComponent {
+  name: string;
+  group: string;
+  title: string;
+  description: string;
+  unit: string;
+  /** KaTeX-ready. Absent for a parameter, which is a symbol with no equation. */
+  latex?: string;
+  /** The definition as written, defaults omitted. */
+  yaml?: string;
+  uses: string[];
+  used_in: string[];
+  /** Every math source defining this name, in the order they are applied. */
+  sources: string[];
+  /** The last of them: what is actually in effect. */
+  origin: string | null;
+  overridden: boolean;
+  /** `.inf` crosses the wire as a string; JSON cannot carry infinity. */
+  default?: number | string | boolean;
+  dtype?: string;
+}
+
+export interface MathGroup {
+  key: string;
+  label: string;
+  components: MathComponent[];
+}
+
+export interface MathPayload {
+  mode: string;
+  priority: { name: string; kind: "builtin" | "user" }[];
+  objective: string;
+  groups: MathGroup[];
+}
+
+export interface MathEnvelope {
+  task_id: string | null;
+  status: "running" | "done";
+  phase: "math";
+  result: MathPayload | null;
+  fingerprint?: string;
+  error?: string;
+}
+
+export async function getMathSources(versionId: string): Promise<MathSourcesPayload> {
+  const res = await client.get<MathSourcesPayload>(
+    `/api/versions/${seg(versionId)}/math/sources/`,
+  );
+  return res.data;
+}
+
+export async function startMathRender(versionId: string): Promise<MathEnvelope> {
+  const res = await client.post<MathEnvelope>(`/api/versions/${seg(versionId)}/math/`);
+  return res.data;
+}
+
+export async function getMathRender(
+  versionId: string,
+  taskId: string,
+): Promise<MathEnvelope> {
+  const res = await client.get<MathEnvelope>(
+    `/api/versions/${seg(versionId)}/math/${seg(taskId)}/`,
+  );
   return res.data;
 }

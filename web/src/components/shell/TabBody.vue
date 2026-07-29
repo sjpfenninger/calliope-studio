@@ -36,6 +36,7 @@ import MarkdownView from "@/components/editor/MarkdownView.vue";
 import MonacoYamlEditor from "@/components/editor/MonacoYamlEditor.vue";
 import RunTabView from "@/components/runs/RunTabView.vue";
 import ValidationTabView from "@/components/validation/ValidationTabView.vue";
+import MathTabView from "@/components/math/MathTabView.vue";
 import StructuredEditorHost from "./StructuredEditorHost.vue";
 import { isTextFileType } from "@/lib/fileKind";
 import { useTabsStore } from "@/stores/tabs";
@@ -155,6 +156,12 @@ const structuredTab = computed(() => {
       <ValidationTabView
         v-if="active?.kind === 'validation'"
         :tab="active"
+        class="absolute inset-0 flex"
+      />
+
+      <MathTabView
+        v-if="active?.kind === 'math' && tabs.versionId"
+        :versionId="tabs.versionId"
         class="absolute inset-0 flex"
       />
 

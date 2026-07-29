@@ -17,10 +17,18 @@
 @import "maplibre-gl/dist/maplibre-gl.css";
 @import "./assets/maplibre-overrides.css";
 
-/* Rendered Markdown. Ours, not third-party, but here for the same reason: it
-   styles markup that arrives through `v-html`, so there is no component to
-   scope it to and no element to hang a utility on. */
+/* KaTeX, for the rendered math. Third-party and here for the same reason as the
+   rest, with one addition: it declares twenty @font-face faces, and a copy of
+   those declarations arriving in a lazily-loaded chunk would re-request fonts
+   the browser already has. */
+@import "katex/dist/katex.min.css";
+
+/* Rendered Markdown, and the wrapper the math sits in. Ours, not third-party,
+   but here for the same reason: both style markup that arrives through
+   `v-html`, so there is no component to scope them to and no element to hang a
+   utility on. */
 @import "./assets/markdown.css";
+@import "./assets/math.css";
 
 /* shadcn-vue's generated components use `dark:` utilities and assume a `.dark`
    class. We switch on an attribute instead: charts/theme.ts already memoises on

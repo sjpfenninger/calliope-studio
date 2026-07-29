@@ -310,6 +310,21 @@ def _execute(
         _record_diagnostics(outcome, model, build_only=True)
         return
 
+    if request.math_only:
+        # Rendering math is a `build` in the only sense that matters here — it
+        # parses every expression and every `where` — but it builds Calliope's
+        # LaTeX backend rather than a solver problem, so `model.build()` is not
+        # called and no Pyomo model is ever constructed.
+        from calliope_studio.runs import mathdoc
+
+        stage("build", "start")
+        mathdoc.write(model, run_dir / protocol.MATH_FILE)
+        stage("build", "done")
+        outcome["status"] = "success"
+        outcome["termination_condition"] = "not_solved"
+        _record_diagnostics(outcome, model, build_only=True)
+        return
+
     stage("build", "start")
     model.build()
     stage("build", "done")

@@ -12,6 +12,7 @@ import {
   Map,
   MapPin,
   Settings2,
+  Sigma,
   SlidersVertical,
   Table2,
   Zap,
@@ -42,6 +43,7 @@ export const ICON_STROKE_WIDTH_TIGHT = 2.5;
 
 const SECTION_ICONS: Record<string, LucideIcon> = {
   config: Settings2,
+  math: Sigma,
   data_tables: Table2,
   techs: Zap,
   nodes: MapPin,
@@ -65,4 +67,4 @@ export function fileIcon(type: string): LucideIcon {
   return File;
 }
 
-export { BarChart3 as RunIcon, Map as MapIcon };
+export { BarChart3 as RunIcon, Map as MapIcon, Sigma as MathIcon };

@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   entryTabId,
   fileTabId,
+  mathTabId,
   runTabId,
   sectionTabId,
   validationTabId,
@@ -275,6 +276,26 @@ describe("useTabsStore", () => {
 
       tabs.openFile("a.yaml", { preview: true });
       expect(tabs.has(validationTabId())).toBe(true);
+    });
+
+    it("never previews the math tab", () => {
+      // Same reason as validation, and one more: rendering the math costs
+      // seconds of a subprocess, and a tab that closes itself on the next click
+      // in the tree would throw that away and start again on the way back.
+      const tabs = useTabsStore();
+      tabs.openMath();
+      expect(tabs.previewId).toBeNull();
+
+      tabs.openFile("a.yaml", { preview: true });
+      expect(tabs.has(mathTabId())).toBe(true);
+    });
+
+    it("reopens the math tab from its id", () => {
+      // What makes `?tab=math` and the persisted tab set work.
+      const tabs = useTabsStore();
+      tabs.openFromId(mathTabId());
+      expect(tabs.activeTab?.kind).toBe("math");
+      expect(tabs.activeTab?.isDirty).toBe(false);
     });
   });
 

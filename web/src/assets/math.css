@@ -1,0 +1,81 @@
+/**
+ * Rendered math, in the Math tab.
+ *
+ * Here rather than in the component for the same reason as `markdown.css`: the
+ * markup comes out of KaTeX through `v-html`, so there is no element to hang a
+ * utility on, and a stylesheet imported from a lazily-loaded component lands in
+ * a later chunk and wins on order alone.
+ *
+ * Every colour is a `--cg-*` token, so `tokens.css` stays the only file in the
+ * app where a literal colour is written and dark mode needs nothing here.
+ * KaTeX's own sheet sets no colour at all — it inherits `currentColor` — which
+ * is the whole reason this file is nine rules and not ninety.
+ */
+
+.cg-math {
+  color: var(--cg-text);
+  /* Calliope renders a constraint as one `\begin{array}` with a `\forall` line,
+     a `where` line and an equation line. On a narrow detail pane a real one is
+     several times the available width, and KaTeX lays out to its natural size
+     whatever the container does — so without this the equation is simply cut
+     off, with nothing on screen to say there is more of it. */
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.75rem 0;
+}
+
+/* KaTeX's display mode centres and adds its own vertical margin. Neither is
+   right in a detail pane: the equations are read as a left-aligned column
+   against the labels beside them, and the padding above already spaces them. */
+.cg-math .katex-display {
+  margin: 0;
+  text-align: left;
+}
+
+.cg-math .katex-display > .katex {
+  text-align: left;
+}
+
+/* Notation is the content here rather than an inline aside, so it is set one
+   step above the 13px UI base — subscripts in these arrays go two levels deep
+   and at UI density the innermost is unreadable. */
+.cg-math .katex {
+  font-size: 1.15em;
+}
+
+/* A command KaTeX does not know renders in place rather than throwing, which is
+   deliberate — see `lib/mathRender.ts`. Left unstyled it is red-on-whatever
+   from KaTeX's own sheet, which is a literal colour this app does not use. */
+.cg-math .katex-error {
+  color: var(--cg-danger-text);
+  font-family: var(--cg-font-mono);
+  font-size: var(--text-xs);
+}
+
+/* The scrollbar sits under the equation and is the only sign there is more of
+   it, so it stays visible rather than overlay-thin. */
+.cg-math::-webkit-scrollbar {
+  height: 6px;
+}
+
+.cg-math::-webkit-scrollbar-thumb {
+  background: var(--cg-border-strong);
+  border-radius: var(--cg-radius-xs);
+}
+
+/**
+ * A component description, which is markdown, set inside a dense detail pane.
+ *
+ * `markdown.css` sets prose for a README — capped measure, 1.5rem padding, the
+ * base type step — which is right there and wrong here: this is one paragraph
+ * among badges and an equation. A modifier rather than `!` utilities at the call
+ * site, because the thing being overridden is a stylesheet and utilities lose to
+ * it on specificity, which is what makes reaching for `!important` feel
+ * necessary in the first place.
+ */
+.cg-markdown.cg-markdown-dense {
+  max-width: none;
+  padding: 0;
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}

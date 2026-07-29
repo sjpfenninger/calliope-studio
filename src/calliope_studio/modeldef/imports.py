@@ -144,7 +144,7 @@ def _summarise(section: str, value: Any) -> dict:
     return {}
 
 
-def _declaring_line(block: Any, name: Any) -> int | None:
+def declaring_line(block: Any, name: Any) -> int | None:
     """The 1-based line a key is written on, if ruamel recorded one.
 
     `templates` and `scenarios` have no structured editor, so the explorer and the
@@ -273,7 +273,7 @@ def component_tree(base: Path) -> dict:
                 # Outside the FLAT_SECTIONS guard below: a data table is opened by
                 # name in a structured editor and needs no line, but it costs
                 # nothing to report one and the shape stays the same everywhere.
-                line = _declaring_line(block, name)
+                line = declaring_line(block, name)
                 if line is not None:
                     entry["line"] = line
                 if target not in FLAT_SECTIONS:
@@ -294,5 +294,20 @@ def component_tree(base: Path) -> dict:
     # empty group in the explorer.
     if tree.get("techs") and not tree["techs"]["entries"]:
         del tree["techs"]
+
+    # Math is deliberately *not* in `TREE_SECTIONS`: that tuple drives the loop
+    # above, which asks whether a top-level key of that name is in the file, and
+    # `math:` is not a section of a model definition. A math source is a name in
+    # `config.init.math_paths` pointing at a file the import graph cannot see, so
+    # it is collected its own way and joined on here. The group shape is the same
+    # as every other one, so the explorer needs no special case for it.
+    root = find_model_yaml(base)
+    if root is not None:
+        from calliope_studio.modeldef.mathdef import math_sources
+
+        tree["math"] = {
+            "file": str(root.relative_to(base)),
+            "entries": math_sources(base),
+        }
 
     return tree

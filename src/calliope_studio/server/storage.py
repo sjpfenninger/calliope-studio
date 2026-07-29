@@ -61,6 +61,11 @@ DEFAULT_RUN_RETENTION = 20
 #: deep validation used to leave a permanent directory behind.
 VALIDATION_RETENTION = 3
 
+#: How many finished math renderings to keep. Larger than `VALIDATION_RETENTION`
+#: because a rendering is held open and read for as long as a Math tab is, where
+#: a validation's result is consumed once.
+MATH_RETENTION = 8
+
 #: Overrides where the registry is kept. Tests set this so that they cannot
 #: write into the developer's real state directory, and it is a useful escape
 #: hatch for running several instances against separate registries.
@@ -230,10 +235,8 @@ class LocalStorage:
         self.registry_path = registry_path or default_registry_path()
         if registry_path is None and not os.environ.get(STATE_DIR_ENV_VAR):
             carry_over_registry(self.registry_path, legacy_registry_paths())
-        #: Created on first use; see `validations_dir`.
-        self._validations_root: Path | None = None
-        #: Created on first use; see `resolutions_dir`.
-        self._resolutions_root: Path | None = None
+        #: Temp roots by kind, created on first use; see `_scratch_dir`.
+        self._scratch_roots: dict[str, Path] = {}
 
     # -- registry file ----------------------------------------------------
 
@@ -413,57 +416,72 @@ class LocalStorage:
         if not marker.exists():
             marker.write_text(GITIGNORE_CONTENTS)
 
-    def validations_dir(self) -> Path:
-        """Scratch root for deep-validation attempts, in the system temp dir.
+    def _scratch_dir(self, kind: str) -> Path:
+        """A scratch root in the system temp dir, created on first use.
 
-        Not in the workspace. A validation produces no artefact anyone wants to
-        keep — only a pass/fail and some messages — yet every click used to leave
-        a permanent UUID-named directory beside the user's model, unreachable and
-        unremovable from the interface.
+        Not in the workspace. None of these produce an artefact anyone wants to
+        keep — a pass/fail and some messages, a resolved definition rebuilt
+        whenever the model changes, a rendering of math that is a function of the
+        files — yet a validation used to leave a permanent UUID-named directory
+        beside the user's model on every click, unreachable and unremovable from
+        the interface.
 
-        Removed when the process exits, and pruned as attempts accumulate, so
-        nothing survives a session. That in turn means a validation cannot be
-        looked up after a restart, which is correct: there is nothing to recover.
+        Removed when the process exits, so nothing survives a session. That in
+        turn means none of them can be looked up after a restart, which is
+        correct: there is nothing to recover, and the first request rebuilds it.
         """
-        if self._validations_root is None:
-            root = Path(tempfile.mkdtemp(prefix="calliope-studio-validations-"))
+        root = self._scratch_roots.get(kind)
+        if root is None:
+            root = Path(tempfile.mkdtemp(prefix=f"calliope-studio-{kind}-"))
             atexit.register(shutil.rmtree, root, True)
-            self._validations_root = root
-        self._validations_root.mkdir(parents=True, exist_ok=True)
-        return self._validations_root
+            self._scratch_roots[kind] = root
+        root.mkdir(parents=True, exist_ok=True)
+        return root
+
+    def validations_dir(self) -> Path:
+        """Scratch root for deep-validation attempts."""
+        return self._scratch_dir("validations")
 
     def resolutions_dir(self) -> Path:
-        """Scratch root for resolved model definitions, in the system temp dir.
+        """Scratch root for resolved model definitions."""
+        return self._scratch_dir("resolutions")
 
-        Not in the workspace, for the same reason validations are not: a resolution
-        is derived from the model definition and rebuilt whenever the definition
-        changes, so keeping one beside the user's model would be litter. It is also
-        why it need not survive a restart — the first request after one rebuilds it.
+    def math_dir(self) -> Path:
+        """Scratch root for rendered math documentation."""
+        return self._scratch_dir("math")
+
+    def _prune_scratch(self, kind: str, keep: int) -> None:
+        """Removes finished attempts of one kind beyond the newest `keep`.
+
+        Only finished ones: a running task is still being polled. Keeping a few
+        rather than deleting on read means a client that polls once more after
+        seeing the result still gets an answer.
         """
-        if self._resolutions_root is None:
-            root = Path(tempfile.mkdtemp(prefix="calliope-studio-resolutions-"))
-            atexit.register(shutil.rmtree, root, True)
-            self._resolutions_root = root
-        self._resolutions_root.mkdir(parents=True, exist_ok=True)
-        return self._resolutions_root
-
-    def prune_validations(self, keep: int = VALIDATION_RETENTION) -> None:
-        """Removes finished validation attempts beyond the newest `keep`.
-
-        Only finished ones: a running validation is still being polled. Keeping a
-        few rather than deleting on read means a client that polls once more
-        after seeing the result still gets an answer.
-        """
-        if self._validations_root is None:
+        root = self._scratch_roots.get(kind)
+        if root is None:
             return
         finished = [
             directory
-            for directory in self._validations_root.glob("*/")
+            for directory in root.glob("*/")
             if (directory / protocol.OUTCOME_FILE).is_file()
         ]
         finished.sort(key=lambda directory: directory.stat().st_mtime, reverse=True)
         for directory in finished[keep:]:
             shutil.rmtree(directory, ignore_errors=True)
+
+    def prune_validations(self, keep: int = VALIDATION_RETENTION) -> None:
+        """Removes finished validation attempts beyond the newest `keep`."""
+        self._prune_scratch("validations", keep)
+
+    def prune_math(self, keep: int = MATH_RETENTION) -> None:
+        """Removes finished math renderings beyond the newest `keep`.
+
+        Keeps more than a validation does because a rendering is *read* after it
+        finishes rather than just checked: the Math tab holds a handle to it for
+        as long as it is open, and a second model opened in another tab must not
+        prune the first one's payload out from under it.
+        """
+        self._prune_scratch("math", keep)
 
     def prune_runs(
         self,

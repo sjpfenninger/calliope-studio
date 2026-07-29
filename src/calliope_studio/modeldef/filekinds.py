@@ -28,7 +28,7 @@ from pathlib import Path
 
 from calliope_studio.modeldef.imports import find_model_yaml, reachable_files
 from calliope_studio.modeldef.paths import yaml_files
-from calliope_studio.modeldef.snapshot import math_paths
+from calliope_studio.modeldef.snapshot import math_paths, resolve_math_path
 from calliope_studio.modeldef.yaml_io import load_quietly
 
 #: A file the model definition reaches through `import:`, including the entry
@@ -73,7 +73,7 @@ def classify(base: Path) -> dict[str, str]:
         if not isinstance(document, dict):
             continue
         for name in math_paths(document):
-            target = (path.parent / name).resolve()
+            target = resolve_math_path(root, name)
             if target.is_file() and target.is_relative_to(root):
                 kinds[_relative(target, root)] = MATH
 

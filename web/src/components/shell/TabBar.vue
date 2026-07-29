@@ -40,7 +40,7 @@ import {
   SEGMENT_STRIP_LINE_SCROLLED,
 } from "@/components/app/segmented";
 import TabHistory from "./TabHistory.vue";
-import { fileIcon, ICON_STROKE_WIDTH_TIGHT, sectionIcon } from "@/lib/icons";
+import { fileIcon, ICON_STROKE_WIDTH_TIGHT, MathIcon, sectionIcon } from "@/lib/icons";
 import { cn } from "@/lib/utils";
 import { useTabsStore, type TabEntry } from "@/stores/tabs";
 
@@ -86,6 +86,7 @@ watch(
 function iconFor(tab: TabEntry) {
   if (tab.kind === "run") return BarChart3;
   if (tab.kind === "validation") return ShieldCheck;
+  if (tab.kind === "math") return MathIcon;
   if (tab.kind === "file") return fileIcon(tab.fileType);
   return sectionIcon(tab.section);
 }

@@ -8,7 +8,7 @@
  * name by eye.
  *
  * The component tree already knows which file defines every named entry and, since
- * `imports.py::_declaring_line`, which line. This is the lookup, kept pure and out
+ * `imports.py::declaring_line`, which line. This is the lookup, kept pure and out
  * of the component so it can be tested: a source that resolves gets a link, and one
  * that does not gets the plain text it had before.
  */

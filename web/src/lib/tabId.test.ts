@@ -31,6 +31,7 @@ const specs: TabSpec[] = [
   { kind: "run", runId: "0d1e2f34-5678-4abc-8def-000000000000", handle: null },
   { kind: "run", runId: null, handle: "2d3f9a1b4c5d6e7f" },
   { kind: "validation" },
+  { kind: "math" },
 ];
 
 describe("tabId", () => {
@@ -77,6 +78,14 @@ describe("tabId", () => {
     expect(parseTabId("validation")).toEqual({ kind: "validation" });
     // And a tail it should not have is still rejected, like any other kind.
     expect(parseTabId("validation:extra")).toBeNull();
+  });
+
+  it("parses the math tab, which also carries no segment", () => {
+    // Deliberately not `math:{source}`, though the tab filters by source: the
+    // point of it is following a `Uses` reference from one component to another,
+    // and a source in the id would make every hop a new tab.
+    expect(parseTabId("math")).toEqual({ kind: "math" });
+    expect(parseTabId("math:base")).toBeNull();
   });
 
   it("keeps a run and a bare results file distinct", () => {

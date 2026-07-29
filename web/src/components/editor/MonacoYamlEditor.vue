@@ -47,6 +47,32 @@ let editor: monaco.editor.IStandaloneCodeEditor | null = null;
 const models = new Map<string, monaco.editor.ITextModel>();
 // Track change listener disposables to avoid leaks
 const changeDisposables = new Map<string, monaco.IDisposable>();
+/**
+ * Models still being fetched, so two concurrent asks share one.
+ *
+ * Both builders below check `models`, then `await` a fetch, then create — and
+ * `jumpTo` calls into here *twice* for the same path: `openFile` moves
+ * `activeMonacoTab`, and setting `jumpTarget` a line later wakes the reveal
+ * watch. Both missed the cache, both fetched, and the second `createModel` threw
+ * `Cannot add model because it already exists` from inside a watcher — which
+ * killed the reveal before it ran, so a validation problem or a template link
+ * opened the right file at line 1 and logged an error nothing surfaced.
+ */
+const building = new Map<string, Promise<monaco.editor.ITextModel>>();
+
+/** Builds a model at most once per key, however many callers ask at once. */
+function shared(
+  key: string,
+  build: () => Promise<monaco.editor.ITextModel>,
+): Promise<monaco.editor.ITextModel> {
+  const existing = models.get(key);
+  if (existing) return Promise.resolve(existing);
+  const inFlight = building.get(key);
+  if (inFlight) return inFlight;
+  const promise = build().finally(() => building.delete(key));
+  building.set(key, promise);
+  return promise;
+}
 
 function langForPath(path: string): string {
   const ext = path.split(".").pop()?.toLowerCase();
@@ -56,31 +82,31 @@ function langForPath(path: string): string {
 }
 
 // Create or reuse a model for a real file tab
-async function ensureFileModel(path: string): Promise<monaco.editor.ITextModel> {
-  if (models.has(path)) return models.get(path)!;
+function ensureFileModel(path: string): Promise<monaco.editor.ITextModel> {
+  return shared(path, async () => {
+    let content = "";
+    if (props.versionId) {
+      content = await getFile(props.versionId, path);
+    }
 
-  let content = "";
-  if (props.versionId) {
-    content = await getFile(props.versionId, path);
-  }
+    // Through `fileModelUri` so the scheme is written once: the markdown preview
+    // reads this same model to render unsaved edits, and would silently fall back
+    // to the fetched text if the two ever disagreed.
+    const model = monaco.editor.createModel(
+      content,
+      langForPath(path),
+      fileModelUri(path),
+    );
 
-  // Through `fileModelUri` so the scheme is written once: the markdown preview
-  // reads this same model to render unsaved edits, and would silently fall back
-  // to the fetched text if the two ever disagreed.
-  const model = monaco.editor.createModel(
-    content,
-    langForPath(path),
-    fileModelUri(path),
-  );
-
-  const disposable = model.onDidChangeContent(() => {
-    // A file tab's id is derived from its path rather than being it, so this has
-    // to be built — passing the bare path used to work only by coincidence.
-    tabsStore.markDirty(fileTabId(path));
+    const disposable = model.onDidChangeContent(() => {
+      // A file tab's id is derived from its path rather than being it, so this
+      // has to be built — passing the bare path used to work only by coincidence.
+      tabsStore.markDirty(fileTabId(path));
+    });
+    changeDisposables.set(path, disposable);
+    models.set(path, model);
+    return model;
   });
-  changeDisposables.set(path, disposable);
-  models.set(path, model);
-  return model;
 }
 
 // Create or reuse a virtual model for a section/entry tab.
@@ -89,36 +115,36 @@ async function ensureFileModel(path: string): Promise<monaco.editor.ITextModel> 
 // and `entryName` as typed fields, so parsing them back out of the id — which is
 // what this used to do — was both redundant and wrong for any name containing a
 // colon.
-async function ensureVirtualModel(
+function ensureVirtualModel(
   tab: SectionTab | EntryTab,
 ): Promise<monaco.editor.ITextModel> {
-  if (models.has(tab.id)) return models.get(tab.id)!;
+  return shared(tab.id, async () => {
+    const { section, filePath } = tab;
+    const entryName = tab.kind === "entry" ? tab.entryName : null;
 
-  const { section, filePath } = tab;
-  const entryName = tab.kind === "entry" ? tab.entryName : null;
-
-  let content = "";
-  if (props.versionId) {
-    try {
-      const sectionData = await getYamlSection(props.versionId, filePath, section);
-      content = entryName
-        ? yamlStringify({ [entryName]: sectionData[entryName] ?? null })
-        : yamlStringify(sectionData);
-    } catch {
-      content = "";
+    let content = "";
+    if (props.versionId) {
+      try {
+        const sectionData = await getYamlSection(props.versionId, filePath, section);
+        content = entryName
+          ? yamlStringify({ [entryName]: sectionData[entryName] ?? null })
+          : yamlStringify(sectionData);
+      } catch {
+        content = "";
+      }
     }
-  }
 
-  // Use a virtual:// URI ending in .yaml so monaco-yaml still applies
-  const uri = monaco.Uri.parse(`virtual:///${encodeURIComponent(tab.id)}.yaml`);
-  const model = monaco.editor.createModel(content, "yaml", uri);
+    // Use a virtual:// URI ending in .yaml so monaco-yaml still applies
+    const uri = monaco.Uri.parse(`virtual:///${encodeURIComponent(tab.id)}.yaml`);
+    const model = monaco.editor.createModel(content, "yaml", uri);
 
-  const disposable = model.onDidChangeContent(() => {
-    tabsStore.markDirty(tab.id);
+    const disposable = model.onDidChangeContent(() => {
+      tabsStore.markDirty(tab.id);
+    });
+    changeDisposables.set(tab.id, disposable);
+    models.set(tab.id, model);
+    return model;
   });
-  changeDisposables.set(tab.id, disposable);
-  models.set(tab.id, model);
-  return model;
 }
 
 async function activateTab(tab: EditableTab | null) {

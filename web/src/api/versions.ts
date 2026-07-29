@@ -27,6 +27,8 @@ import type { FileEntry } from "../lib/fileTree";
 export interface ComponentTreeEntry {
   name: string;
   file: string;
+  /** The 1-based line it is declared on, for a section opened as raw YAML. */
+  line?: number;
   template?: string;
   /** Transmission technologies, which the tree presents as links. */
   link_from?: string;

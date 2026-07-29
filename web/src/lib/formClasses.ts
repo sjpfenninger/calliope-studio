@@ -202,6 +202,23 @@ export const DANGER_BUTTON =
 export const TEXT_BUTTON_SM =
   "rounded-xs px-1 text-2xs text-text-faint transition-colors hover:bg-hover hover:text-foreground disabled:opacity-40";
 
+/**
+ * A word inside a run of text that opens something — the template a field
+ * inherits from, named in its provenance marker.
+ *
+ * Not `TEXT_BUTTON_SM`, which is the *standalone* micro action ("All", "Reset")
+ * and is therefore both padded and `text-text-faint` — the disabled step, which
+ * tokens.css says is never for real text. Here the word is the content, and
+ * making the clickable copy of it fainter than the plain copy beside it gets the
+ * signal exactly backwards.
+ *
+ * So: no colour and no padding of its own, so it sits in its sentence and
+ * inherits the annotation's tone, with a dotted underline to say it is a target
+ * and a step *up* in contrast on hover.
+ */
+export const INLINE_LINK =
+  "rounded-xs underline decoration-dotted underline-offset-2 transition-colors hover:bg-hover hover:text-foreground";
+
 /** A square icon-only button, for row-level add/remove. */
 export const ICON_BUTTON =
   "grid size-6 shrink-0 place-items-center rounded-sm text-text-faint transition-colors hover:bg-hover hover:text-foreground disabled:opacity-40";

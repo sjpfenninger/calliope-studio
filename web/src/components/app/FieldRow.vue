@@ -24,6 +24,7 @@
 import { computed } from "vue";
 import { CornerDownRight, Undo2 } from "@lucide/vue";
 
+import SourceLink from "./SourceLink.vue";
 import TooltipButton from "./TooltipButton.vue";
 import { FIELD_LABEL, FIELD_ROW, FIELD_ROW_WIDE, FIELD_WIDTH } from "@/lib/formClasses";
 import type { FieldWidth } from "@/lib/formClasses";
@@ -68,24 +69,17 @@ const placeholder = computed(() =>
   props.isSet ? undefined : (props.inherited?.value ?? undefined),
 );
 
-/** Every source, for the marker's `title`. */
+const sourceNames = computed(() =>
+  (props.inherited?.sources ?? []).map((source) => source.name).join(", "),
+);
+
+/** Every source, spelled out, for the marker's `title`. */
 const sourceTitle = computed(() => {
   const inherited = props.inherited;
   if (!inherited) return undefined;
-  const where = inherited.sources.join(", ");
+  const where = sourceNames.value;
   if (inherited.value === null) return `Set in more than one place: ${where}`;
   return `${props.label} = ${inherited.value} — from ${where}`;
-});
-
-/**
- * A contested key names its sources by count rather than by the first one,
- * which would read as an answer.
- */
-const sourceLabel = computed(() => {
-  const inherited = props.inherited;
-  if (!inherited) return "";
-  if (inherited.value === null) return `${inherited.sources.length} sources`;
-  return inherited.sources.join(", ");
 });
 </script>
 
@@ -124,15 +118,26 @@ const sourceLabel = computed(() => {
 
       <!-- Sans, and at the badge step: a source is an annotation, not a key.
 
-           design-check: allow native-title — `sourceTitle` is what the two
-           truncated spans below say, unclipped. -->
+           A contested key names *both* sources rather than collapsing to "2
+           sources" as it once did. That collapse existed so the marker would not
+           read as an answer to a question only Calliope can answer — but each
+           name is now a link to go and settle it, and the `title` still says the
+           key is set in more than one place.
+
+           design-check: allow native-title — `sourceTitle` is what the truncated
+           spans below say, unclipped. -->
       <span
         v-if="inherited"
         class="flex min-w-0 items-center gap-1 text-2xs text-muted-foreground"
         :title="sourceTitle"
       >
         <CornerDownRight class="size-3 shrink-0" />
-        <span class="truncate">{{ sourceLabel }}</span>
+        <span class="truncate">
+          <template v-for="(source, index) in inherited.sources" :key="source.name">
+            <template v-if="index">, </template>
+            <SourceLink :source="source" />
+          </template>
+        </span>
         <span v-if="isSet && inherited.value" class="truncate text-text-faint line-through">
           {{ inherited.value }}
         </span>
@@ -140,7 +145,7 @@ const sourceLabel = computed(() => {
 
       <TooltipButton
         v-if="isSet && inherited && revertable"
-        :label="`Revert to the value from ${inherited.sources.join(', ')}`"
+        :label="`Revert to the value from ${sourceNames}`"
         :icon="Undo2"
         size="xs"
         @click="$emit('revert')"

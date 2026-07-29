@@ -27,6 +27,7 @@ import { FIELD, GHOST_BUTTON } from "@/lib/formClasses";
 
 import { type DataTableParam } from "@/lib/dataTableParams";
 import { collectInherited, techSetsKey } from "@/lib/inherited";
+import { useComponentTreeStore } from "@/stores/componentTree";
 import { useTemplatesStore } from "@/stores/templates";
 import { isTransmission, mergeIntoSection, type RawTech } from "@/lib/techs";
 import {
@@ -43,6 +44,7 @@ const props = defineProps<{
   entryName?: string | null;
 }>();
 
+const componentTreeStore = useComponentTreeStore();
 const templatesStore = useTemplatesStore();
 
 const BASE_TECH_OPTIONS = ["supply", "demand", "storage", "transmission", "conversion"];
@@ -116,6 +118,9 @@ const { isLoading, isSaving, error, saveError, save, markDirty } = useSectionEdi
       .filter(([, raw]) => !isTransmission(raw, templatesData.value))
       .map(([name, raw]) => rawToTech(name, raw));
     await loadDataTableParams();
+    // The provenance marker on each field links to the template or table that
+    // supplies the value, and the tree is what says which file holds it.
+    await componentTreeStore.load(props.versionId);
   },
   build: buildPayload,
   async after(written) {

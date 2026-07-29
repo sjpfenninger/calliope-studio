@@ -224,6 +224,9 @@ const { isLoading, isSaving, error, saveError, save, markDirty } = useSectionEdi
     entries.value = Object.entries(originalSection.value)
       .filter(([, raw]) => isTransmission(raw, templatesData.value))
       .map(([name, raw]) => rawToLink(name, raw));
+    // The provenance marker on each field links to the template or table that
+    // supplies the value, and the tree is what says which file holds it.
+    await componentTreeStore.load(props.versionId);
   },
   build: buildPayload,
   async after(written) {

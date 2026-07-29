@@ -129,6 +129,13 @@ jobs:
       - name: Map editing
         run: pixi run -- pnpm --dir web run map-edit http://127.0.0.1:8791
 
+      # Where an inherited value comes from, and that clicking it goes there. A
+      # source that fails to resolve renders as plain text, which is
+      # indistinguishable from a deliberate design, and a link to the wrong file
+      # opens a file and says nothing — neither is visible without a browser.
+      - name: Source links
+        run: pixi run -- pnpm --dir web run source-link http://127.0.0.1:8791
+
       # The picker's entries are not clipped, and a model can be created.
       - name: Model picker
         run: pixi run -- pnpm --dir web run model-picker http://127.0.0.1:8791

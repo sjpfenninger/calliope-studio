@@ -68,9 +68,13 @@ function open(node: ModelTreeNode, event: MouseEvent | KeyboardEvent) {
   const intent = openIntent(event);
 
   // Sections with no structured editor — an override is an arbitrary partial
-  // model — open as raw YAML instead.
+  // model — open as raw YAML instead, at the line the entry is declared on where
+  // the server could find one. Landing at line 1 of a file of forty templates is
+  // the start of the search, not the end of it, and the provenance markers beside
+  // an inherited field navigate the same way.
   if (!STRUCTURED_SECTIONS.has(node.section)) {
-    tabs.openFile(node.file, intent);
+    if (node.line != null) tabs.jumpTo(node.file, node.line, 1, intent);
+    else tabs.openFile(node.file, intent);
     return;
   }
 

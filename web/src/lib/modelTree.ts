@@ -43,6 +43,13 @@ export interface ModelTreeNode {
   section: string;
   /** The file that defines this, which is what an editor is opened against. */
   file?: string;
+  /**
+   * Where in that file, for a section that opens as raw YAML.
+   *
+   * `templates` has no structured editor, so clicking one used to open a file of
+   * forty of them at line 1 — which is where the search starts, not where it ends.
+   */
+  line?: number;
   entryName?: string;
   /** Shown as a badge: most technologies get their base_tech from a template. */
   template?: string;
@@ -88,6 +95,7 @@ export function buildModelTree(tree: ComponentTree | null): ModelTreeNode[] {
         // the section, so it carries its own; falling back keeps a bare-string
         // entry working.
         file: typeof entry === "string" ? data.file : (entry.file ?? data.file),
+        line: typeof entry === "string" ? undefined : entry.line,
         entryName: name,
         template: typeof entry === "string" ? undefined : entry.template,
         settingCount: typeof entry === "string" ? undefined : entry.setting_count,

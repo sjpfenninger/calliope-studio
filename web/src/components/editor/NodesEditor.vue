@@ -183,6 +183,10 @@ const { isLoading, isSaving, error, saveError, save, markDirty } = useSectionEdi
     );
     await loadTemplatesSection();
     await loadDataTableParams();
+    // The provenance marker on each field links to the template or table that
+    // supplies the value, and the tree is what says which file holds it. Cheap:
+    // the store returns immediately once loaded, and the explorer usually has.
+    await componentTreeStore.load(props.versionId);
   },
   build: buildPayload,
   async after() {

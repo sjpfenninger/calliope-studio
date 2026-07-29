@@ -111,6 +111,45 @@ class TestComponentTree:
         assert "techs" in tree
         assert "links" not in tree
 
+    def test_an_entry_reports_the_line_it_is_declared_on(self, tmp_path):
+        """Where a template is written, not where its section starts.
+
+        `templates` has no structured editor, so both the explorer and the
+        provenance marker beside an inherited field open it as raw YAML and jump
+        to this line. Opening a file of many templates at its first one is the
+        failure this exists to prevent, so the fixture puts the interesting name
+        last and behind a comment — anything counting keys rather than reading
+        ruamel's own positions gets it wrong.
+        """
+        model = tmp_path / "lines"
+        model.mkdir()
+        (model / "model.yaml").write_text(
+            "# A leading comment.\n"  # 1
+            "templates:\n"  # 2
+            "  first:\n"  # 3
+            "    base_tech: supply\n"  # 4
+            "\n"  # 5
+            "  # Why the second one exists.\n"  # 6
+            "  second:\n"  # 7
+            "    base_tech: demand\n"  # 8
+        )
+        by_name = {
+            entry["name"]: entry
+            for entry in component_tree(model)["templates"]["entries"]
+        }
+        assert by_name["first"]["line"] == 3
+        assert by_name["second"]["line"] == 7
+
+    def test_a_data_table_reports_a_line_too(self, tmp_path):
+        """The shape is the same in every section, flat ones included."""
+        model = tmp_path / "tables"
+        model.mkdir()
+        (model / "model.yaml").write_text(
+            "data_tables:\n  costs:\n    data: costs.csv\n    rows: techs\n"
+        )
+        entries = component_tree(model)["data_tables"]["entries"]
+        assert entries[0]["line"] == 2
+
 
 class TestScenarioCatalog:
     """What the Run sidebar may offer, and what `POST /runs/` will accept."""

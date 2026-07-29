@@ -26,6 +26,7 @@
     "smoke:map": "node scripts/smoke-map.mjs",
     "smoke:results": "node scripts/smoke-results.mjs",
     "smoke:table": "node scripts/smoke-table.mjs",
+    "source-link": "node scripts/source-link.mjs",
     "test": "vitest run",
     "token-check": "node scripts/token-check.mjs",
     "tree-search": "node scripts/tree-search.mjs"

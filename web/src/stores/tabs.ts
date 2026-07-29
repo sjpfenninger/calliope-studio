@@ -617,10 +617,21 @@ export const useTabsStore = defineStore("tabs", () => {
     if (openTabs.has(id)) closeTab(id);
   }
 
-  /** Opens a file tab and asks Monaco to reveal a position in it. */
-  function jumpTo(path: string, line: number, column: number) {
-    // A single click on a validation problem, so it previews like every other.
-    openFile(path, { preview: true });
+  /**
+   * Opens a file tab and asks Monaco to reveal a position in it.
+   *
+   * Previews by default, as a single click on a validation problem should. The
+   * options are for a caller with a real click in hand — a provenance marker
+   * naming the template a value comes from — so that Cmd-click pins the tab here
+   * exactly as it does everywhere else.
+   */
+  function jumpTo(
+    path: string,
+    line: number,
+    column: number,
+    options: OpenOptions = { preview: true },
+  ) {
+    openFile(path, options);
     jumpTarget.value = { path, line, column };
   }
 

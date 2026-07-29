@@ -18,12 +18,14 @@ import { rawToLink, rawToNode, rawToTech } from "./entries";
 
 describe("collectInherited", () => {
   const table = {
-    latitude: { value: 53.1, time_varying: false, source: "nodes.csv", dims: [] },
+    latitude: { value: 53.1, time_varying: false, source: "coords", dims: [] },
   };
+  const fromTemplate = (name: string) => ({ name, kind: "template" });
+  const fromTable = (name: string) => ({ name, kind: "data_table" });
 
   it("reports a template's own keys against the template's name", () => {
     expect(collectInherited("power_lines", { flow_cap_max: 100 }, undefined)).toEqual({
-      flow_cap_max: { value: "100", sources: ["power_lines"] },
+      flow_cap_max: { value: "100", sources: [fromTemplate("power_lines")] },
     });
   });
 
@@ -35,13 +37,16 @@ describe("collectInherited", () => {
 
   it("reports a data table against the table it came from", () => {
     expect(collectInherited(null, undefined, table)).toEqual({
-      latitude: { value: "53.1", sources: ["nodes.csv"] },
+      latitude: { value: "53.1", sources: [fromTable("coords")] },
     });
   });
 
   it("credits both sources when they agree", () => {
     expect(collectInherited("sites", { latitude: 53.1 }, table)).toEqual({
-      latitude: { value: "53.1", sources: ["sites", "nodes.csv"] },
+      latitude: {
+        value: "53.1",
+        sources: [fromTemplate("sites"), fromTable("coords")],
+      },
     });
   });
 
@@ -49,8 +54,27 @@ describe("collectInherited", () => {
     // Precedence between a template and a data table is Calliope's to answer,
     // not ours. A confident wrong number is worse than an honest "two sources".
     expect(collectInherited("sites", { latitude: 40.0 }, table)).toEqual({
-      latitude: { value: null, sources: ["sites", "nodes.csv"] },
+      latitude: {
+        value: null,
+        sources: [fromTemplate("sites"), fromTable("coords")],
+      },
     });
+  });
+
+  it("keeps a template and a table apart when they share a name", () => {
+    // The case the kind exists for: a table named after the parameter it
+    // supplies, which by name alone is indistinguishable from a template.
+    const params = {
+      flow_cap_max: {
+        value: 5,
+        time_varying: false,
+        source: "flow_cap_max",
+        dims: [],
+      },
+    };
+    expect(
+      collectInherited("flow_cap_max", { other: 1 }, params).flow_cap_max.sources,
+    ).toEqual([fromTable("flow_cap_max")]);
   });
 
   it("renders a structured value as something a field can show", () => {
@@ -67,7 +91,7 @@ describe("collectInherited", () => {
       flow_cap_max: {
         value: null,
         time_varying: false,
-        source: "caps.csv",
+        source: "caps",
         dims: ["techs"],
       },
     };
@@ -117,10 +141,11 @@ describe("which keys an entry sets itself", () => {
 });
 
 describe("unmatchedInherited", () => {
+  const from = [{ name: "t", kind: "template" as const }];
   const inherited = {
-    flow_cap_max: { value: "100", sources: ["t"] },
-    flow_out_eff: { value: "0.9", sources: ["t"] },
-    base_tech: { value: "supply", sources: ["t"] },
+    flow_cap_max: { value: "100", sources: from },
+    flow_out_eff: { value: "0.9", sources: from },
+    base_tech: { value: "supply", sources: from },
   };
 
   it("leaves out what the form already has a field for", () => {

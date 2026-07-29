@@ -21,11 +21,24 @@
 import { describeParams, paramSources, type DataTableParam } from "./dataTableParams";
 import type { LinkEntry, NodeEntry, TechEntry } from "./entries";
 
+/**
+ * One place a value could have come from.
+ *
+ * The kind is carried rather than inferred, because a name alone cannot answer
+ * it: a data table may be called anything at all, including the name of the
+ * parameter it supplies, and `flow_cap_max ↳ flow_cap_max` is not a sentence.
+ * Both loops below already know which they are building.
+ */
+export interface InheritedSource {
+  name: string;
+  kind: "template" | "data_table";
+}
+
 export interface Inherited {
   /** The value as a display string, or `null` when the sources disagree. */
   value: string | null;
-  /** Where it comes from: a template name, or a data table's file. */
-  sources: string[];
+  /** Where it comes from: a template, or a data table — each by name. */
+  sources: InheritedSource[];
 }
 
 /** A template's value, as something a field can show as ghost text. */
@@ -50,15 +63,21 @@ export function collectInherited(
   const result: Record<string, Inherited> = {};
 
   if (templateName) {
+    const from: InheritedSource = { name: templateName, kind: "template" };
     for (const [key, value] of Object.entries(templateFields ?? {})) {
-      result[key] = { value: formatInheritedValue(value), sources: [templateName] };
+      result[key] = { value: formatInheritedValue(value), sources: [from] };
     }
   }
 
   const described = describeParams(dataTableParams);
   const sources = paramSources(dataTableParams);
   for (const [key, value] of Object.entries(described)) {
-    const source = sources[key] ?? "data table";
+    // An older server sends no `source`, so there is no table to name and
+    // nothing to open — the label degrades to plain text rather than a link.
+    const source: InheritedSource = {
+      name: sources[key] ?? "data table",
+      kind: "data_table",
+    };
     const existing = result[key];
     if (!existing) {
       result[key] = { value, sources: [source] };

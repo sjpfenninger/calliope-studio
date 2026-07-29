@@ -144,6 +144,24 @@ def _summarise(section: str, value: Any) -> dict:
     return {}
 
 
+def _declaring_line(block: Any, name: Any) -> int | None:
+    """The 1-based line a key is written on, if ruamel recorded one.
+
+    `templates` and `scenarios` have no structured editor, so the explorer and the
+    provenance markers open them as raw YAML — and a file of forty templates opened
+    at line 1 has not answered "where is this set". ruamel's round-trip loader
+    carries the position of every key, so the answer is already in the document.
+
+    Returns None rather than raising for a block that came from somewhere other
+    than a round-trip load: the line is a convenience, and a tree is worth more
+    than a line.
+    """
+    line_column = getattr(block, "lc", None)
+    data = getattr(line_column, "data", None) or {}
+    position = data.get(name)
+    return position[0] + 1 if position else None
+
+
 def scenario_catalog(base: Path) -> dict:
     """Every name `scenario=` will accept, with what each one is.
 
@@ -252,6 +270,12 @@ def component_tree(base: Path) -> dict:
                     continue
 
                 entry: dict[str, Any] = {"name": str(name), "file": relative}
+                # Outside the FLAT_SECTIONS guard below: a data table is opened by
+                # name in a structured editor and needs no line, but it costs
+                # nothing to report one and the shape stays the same everywhere.
+                line = _declaring_line(block, name)
+                if line is not None:
+                    entry["line"] = line
                 if target not in FLAT_SECTIONS:
                     value = block.get(name)
                     template = (

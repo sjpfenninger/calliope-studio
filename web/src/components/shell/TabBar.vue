@@ -98,6 +98,26 @@ function label(tab: TabEntry): string {
   return tab.title;
 }
 
+/**
+ * The unclipped label, plus the one thing the label cannot say.
+ *
+ * A section tab is `(section, filePath)` and reads as just "Techs", so a model
+ * defining `techs:` in two files gives two tabs that are identical on screen and
+ * edit different halves of the model. The file was already here for entry tabs
+ * and nowhere for section tabs, which is the pair that needed it most.
+ *
+ * The *visible* label is deliberately left alone: a file suffix on every section
+ * tab is noise for the single-file models that are most of them, and
+ * `EditorToolbar` answers it unconditionally one row below.
+ */
+function titleFor(tab: TabEntry): string {
+  if (tab.kind === "section") return `${label(tab)} — ${tab.filePath}`;
+  if (tab.kind === "entry") {
+    return `${tab.entryName} · ${tab.section} — ${tab.filePath}`;
+  }
+  return tab.title;
+}
+
 function close(id: string, event: Event) {
   event.stopPropagation();
   tabs.closeTab(id);
@@ -157,7 +177,7 @@ function onAuxClick(id: string, event: MouseEvent) {
         :data-testid="`tab-${tab.kind}`"
         :data-active="tab.id === tabs.activeId || undefined"
         :data-preview="tab.id === tabs.previewId || undefined"
-        :title="tab.kind === 'entry' ? `${tab.entryName} · ${tab.section}` : tab.title"
+        :title="titleFor(tab)"
         :class="TAB_CLASS"
         @click="tabs.activate(tab.id)"
         @dblclick="tabs.promote(tab.id)"

@@ -18,6 +18,7 @@ import InfoTip from "@/components/app/InfoTip.vue";
 import StateMessage from "@/components/app/StateMessage.vue";
 import TooltipButton from "@/components/app/TooltipButton.vue";
 import TreeSearch from "@/components/app/TreeSearch.vue";
+import { shortenPath } from "@/lib/format";
 import { GHOST_BUTTON } from "@/lib/formClasses";
 import { Loader2, Network, RefreshCw, SearchX, ShieldCheck } from "@lucide/vue";
 
@@ -218,12 +219,52 @@ function validate() {
             : sectionIcon((node as ModelTreeNode).section)
       "
       data-testid="model-tree"
-      class="min-h-0 flex-1"
+      class="@container min-h-0 flex-1"
       @select="(node, event) => open(node as ModelTreeNode, event)"
     >
       <template #trailing="{ item }">
+        <!-- A section row opens *one* file, not the section across the model:
+             `component_tree` gives it the first file in import order that
+             defines any entry of it, and its children each carry their own. So
+             "Techs" on a model with two techs files reads as a claim about the
+             model and is a label for a file — which is what this says.
+
+             `aria-hidden`, and a `title` rather than an `InfoTip`, for one
+             reason: a tree row's accessible name is its contents, so an
+             un-hidden badge renames the row from "Techs" to "Techs
+             model_config/techs.yaml". Six browser checks across five files
+             select group rows by an anchored `^section$` name, and loosening
+             all six to accommodate a decorative label would weaken the very
+             assertions `tree-search` makes about filtering. The row's name is
+             its label; the file is a visual affordance, and the accessible
+             answer is `EditorToolbar`'s, which is a real tooltip on a real
+             element.
+
+             The width rules are two, because one is not enough. The Tree's own
+             label is a bare `truncate` with no floor and flex shrinks every
+             item at once, so `shrink-0` — what the template badge beside it
+             uses, and fine for a template name — lets a path eat the label
+             instead: at the sidebar's 126px minimum "Techs" measured 17px of
+             the 34px it needs. Weighting the shrink fixes the wide half of the
+             range and no more; it still left the label 0.1px short at 126px,
+             which is enough for the browser to ellipsize "Data tables" anyway.
+             So the badge also goes away below 200px, where it is a ~13px stub
+             of a path that says nothing and costs nothing to drop. A container
+             query rather than a media query: what it depends on is the
+             sidebar's width, which the user drags.
+
+             design-check: allow native-title — the unclipped form of the
+             `shortenPath` elision beside it. -->
+        <span
+          v-if="!(item as ModelTreeNode).entryName && (item as ModelTreeNode).file"
+          aria-hidden="true"
+          :title="(item as ModelTreeNode).file"
+          class="ml-auto hidden max-w-1/2 shrink-[100] truncate text-2xs text-text-faint @[200px]:block"
+        >
+          {{ shortenPath((item as ModelTreeNode).file, 2) }}
+        </span>
         <InfoTip
-          v-if="(item as ModelTreeNode).template"
+          v-else-if="(item as ModelTreeNode).template"
           :label="`From template ${(item as ModelTreeNode).template}`"
         >
           <Badge

@@ -64,6 +64,29 @@ describe("buildModelTree", () => {
     expect(buildModelTree(tree)[0].children?.[0].file).toBe("other/more_techs.yaml");
   });
 
+  it("keeps the section's own file when its entries span several", () => {
+    // What the explorer's trailing badge on a section row renders, and the
+    // reason it has to: the row opens `techs.yaml` and nothing else, even
+    // though half the model's technologies are somewhere else entirely. The
+    // server picks that file as the first in import order to define any entry
+    // (`modeldef/imports.py`), so the group is emphatically not "all techs".
+    const tree = {
+      techs: {
+        file: "techs.yaml",
+        entries: [
+          { name: "ccgt", file: "techs.yaml" },
+          { name: "csp", file: "other/more_techs.yaml" },
+        ],
+      },
+    } as ComponentTree;
+    const [section] = buildModelTree(tree);
+    expect(section.file).toBe("techs.yaml");
+    expect(section.children?.map((child) => child.file)).toEqual([
+      "techs.yaml",
+      "other/more_techs.yaml",
+    ]);
+  });
+
   it("falls back to the section's file for a bare-string entry", () => {
     const tree = { techs: { file: "techs.yaml", entries: ["ccgt"] } } as ComponentTree;
     expect(buildModelTree(tree)[0].children?.[0].file).toBe("techs.yaml");

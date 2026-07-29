@@ -62,7 +62,7 @@ function onKeyDown(e: KeyboardEvent) {
     <StateMessage v-else-if="error" variant="block" tone="danger">{{ error }}</StateMessage>
 
     <template v-else>
-      <EditorToolbar @save="save" />
+      <EditorToolbar :file="filePath" @save="save" />
       <CsvGrid
         :column-defs="columnDefs"
         :row-data="rowData"

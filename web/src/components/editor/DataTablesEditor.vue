@@ -292,7 +292,7 @@ onUnmounted(() => clearTimeout(reloadTimer));
     <StateMessage v-else-if="error" variant="block" tone="danger">{{ error }}</StateMessage>
 
     <template v-else>
-      <EditorToolbar :saving="isSaving" :error="saveError" @save="save">
+      <EditorToolbar :saving="isSaving" :error="saveError" :file="filePath" @save="save">
         <button
           v-if="!entryName"
           type="button"

@@ -178,7 +178,7 @@ onMounted(() => void schemaStore.load());
     <StateMessage v-else-if="error" variant="block" tone="danger">{{ error }}</StateMessage>
 
     <template v-else>
-      <EditorToolbar :saving="isSaving" :error="saveError" @save="save" />
+      <EditorToolbar :saving="isSaving" :error="saveError" :file="filePath" @save="save" />
 
       <div class="flex min-h-0 flex-1 flex-col gap-2 overflow-auto p-2">
         <section :class="SECTION">

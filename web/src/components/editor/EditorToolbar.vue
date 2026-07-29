@@ -21,10 +21,25 @@
  * its own toolbar slot. The strip is the honest place — it is already the one
  * thing every editor shares, it already owns `saving`, and it cannot hide the
  * form. `role="alert"` because the failure is silent otherwise.
+ *
+ * **It also names the file being written**, which nothing else on screen did. A
+ * section tab is `(section, filePath)` — a model defining `techs:` in two files
+ * gives two tabs both labelled "Techs", each reading and saving only its own —
+ * so "Add tech" had a destination the user could not see. Unconditional, and on
+ * every editor: making it depend on the tab kind is the per-editor divergence
+ * this component and `useSectionEditor` exist to end. Shortened from the *head*,
+ * because the tail is the part that tells two files apart.
+ *
+ * The path and the save error share one right-hand slot rather than taking two
+ * `ml-auto` siblings. In a 32px strip they would crowd each other, and of the
+ * two the failure is the more urgent thing to say; the path is still on the
+ * tab's own tooltip.
  */
 import { Loader2, Save, TriangleAlert } from "@lucide/vue";
+import InfoTip from "@/components/app/InfoTip.vue";
 import PanelHeader from "@/components/app/PanelHeader.vue";
 
+import { shortenPath } from "@/lib/format";
 import { PRIMARY_BUTTON } from "@/lib/formClasses";
 import { ICON_STROKE_WIDTH_TIGHT } from "@/lib/icons";
 
@@ -33,6 +48,8 @@ defineProps<{
   disabled?: boolean;
   /** Why the last save failed, if it did. */
   error?: string | null;
+  /** The file this editor reads and writes, relative to the model root. */
+  file?: string | null;
 }>();
 defineEmits<{ save: [] }>();
 </script>
@@ -66,5 +83,14 @@ defineEmits<{ save: [] }>();
       <TriangleAlert class="size-3 shrink-0" :stroke-width="ICON_STROKE_WIDTH_TIGHT" />
       <span class="truncate">{{ error }}</span>
     </span>
+
+    <InfoTip v-else-if="file" :label="file">
+      <span
+        data-testid="editor-file"
+        class="ml-auto min-w-0 truncate text-2xs text-text-faint"
+      >
+        {{ shortenPath(file, 2) }}
+      </span>
+    </InfoTip>
   </PanelHeader>
 </template>

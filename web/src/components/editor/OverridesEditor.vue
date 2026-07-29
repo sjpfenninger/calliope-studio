@@ -153,7 +153,7 @@ const onChange = markDirty;
     </StateMessage>
 
     <template v-else>
-      <EditorToolbar :saving="isSaving" :error="saveError" @save="save">
+      <EditorToolbar :saving="isSaving" :error="saveError" :file="filePath" @save="save">
         <button v-if="!entryName" type="button" :class="GHOST_BUTTON" @click="addEntry">
           <Plus class="size-3.5" />
           Add override

@@ -28,9 +28,23 @@ from calliope_studio.results.query import Query, reduce_array
 
 REPO = Path(__file__).parent.parent
 
-#: Sample models kept in the repository root but not committed. The urban model
-#: exercises the geographic path; the national model is the standard fixture.
+#: Where the sample models live, newest location first. They are gitignored, so
+#: nothing in the repository pins them down and moving them is silent: these
+#: tests *skip* when they cannot be found, which is precisely how the only
+#: numerical evidence the results layer is correct disappears without a sound.
+#: The repository root is kept as a fallback because that is where they used to
+#: sit, and a checkout that still has them there should not start skipping.
+SAMPLE_DIRS = [REPO / "examples" / "nc_files", REPO]
+
+#: The urban model exercises the geographic path; the national model is the
+#: standard fixture.
 SAMPLE_MODELS = ["urban_scale_07.dev7.nc", "national_scale_07.dev7.nc"]
+
+
+def sample_path(name: str) -> Path | None:
+    """First existing copy of `name`, or None if it is nowhere."""
+    return next((d / name for d in SAMPLE_DIRS if (d / name).is_file()), None)
+
 
 #: Where the frozen v0.2.0 sources live, byte-identical to the tag.
 ORACLE_DIR = Path(__file__).parent / "oracle"
@@ -43,7 +57,7 @@ ORACLE_MODULES = ["__init__", "colors", "variables", "query", "model"]
 
 
 def _available_models() -> list[str]:
-    return [name for name in SAMPLE_MODELS if (REPO / name).is_file()]
+    return [name for name in SAMPLE_MODELS if sample_path(name) is not None]
 
 
 pytestmark = pytest.mark.skipif(
@@ -88,7 +102,8 @@ def both(request, oracle):
     """The same model, loaded by both implementations."""
     from calliope_studio.results.store import ResultStore
 
-    path = REPO / request.param
+    path = sample_path(request.param)
+    assert path is not None, request.param
     store = ResultStore()
     new = store.get(store.register(path))
     old = oracle.model.ModelData(path)

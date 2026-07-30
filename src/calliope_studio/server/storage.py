@@ -75,6 +75,20 @@ STATE_DIR_ENV_VAR = "CALLIOPE_STUDIO_STATE_DIR"
 STATE_DIR_NAME = "calliope-studio"
 REGISTRY_FILENAME = "workspaces.json"
 
+#: Rendered math, kept in the state directory rather than beside a model.
+#:
+#: Beside a model would be wrong twice over: `calliope-studio/` is for outputs the
+#: user wants and this is derived data they never asked for, and a per-model cache
+#: cannot be shared between two copies of the same model — which is precisely the
+#: case worth sharing, since everyone starts from the same example models.
+MATH_CACHE_DIRNAME = "math-cache"
+
+#: How many renderings to keep. About 11 MB at the 169 kB an example model
+#: produces: generous enough that a few models across two or three Calliope
+#: versions never evict each other, which is the state a developer tracking
+#: Calliope 0.7 is in.
+MATH_CACHE_RETENTION = 64
+
 #: State directories used under earlier names, oldest first. Read once, to seed a
 #: fresh one; see `carry_over_registry`.
 LEGACY_STATE_DIR_NAMES = ("calligraph",)
@@ -114,20 +128,22 @@ class Workspace:
         }
 
 
-def default_registry_path() -> Path:
-    """Where the workspace registry lives, honouring the state-dir override.
+def default_state_dir() -> Path:
+    """Where this application keeps what it knows between sessions.
 
     Read on each call rather than at import, so that setting the environment
     variable in a fixture takes effect for code that constructs its own
     `LocalStorage`.
     """
     override = os.environ.get(STATE_DIR_ENV_VAR)
-    state_dir = (
-        Path(override)
-        if override
-        else Path(platformdirs.user_state_dir(STATE_DIR_NAME))
-    )
-    return state_dir / REGISTRY_FILENAME
+    if override:
+        return Path(override)
+    return Path(platformdirs.user_state_dir(STATE_DIR_NAME))
+
+
+def default_registry_path() -> Path:
+    """Where the workspace registry lives, honouring the state-dir override."""
+    return default_state_dir() / REGISTRY_FILENAME
 
 
 def legacy_registry_paths() -> list[Path]:
@@ -449,6 +465,21 @@ class LocalStorage:
     def math_dir(self) -> Path:
         """Scratch root for rendered math documentation."""
         return self._scratch_dir("math")
+
+    def math_cache_dir(self) -> Path:
+        """Where renderings are kept between sessions.
+
+        Unlike every other directory on this class it is neither a temp root nor
+        registered with `atexit`: surviving the process is the entire point, since
+        a session that renders `urban_scale`'s math costs eight seconds and every
+        launch is a new process.
+
+        Derived from the registry path rather than from `default_state_dir`, so
+        that an injected registry path — and the suite's `$CALLIOPE_STUDIO_STATE_DIR`
+        — apply to it with nothing further to remember. Created by the first
+        write; asking where it is must not bring it into existence.
+        """
+        return self.registry_path.parent / MATH_CACHE_DIRNAME
 
     def _prune_scratch(self, kind: str, keep: int) -> None:
         """Removes finished attempts of one kind beyond the newest `keep`.

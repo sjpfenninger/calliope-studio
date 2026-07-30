@@ -315,10 +315,13 @@ def _execute(
         # parses every expression and every `where` — but it builds Calliope's
         # LaTeX backend rather than a solver problem, so `model.build()` is not
         # called and no Pyomo model is ever constructed.
-        from calliope_studio.runs import mathdoc
+        from calliope_studio.runs import mathcache, mathdoc
 
         stage("build", "start")
         mathdoc.write(model, run_dir / protocol.MATH_FILE)
+        # Beside the payload rather than inside it: the key describes the
+        # rendering, and the payload is the answer the browser reads.
+        (run_dir / protocol.MATH_KEY_FILE).write_text(mathcache.fingerprint(model))
         stage("build", "done")
         outcome["status"] = "success"
         outcome["termination_condition"] = "not_solved"

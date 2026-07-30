@@ -111,6 +111,30 @@ def render(model: Any) -> dict:
     }
 
 
+def check_inputs(model: Any) -> None:
+    """Runs the math's `checks:` block against the model's data, and nothing else.
+
+    This is the first half of `MathDocumentation.__init__` — the backend
+    constructor, which `BackendModelGenerator.__init__` finishes by evaluating
+    every `checks:` entry and raising on the ones that fail. The second half,
+    `add_optimisation_components`, is the four to eight seconds.
+
+    It exists for the cache. `mathcache.fingerprint` covers the math and the
+    *shape* of the inputs, deliberately not their values, so two models can share
+    an entry while disagreeing about something a check tests: `base.yaml` has
+    fourteen, and `lat_lons_out_of_range` and `cost_flow_cap<0 AND not
+    flow_cap_max` are both about values. Serving a cached rendering without this
+    would quietly stop the Math tab reporting them. 0.11 s, against the 4.2 s it
+    saves.
+
+    Raises:
+        calliope.exceptions.ModelError: What a rendering would have raised.
+    """
+    from calliope.backend import LatexBackendModel
+
+    LatexBackendModel(model.inputs, model.math.build, model.config.build, "all")
+
+
 def write(model: Any, destination: Path) -> None:
     """Renders and writes the payload the Math tab reads.
 

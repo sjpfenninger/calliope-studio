@@ -61,6 +61,14 @@ RESOLVED_FILE = "resolved.nc"
 #: results store.
 MATH_FILE = "math.json"
 
+#: The fingerprint the rendering beside it was made from; see `runs.mathcache`.
+#:
+#: Written by the worker rather than computed by the server, because the worker's
+#: model is the one that was actually rendered. The server holds a *resolved*
+#: model that may have been built from an earlier state of the files, and keying
+#: a payload with it would file the right answer under the wrong name.
+MATH_KEY_FILE = "math.key"
+
 #: The frozen model definition, and the manifest describing it. Written by the
 #: parent before the run starts; see `calliope_studio.modeldef.snapshot`.
 SNAPSHOT_DIR = "snapshot"

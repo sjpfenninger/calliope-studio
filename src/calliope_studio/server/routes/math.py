@@ -20,6 +20,13 @@ The envelope matches `routes.validate`'s deliberately, so the frontend polls the
 same shape it already knows:
 
     {"task_id": str | None, "status": ..., "phase": ..., "result": ... | None}
+
+A rendering is expensive and deterministic, so it is kept — twice over, and the
+two caches answer different questions. `_RENDERED` is this process's memory of
+what it last rendered for a workspace, keyed on the files' mtimes. `runs.mathcache`
+is on disk in the state directory, keyed on what the LaTeX backend actually reads,
+and so survives a restart, an edit that cannot change the notation, and the model
+being a different copy of the same thing.
 """
 
 import hashlib
@@ -30,11 +37,17 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from calliope_studio.modeldef.imports import find_model_yaml
 from calliope_studio.modeldef.mathdef import math_components, math_sources
-from calliope_studio.runs import protocol
+from calliope_studio.runs import mathcache, mathdoc, protocol
 from calliope_studio.runs.manager import RunManager
 from calliope_studio.server import resolution
-from calliope_studio.server.deps import get_runs, get_storage, get_workspace
-from calliope_studio.server.storage import LocalStorage, Workspace
+from calliope_studio.server.deps import (
+    get_resolver,
+    get_runs,
+    get_storage,
+    get_workspace,
+)
+from calliope_studio.server.resolution import Resolver
+from calliope_studio.server.storage import MATH_CACHE_RETENTION, LocalStorage, Workspace
 
 router = APIRouter(tags=["math"])
 
@@ -70,6 +83,7 @@ def render_math(
     workspace: Workspace = Depends(get_workspace),
     storage: LocalStorage = Depends(get_storage),
     runs: RunManager = Depends(get_runs),
+    resolver: Resolver = Depends(get_resolver),
 ) -> dict:
     """Starts a rendering, or hands back the one that already answers."""
     model_yaml = find_model_yaml(workspace.path)
@@ -86,6 +100,10 @@ def render_math(
         payload = _read_payload(runs, cached[1])
         if payload is not None:
             return _envelope(cached[1], payload, current)
+
+    stored = _from_disk(workspace, storage, resolver, current)
+    if stored is not None:
+        return stored
 
     storage.prune_math()
     record = runs.start(
@@ -106,11 +124,48 @@ def render_math(
     }
 
 
+def _from_disk(
+    workspace: Workspace, storage: LocalStorage, resolver: Resolver, current: str
+) -> dict | None:
+    """A rendering kept from an earlier session, if one answers for this model.
+
+    Needs a model to compute the key from, and takes it from the resolver, which
+    is holding one anyway for the map and the editors. **Only a fresh one**: a
+    stale resolution was built from an earlier state of the files, so its key
+    names the notation of a model that is no longer on disk.
+
+    The hit still costs `mathdoc.check_inputs`, which is the whole reason it can
+    be trusted — see `mathcache`'s docstring on what the key deliberately leaves
+    out. A failure there is Calliope's own complaint about the model and is
+    reported exactly as the worker path reports it.
+
+    Not recorded in `_RENDERED`, which holds task ids and there is no task here.
+    The lookup is a fingerprint and a backend constructor, about 0.15 s against
+    the four to eight seconds it replaces.
+    """
+    resolved = resolver.get(workspace)
+    if not resolved.is_resolved or resolved.model is None:
+        return None
+
+    payload = mathcache.read(
+        storage.math_cache_dir(), mathcache.fingerprint(resolved.model)
+    )
+    if payload is None:
+        return None
+
+    try:
+        mathdoc.check_inputs(resolved.model)
+    except Exception as caught:
+        return _failed(None, str(caught) or "The math could not be read.")
+    return _envelope(None, payload, current)
+
+
 @router.get("/versions/{id}/math/{task_id}/")
 def math_status(
     task_id: str,
     workspace: Workspace = Depends(get_workspace),
     runs: RunManager = Depends(get_runs),
+    storage: LocalStorage = Depends(get_storage),
 ) -> dict:
     """Polls a rendering, and returns the payload once there is one."""
     try:
@@ -140,13 +195,39 @@ def math_status(
     if payload is None:
         return _failed(task_id, "The rendering produced no output.")
 
+    _store(run_dir, workspace, storage, payload)
+
     current = _digest(workspace)
     with _LOCK:
         _RENDERED[workspace.id] = (current, task_id)
     return _envelope(task_id, payload, current)
 
 
-def _envelope(task_id: str, payload: dict, fingerprint: str) -> dict:
+def _store(run_dir, workspace: Workspace, storage: LocalStorage, payload: dict) -> None:
+    """Keeps a finished rendering for the next session.
+
+    Under the key the *worker* wrote, not one computed here: only the worker held
+    the model that was actually rendered. Absent when the run predates this, in
+    which case there is nothing to file it under and it is simply not kept.
+
+    Called from the poll, so a rendering nobody collects is not stored. That is
+    the same laziness `resolution._collect` has — nothing here reaches back into a
+    finished subprocess — and it costs nothing in practice, because the only way
+    to leave a render uncollected is to cancel it, and a cancelled render has no
+    payload to keep.
+    """
+    try:
+        key = (run_dir / protocol.MATH_KEY_FILE).read_text().strip()
+    except OSError:
+        return
+    if not key:
+        return
+    directory = storage.math_cache_dir()
+    mathcache.write(directory, key, payload, model_name=workspace.name)
+    mathcache.prune(directory, MATH_CACHE_RETENTION)
+
+
+def _envelope(task_id: str | None, payload: dict, fingerprint: str) -> dict:
     return {
         "task_id": task_id,
         "status": "done",
@@ -156,7 +237,7 @@ def _envelope(task_id: str, payload: dict, fingerprint: str) -> dict:
     }
 
 
-def _failed(task_id: str, error: str) -> dict:
+def _failed(task_id: str | None, error: str) -> dict:
     return {
         "task_id": task_id,
         "status": "done",

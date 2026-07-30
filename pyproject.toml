@@ -38,9 +38,7 @@ calliope-studio = "calliope_studio.cli:main"
 
 [project.urls]
 website = "https://www.callio.pe/"
-# `repository` and `changelog` are deliberately absent: this project no longer
-# lives at calliope-project/calligraph, and pointing them there would send people
-# to a repository that is not this one. Restore them once it has a home.
+repository = "https://github.com/sjpfenninger/calliope-studio"
 
 [tool.setuptools_scm]
 # What the version is with no tags at all, which is this repository until

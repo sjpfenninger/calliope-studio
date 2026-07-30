@@ -18,18 +18,16 @@ output was checked against real models for months.
 | Tag | `v0.2.0` (commit `1832bed`) |
 | Source | `src/calligraph/data/{__init__,colors,variables,query,model}.py` |
 
-The files are byte-identical to the tag. While this checkout still has the tag,
-that is checkable directly:
+The files are byte-identical to the tag. This repository's history begins at the
+pivot and carries neither the tag nor the code, so checking that needs a
+clone of the upstream repository — `../calligraph` if you have one beside this:
 
 ```bash
 for m in __init__ colors variables query model; do
-  git show "v0.2.0:src/calligraph/data/$m.py" | diff - "tests/oracle/$m.py" \
-    && echo "$m ok"
+  git -C ../calligraph show "v0.2.0:src/calligraph/data/$m.py" \
+    | diff - "tests/oracle/$m.py" && echo "$m ok"
 done
 ```
-
-After the repository is split and the pre-pivot history is gone, the same check
-needs a clone of the upstream repository.
 
 ## Rules
 

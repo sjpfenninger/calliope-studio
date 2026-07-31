@@ -127,6 +127,27 @@ function axisValues(frame: ResultFrame): (string | number)[] {
   });
 }
 
+/**
+ * The narrowest gap between consecutive index values, in milliseconds.
+ *
+ * ECharts 5 padded a time axis out to round units; 6 fits it to the data's own
+ * extent. On a resampled frame that is a real difference: two Daily points are
+ * one day apart, so the whole axis is 24 hours wide and 6 ticks it every four
+ * *hours* — labelling times that no bucket in the data covers, under bars that
+ * are each a day wide. `minInterval` is a floor rather than a step, so handing
+ * it the spacing the data actually has stops the subdivision without disturbing
+ * an unresampled frame, where the interval ECharts already chooses is coarser
+ * than one timestep anyway.
+ */
+function timeStep(values: unknown[]): number {
+  let smallest = Number.POSITIVE_INFINITY;
+  for (let position = 1; position < values.length; position += 1) {
+    const gap = Number(values[position]) - Number(values[position - 1]);
+    if (gap > 0 && gap < smallest) smallest = gap;
+  }
+  return Number.isFinite(smallest) ? smallest : 0;
+}
+
 function buildOption(frame: ResultFrame): echarts.EChartsOption {
   const axis = axisValues(frame);
   const onTime = isTimeIndex(frame);
@@ -184,7 +205,7 @@ function buildOption(frame: ResultFrame): echarts.EChartsOption {
       ? { type: "scroll", bottom: 0, height: LEGEND_H }
       : { show: false },
     xAxis: onTime
-      ? { type: "time", axisLabel: { hideOverlap: true } }
+      ? { type: "time", minInterval: timeStep(axis), axisLabel: { hideOverlap: true } }
       : {
           type: "category",
           data: axis,

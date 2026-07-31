@@ -150,6 +150,13 @@ web-audit = { cmd = "pnpm audit --audit-level=high", cwd = "web" }
 # a clean one.
 example = "test -d example-model || calliope new example-model --template national_scale"
 
+# The solved models the oracle tests and the results smoke check read. Distinct
+# from `example` above, which scaffolds a model *folder* to edit: this one
+# solves Calliope's two templates into examples/nc_files/. Idempotent, and
+# gitignored output — the point is that it is reproducible rather than
+# hand-placed, which is what used to make those tests skip in silence.
+solve-examples = "python scripts/make_examples.py"
+
 # API only, with reload. Pair with `web-dev` (Vite proxies /api to this).
 serve = { cmd = "uvicorn calliope_studio.server.app:app --reload --port 8000", env = { CALLIOPE_STUDIO_WORKSPACE = "example-model" }, depends-on = [
   "example",

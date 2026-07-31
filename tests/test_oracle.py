@@ -11,7 +11,8 @@ changes and there is no second environment to keep in step. See that directory's
 README for provenance; they used to be read out of git, which stopped working
 the moment that older history was no longer in the repository.
 
-Skips when the sample `.nc` files are absent, which is the case in CI.
+Skips when the sample `.nc` files are absent. `pixi run solve-examples` makes
+them, which is what CI does before running this.
 """
 
 import importlib
@@ -37,13 +38,28 @@ REPO = Path(__file__).parent.parent
 SAMPLE_DIRS = [REPO / "examples" / "nc_files", REPO]
 
 #: The urban model exercises the geographic path; the national model is the
-#: standard fixture.
-SAMPLE_MODELS = ["urban_scale_07.dev7.nc", "national_scale_07.dev7.nc"]
+#: standard fixture. Each is a list of names in preference order: the first is
+#: what `scripts/make_examples.py` writes, the second the hand-placed file that
+#: predates it, so a checkout holding only the old one keeps working. Held per
+#: model rather than as a flat list so that a directory with both spellings
+#: still runs the comparison once.
+SAMPLE_MODELS = {
+    "urban_scale": ["urban_scale.nc", "urban_scale_07.dev7.nc"],
+    "national_scale": ["national_scale.nc", "national_scale_07.dev7.nc"],
+}
 
 
-def sample_path(name: str) -> Path | None:
-    """First existing copy of `name`, or None if it is nowhere."""
-    return next((d / name for d in SAMPLE_DIRS if (d / name).is_file()), None)
+def sample_path(model: str) -> Path | None:
+    """First existing file for `model`, or None if it is nowhere."""
+    return next(
+        (
+            directory / name
+            for directory in SAMPLE_DIRS
+            for name in SAMPLE_MODELS[model]
+            if (directory / name).is_file()
+        ),
+        None,
+    )
 
 
 #: Where the frozen v0.2.0 sources live, byte-identical to the tag.
@@ -57,11 +73,12 @@ ORACLE_MODULES = ["__init__", "colors", "variables", "query", "model"]
 
 
 def _available_models() -> list[str]:
-    return [name for name in SAMPLE_MODELS if sample_path(name) is not None]
+    return [model for model in SAMPLE_MODELS if sample_path(model) is not None]
 
 
 pytestmark = pytest.mark.skipif(
-    not _available_models(), reason="sample .nc files are not in the repository"
+    not _available_models(),
+    reason="no sample .nc files — run `pixi run solve-examples` to make them",
 )
 
 

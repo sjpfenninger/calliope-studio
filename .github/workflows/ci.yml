@@ -31,10 +31,13 @@ jobs:
         run: pixi run lint
       - name: Check formatting
         run: pixi run format-check
+      # The sample .nc files are gitignored, and the numerical comparison
+      # against v0.2.0 skips without them — which meant the only evidence the
+      # results layer is correct never ran here. Solving Calliope's own two
+      # templates takes a minute and removes the skip.
+      - name: Solve the example models
+        run: pixi run solve-examples
       - name: Test
-        # The sample .nc files are not in the repository, so tests that need a
-        # solved model skip here. Keep it that way: CI covers logic, and the
-        # numerical comparisons against v0.2.0 are run locally.
         run: pixi run test
 
   web:
@@ -159,10 +162,15 @@ jobs:
       - name: Run lifecycle
         run: pixi run -- pnpm --dir web run run-lifecycle http://127.0.0.1:8791
 
-      - name: Results view, on what that run produced
+      # Not on what `run-lifecycle` just produced: smoke-charts asserts that
+      # with nothing summed *no* technology colour is painted, and whether that
+      # holds is a property of the model. `choose_index` puts techs on the index
+      # for urban_scale and nodes on it for national_scale, so that assertion
+      # legitimately fails against a national_scale run on working code.
+      - name: Results view, on the urban_scale example
         run: |
-          results=$(ls example-model/calliope-studio/runs/*/results.nc | head -1)
-          pixi run calliope-studio --no-browser --port 8792 "$results" &
+          pixi run solve-examples urban_scale
+          pixi run calliope-studio --no-browser --port 8792 examples/nc_files/urban_scale.nc &
           pixi run -- pnpm dlx wait-on -t 120000 http://127.0.0.1:8792/api/health
           pixi run -- pnpm --dir web run smoke http://127.0.0.1:8792
 

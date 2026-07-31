@@ -14,7 +14,10 @@ site/
 
 # Scratch models: `pixi run example` creates example-model/ for the dev server
 # to open, and examples/ holds sample models and the solved .nc files the tests
-# read. Both are large and neither belongs in the repository.
+# read. Both are large and neither belongs in the repository. The .nc files the
+# tests need are reproducible — `pixi run solve-examples` writes them — which is
+# what lets this line stand; the version-stamped ones beside them are history
+# and cannot be regenerated.
 example-model/
 examples/
 

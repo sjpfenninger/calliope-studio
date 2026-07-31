@@ -3,7 +3,18 @@
 // loaded, so its stylesheet landed after the overrides that restyle the map's
 // chrome and reverted them. See the note there.
 import { onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue";
-import maplibregl from "maplibre-gl";
+// Namespace rather than default: maplibre-gl 6 is ESM-only and publishes no
+// default export. Every `maplibregl.Thing` below — type and constructor alike —
+// resolves through this unchanged.
+import * as maplibregl from "maplibre-gl";
+// v6 finds its worker through `import.meta.url`, which a bundler's module graph
+// does not resolve to anything fetchable — so the worker never starts, and
+// because nothing throws, the map comes up with a correctly sized canvas whose
+// style stays permanently unloaded: no layers, no markers, no error. Naming it
+// through Vite is what makes it real. `?worker&url` rather than `?url` because
+// the worker imports maplibre's shared chunk, which a bare asset copy leaves
+// behind.
+import maplibreWorkerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
 
 import {
   basemapPaint,
@@ -123,6 +134,10 @@ const emit = defineEmits<{
   nodeMoved: [{ node: string; latitude: number; longitude: number }];
   linkClick: [string];
 }>();
+
+// Once for the module, not once per map: the setting is global to maplibre, and
+// this component is the only thing that constructs one.
+maplibregl.setWorkerUrl(maplibreWorkerUrl);
 
 const ui = useUiStore();
 

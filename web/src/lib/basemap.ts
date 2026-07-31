@@ -28,9 +28,21 @@
  * to it — so every value goes through `lib/cssColor` like the other non-DOM
  * renderers.
  */
-import type { StyleSpecification } from "maplibre-gl";
+import type { Map as MapLibreMap, StyleSpecification } from "maplibre-gl";
 
 import { resolvedColor } from "./cssColor";
+
+/**
+ * A paint property name `setPaintProperty` will accept.
+ *
+ * maplibre-gl 6 narrowed that parameter from `string` to a key of the style
+ * spec's paint properties, which is the better type — a mistyped
+ * `"line-colour"` is now a compile error rather than a layer that silently
+ * keeps its old colour. Read off the method rather than imported by name:
+ * `AllPaintProperties` lives in `@maplibre/maplibre-gl-style-spec`, which is a
+ * transitive dependency, and pnpm does not hoist.
+ */
+type PaintProperty = Parameters<MapLibreMap["setPaintProperty"]>[1];
 
 /** The vector source id, and what an error event names when tiles fail. */
 export const VECTOR_SOURCE = "openmaptiles";
@@ -126,7 +138,7 @@ export const RASTER_PAINT = {
  * theme change with `setPaintProperty` and never call `setStyle` — which would
  * destroy the node and link sources along with it.
  */
-export function basemapPaint(): [layer: string, property: string, value: string][] {
+export function basemapPaint(): [layer: string, property: PaintProperty, value: string][] {
   const land = resolvedColor("--cg-map-land", "#f4f5f6");
   const landAlt = resolvedColor("--cg-map-land-alt", "#ecf1ed");
   const water = resolvedColor("--cg-map-water", "#dfe8ee");

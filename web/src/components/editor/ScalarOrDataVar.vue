@@ -102,7 +102,7 @@ function toggleMode() {
 
 // Mono at the mono step. At `text-2xs` these three read as a footnote in a
 // different typeface than the key they sit under.
-const SUB_LABEL = "w-10 shrink-0 text-right font-mono text-xs text-text-faint";
+const SUB_LABEL = "w-10 shrink-0 text-right text-sm text-text-faint";
 </script>
 
 <template>

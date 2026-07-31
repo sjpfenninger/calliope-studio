@@ -192,7 +192,7 @@ const onChange = markDirty;
               <span class="w-4 shrink-0 text-right text-2xs tabular-nums text-text-faint">
                 {{ index + 1 }}
               </span>
-              <span class="min-w-0 flex-1 truncate font-mono">{{ name }}</span>
+              <span class="min-w-0 flex-1 truncate">{{ name }}</span>
 
               <InfoTip
                 v-if="unresolved(entry).includes(name)"

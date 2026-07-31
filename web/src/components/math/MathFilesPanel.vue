@@ -228,7 +228,7 @@ async function create() {
       />
       <button
         type="button"
-        class="min-w-0 flex-1 truncate text-left font-mono text-xs"
+        class="min-w-0 flex-1 truncate text-left text-sm"
         :class="source.applied ? 'text-foreground' : 'text-text-faint'"
         :disabled="!source.path || source.missing"
         @click="source.path && tabs.openFile(source.path)"

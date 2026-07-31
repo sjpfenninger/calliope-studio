@@ -16,14 +16,11 @@
  * `rounded-sm`, and only things 20px and under are `rounded-xs`. These used to
  * disagree with each other inside this very file.
  *
- * **Keys are monospace, values are sans.** A key is a literal YAML identifier, so
- * it gets the mono face at the mono step — 11px, because IBM Plex Mono at 11px
- * optically matches Inter at 12px (see the type scale in `style.css`). Everything
- * else — a value, a source annotation, a badge, prose — is sans. The editors used
- * to break this in both directions: the inherited-values box rendered headings,
- * values and badges alike in 10px mono, and the overrides editor put a mono path
- * in a 12px field. Mono at 10px reads as a footnote in a different typeface,
- * which is precisely what a user notices without being able to name it.
+ * **A form is all sans.** Mono means code — text the user could paste into a
+ * file or a terminal — and is written once, as `CODE_BLOCK`. A key needs no
+ * second typeface to mark it: it is the thing in the 9rem gutter. A name or a
+ * path *inside a sentence* has no position to speak for it, and gets
+ * `IDENTIFIER`.
  */
 
 /**
@@ -52,9 +49,30 @@ export const CONTROL_HEIGHT = {
 
 export type ControlSize = keyof typeof CONTROL_HEIGHT;
 
+/** One faded state, at one value — the fields and the icon buttons disagreed. */
+export const DISABLED = "disabled:opacity-50";
+
+/**
+ * A block of code: a solver log, a snapshot file, a YAML fragment, a traceback.
+ *
+ * The only place in the app that writes `font-mono`, which `design.test.ts`
+ * enforces. The leading is the token Monaco is handed, so every code surface
+ * shares one line height.
+ */
+export const CODE_BLOCK =
+  "font-mono text-sm leading-[var(--cg-code-line-height)]";
+
+/**
+ * An identifier inside a sentence: a path, a key, a technology name.
+ *
+ * The same chip `assets/markdown.css` draws around inline `code`, so a path in
+ * a dialog and one in a rendered README look like one thing.
+ */
+export const IDENTIFIER = "rounded-xs bg-surface-2 px-1 text-text-dim";
+
 /** A 24px text/number/select control that fills its column. */
 export const FIELD =
-  "h-6 w-full min-w-0 rounded-sm border border-input bg-surface px-1.5 text-sm transition-colors focus-visible:border-ring disabled:opacity-50";
+  `h-6 w-full min-w-0 rounded-sm border border-input bg-surface px-1.5 text-sm transition-colors focus-visible:border-ring ${DISABLED}`;
 
 /**
  * The same at 20px, for a control inside a 24px row.
@@ -65,17 +83,10 @@ export const FIELD =
  * `DANGER_ICON_BUTTON_SM` was added for: 20px at the wrong roundness.
  */
 export const FIELD_SM =
-  "h-5 w-full min-w-0 rounded-xs border border-input bg-surface px-1 text-2xs transition-colors focus-visible:border-ring disabled:opacity-50";
+  `h-5 w-full min-w-0 rounded-xs border border-input bg-surface px-1 text-2xs transition-colors focus-visible:border-ring ${DISABLED}`;
 
-/**
- * The same, for a control whose *value* is an identifier: a parameter name, a
- * dotted override path. Mono at the mono step, rather than `FIELD`'s 12px sans.
- */
-export const FIELD_MONO =
-  "h-6 w-full min-w-0 rounded-sm border border-input bg-surface px-1.5 font-mono text-xs transition-colors focus-visible:border-ring disabled:opacity-50";
-
-/** The monospace label naming the key a field edits. */
-export const FIELD_LABEL = "font-mono text-xs text-text-dim";
+/** The label naming the key a field edits. */
+export const FIELD_LABEL = "text-sm text-text-dim";
 
 /**
  * One field: its key in a fixed gutter, its control beside it.
@@ -150,7 +161,7 @@ export const SECTION = "flex flex-col gap-2 rounded-md border border-border p-2"
  * keeps the loud end of the ramp meaning one thing.
  */
 export const PRIMARY_BUTTON =
-  "inline-flex h-6 items-center gap-1.5 rounded-sm border border-accent-border bg-accent-soft px-2 text-sm font-medium text-accent-text transition-colors hover:bg-accent-soft-2 disabled:opacity-50";
+  `inline-flex h-6 items-center gap-1.5 rounded-sm border border-accent-border bg-accent-soft px-2 text-sm font-medium text-accent-text transition-colors hover:bg-accent-soft-2 ${DISABLED}`;
 
 /**
  * The 28px tier: a dialog footer's action, or a button standing alone on a page.
@@ -162,23 +173,23 @@ export const PRIMARY_BUTTON =
  * because the primitive already said so.
  */
 export const PRIMARY_BUTTON_MD =
-  "inline-flex h-7 items-center gap-1.5 rounded-sm border border-accent-border bg-accent-soft px-2.5 text-sm font-medium text-accent-text transition-colors hover:bg-accent-soft-2 disabled:opacity-50";
+  `inline-flex h-7 items-center gap-1.5 rounded-sm border border-accent-border bg-accent-soft px-2.5 text-sm font-medium text-accent-text transition-colors hover:bg-accent-soft-2 ${DISABLED}`;
 
 /** The neutral 28px action — the "Cancel" beside `PRIMARY_BUTTON_MD`. */
 export const SECONDARY_BUTTON_MD =
-  "inline-flex h-7 items-center gap-1.5 rounded-sm border border-border px-2.5 text-sm transition-colors hover:bg-hover disabled:opacity-50";
+  `inline-flex h-7 items-center gap-1.5 rounded-sm border border-border px-2.5 text-sm transition-colors hover:bg-hover ${DISABLED}`;
 
 /** The destructive 28px action, for a confirmation dialog's own button. */
 export const DANGER_BUTTON_MD =
-  "inline-flex h-7 items-center gap-1.5 rounded-sm border border-danger-soft bg-danger-soft px-2.5 text-sm font-medium text-danger-text transition-colors hover:border-destructive hover:bg-destructive hover:text-destructive-foreground disabled:opacity-50";
+  `inline-flex h-7 items-center gap-1.5 rounded-sm border border-danger-soft bg-danger-soft px-2.5 text-sm font-medium text-danger-text transition-colors hover:border-destructive hover:bg-destructive hover:text-destructive-foreground ${DISABLED}`;
 
 /** A quiet toolbar or row action. */
 export const GHOST_BUTTON =
-  "inline-flex h-6 items-center gap-1.5 rounded-sm px-2 text-sm text-text-dim transition-colors hover:bg-hover hover:text-foreground disabled:opacity-50";
+  `inline-flex h-6 items-center gap-1.5 rounded-sm px-2 text-sm text-text-dim transition-colors hover:bg-hover hover:text-foreground ${DISABLED}`;
 
 /** A neutral, bordered action — the "Cancel" beside a primary button. */
 export const SECONDARY_BUTTON =
-  "inline-flex h-6 items-center gap-1.5 rounded-sm border border-border px-2 text-sm transition-colors hover:bg-hover disabled:opacity-50";
+  `inline-flex h-6 items-center gap-1.5 rounded-sm border border-border px-2 text-sm transition-colors hover:bg-hover ${DISABLED}`;
 
 /**
  * A destructive primary action, for a confirmation dialog.
@@ -188,7 +199,7 @@ export const SECONDARY_BUTTON =
  * pointer is already on the button that deletes something.
  */
 export const DANGER_BUTTON =
-  "inline-flex h-6 items-center gap-1.5 rounded-sm border border-danger-soft bg-danger-soft px-2 text-sm font-medium text-danger-text transition-colors hover:border-destructive hover:bg-destructive hover:text-destructive-foreground disabled:opacity-50";
+  `inline-flex h-6 items-center gap-1.5 rounded-sm border border-danger-soft bg-danger-soft px-2 text-sm font-medium text-danger-text transition-colors hover:border-destructive hover:bg-destructive hover:text-destructive-foreground ${DISABLED}`;
 
 /**
  * A bare text action at the micro step: "All", "None", "Reset", "Clear".
@@ -200,7 +211,7 @@ export const DANGER_BUTTON =
  * any of them, so the row decided.
  */
 export const TEXT_BUTTON_SM =
-  "rounded-xs px-1 text-2xs text-text-faint transition-colors hover:bg-hover hover:text-foreground disabled:opacity-40";
+  `rounded-xs px-1 text-2xs text-text-faint transition-colors hover:bg-hover hover:text-foreground ${DISABLED}`;
 
 /**
  * A word inside a run of text that opens something — the template a field
@@ -221,15 +232,15 @@ export const INLINE_LINK =
 
 /** A square icon-only button, for row-level add/remove. */
 export const ICON_BUTTON =
-  "grid size-6 shrink-0 place-items-center rounded-sm text-text-faint transition-colors hover:bg-hover hover:text-foreground disabled:opacity-40";
+  `grid size-6 shrink-0 place-items-center rounded-sm text-text-faint transition-colors hover:bg-hover hover:text-foreground ${DISABLED}`;
 
 /** The same at 20px, for an inline affordance inside a 24px row. */
 export const ICON_BUTTON_SM =
-  "grid size-5 shrink-0 place-items-center rounded-xs text-text-faint transition-colors hover:bg-hover hover:text-foreground disabled:opacity-40";
+  `grid size-5 shrink-0 place-items-center rounded-xs text-text-faint transition-colors hover:bg-hover hover:text-foreground ${DISABLED}`;
 
 /** The same, for something destructive. */
 export const DANGER_ICON_BUTTON =
-  "grid size-6 shrink-0 place-items-center rounded-sm text-text-faint transition-colors hover:bg-danger-soft hover:text-danger-text disabled:opacity-40";
+  `grid size-6 shrink-0 place-items-center rounded-sm text-text-faint transition-colors hover:bg-danger-soft hover:text-danger-text ${DISABLED}`;
 
 /**
  * Destructive at 20px, for a remove affordance inside a 24px row.
@@ -239,4 +250,4 @@ export const DANGER_ICON_BUTTON =
  * the 3px radius a 24px control gets and so was 20px at the wrong roundness.
  */
 export const DANGER_ICON_BUTTON_SM =
-  "grid size-5 shrink-0 place-items-center rounded-xs text-text-faint transition-colors hover:bg-danger-soft hover:text-danger-text disabled:opacity-40";
+  `grid size-5 shrink-0 place-items-center rounded-xs text-text-faint transition-colors hover:bg-danger-soft hover:text-danger-text ${DISABLED}`;

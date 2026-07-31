@@ -21,7 +21,7 @@ import RunProgress from "./RunProgress.vue";
 import RunStatusPill from "./RunStatusPill.vue";
 import { cn } from "@/lib/utils";
 import { formatDuration, formatObjective, formatTimestamp } from "@/lib/format";
-import { FIELD_SM } from "@/lib/formClasses";
+import { CODE_BLOCK, FIELD_SM, IDENTIFIER } from "@/lib/formClasses";
 
 import {
   isTerminal,
@@ -136,12 +136,13 @@ watch(
 
     <div
       ref="viewport"
-      class="min-h-0 flex-1 overflow-auto bg-surface p-2 font-mono text-xs leading-4"
+      class="min-h-0 flex-1 overflow-auto bg-surface p-2"
+      :class="CODE_BLOCK"
       @scroll="onScroll"
     >
       <p v-if="trimmed" class="mb-1 text-2xs text-text-faint">
         {{ trimmed.toLocaleString() }} earlier lines trimmed — all of them are in
-        <code>run.log</code>.
+        <code :class="IDENTIFIER">run.log</code>.
       </p>
 
       <p
@@ -169,7 +170,7 @@ watch(
       </p>
       <details v-if="run?.traceback" class="mt-2">
         <summary class="cursor-pointer text-2xs text-text-faint">Traceback</summary>
-        <pre class="mt-1 whitespace-pre-wrap text-2xs text-text-dim">{{
+        <pre class="mt-1 whitespace-pre-wrap text-text-dim" :class="CODE_BLOCK">{{
           run.traceback
         }}</pre>
       </details>

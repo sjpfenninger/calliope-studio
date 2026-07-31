@@ -31,6 +31,7 @@ import { fetchSummary } from "@/api/results";
 import { buildFileTree, type FileEntry, type FileTreeNode } from "@/lib/fileTree";
 import { formatBytes } from "@/lib/format";
 import { fileIcon } from "@/lib/icons";
+import { CODE_BLOCK } from "@/lib/formClasses";
 
 const props = defineProps<{ runId: string; handle: string | null }>();
 
@@ -206,7 +207,8 @@ const viewSegments = computed(() => [
         <pre
           v-if="content !== null"
           data-testid="snapshot-content"
-          class="p-2 font-mono text-xs leading-4 whitespace-pre"
+          class="p-2 whitespace-pre"
+          :class="CODE_BLOCK"
           >{{ content }}</pre
         >
 
@@ -257,7 +259,7 @@ const viewSegments = computed(() => [
               <dt class="w-56 shrink-0 truncate text-text-dim">{{ key }}</dt>
               <!-- design-check: allow native-title — the same string the `dd`
                    prints, unclipped. -->
-              <dd class="min-w-0 flex-1 truncate font-mono text-xs" :title="display(value)">
+              <dd class="min-w-0 flex-1 truncate" :title="display(value)">
                 {{ display(value) }}
               </dd>
             </div>

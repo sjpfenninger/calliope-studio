@@ -26,7 +26,7 @@ import {
   ResizablePanel,
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
-import { FIELD_LABEL, GHOST_BUTTON } from "@/lib/formClasses";
+import { FIELD_LABEL, GHOST_BUTTON, IDENTIFIER } from "@/lib/formClasses";
 import { cn } from "@/lib/utils";
 
 import { resolveDataPath } from "@/lib/modelPaths";
@@ -353,7 +353,7 @@ onUnmounted(() => clearTimeout(reloadTimer));
               class="flex shrink-0 items-center gap-2 border-b border-border px-2 py-1 text-2xs text-text-dim"
             >
               <span class="truncate">
-                data: now points at <span class="font-mono">{{ pendingPath }}</span
+                data: now points at <span :class="IDENTIFIER">{{ pendingPath }}</span
                 >.
               </span>
               <button type="button" :class="GHOST_BUTTON" @click="reloadCsv">

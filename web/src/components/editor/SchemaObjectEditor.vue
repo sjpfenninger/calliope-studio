@@ -17,7 +17,7 @@ import { Switch } from "@/components/ui/switch";
 import Eyebrow from "@/components/app/Eyebrow.vue";
 import FieldRow from "@/components/app/FieldRow.vue";
 import TooltipButton from "@/components/app/TooltipButton.vue";
-import { FIELD, FIELD_MONO, type FieldWidth } from "@/lib/formClasses";
+import { FIELD, type FieldWidth } from "@/lib/formClasses";
 // Self-import for recursive nested-object rendering.
 import SchemaObjectEditor from "./SchemaObjectEditor.vue";
 
@@ -342,7 +342,7 @@ function flushKV(key: string) {
               v-model="pair.key"
               type="text"
               placeholder="key"
-              :class="FIELD_MONO"
+              :class="FIELD"
               @change="flushKV(entry.key)"
             />
           </template>

@@ -35,7 +35,7 @@ const props = withDefaults(
 );
 
 const TONE = {
-  muted: "text-muted-foreground",
+  muted: "text-text-muted",
   danger: "text-danger-text",
   warning: "text-warning-text",
 } as const;

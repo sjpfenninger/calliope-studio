@@ -183,6 +183,7 @@ const fellBack = ref(false);
  * in the *first technology's* colour, which looked deliberate and was not.
  */
 function layerPaint() {
+  const accent = resolvedColor("--cg-accent", "#026fff");
   return {
     // Per-feature colour still wins: `results/geo.py` stamps the technology
     // colour onto each link, and that is identity, not chrome.
@@ -191,12 +192,14 @@ function layerPaint() {
       ["get", "color"],
       resolvedColor("--cg-text-faint", "#8f8f8f"),
     ] as maplibregl.ExpressionSpecification,
-    nodeColor: resolvedColor("--cg-accent", "#026fff"),
+    // One resolution under both the names it is used by: the default node
+    // fill, and the selection ring and pending-link line.
+    nodeColor: accent,
     // Inverts with the theme, which is what keeps a selected node legible
     // against a dimmed basemap.
     nodeStrokeSelected: resolvedColor("--cg-text", "#1f1f1f"),
     nodeStroke: resolvedColor("--cg-surface", "#ffffff"),
-    accent: resolvedColor("--cg-accent", "#026fff"),
+    accent,
   };
 }
 

@@ -113,11 +113,9 @@
   border-top: 1px solid var(--cg-border);
 }
 
-/* Mono lives at the 11px step, which is the rule `design.test.ts` enforces for
-   the rest of the app; a code span inside 13px prose keeps that relationship. */
 .cg-markdown code {
   font-family: var(--cg-font-mono);
-  font-size: var(--text-xs);
+  font-size: var(--text-sm);
   background: var(--cg-surface-2);
   border-radius: 2px;
   padding: 0.1em 0.35em;

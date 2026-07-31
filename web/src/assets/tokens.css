@@ -59,7 +59,7 @@
         content comes forward) but the relationships are the same: surface one
         step from panel, surface-2 one step recessive from surface, hover and
         active two more. ── */
-  --cg-bg: oklch(95% 0 0); /* #f0f0f0 — the gap behind panels */
+  --cg-bg: oklch(95% 0 0); /* #eeeeee — the gap behind panels */
   --cg-panel: oklch(
     97.5% 0 0
   ); /* #f6f6f6 — chrome: sidebar, tab strip, toolbars */
@@ -72,7 +72,8 @@
   --cg-hover: oklch(
     94% 0 0
   ); /* #eaeaea — row and control hover; opaque, not a wash */
-  --cg-active: oklch(91% 0 0); /* #e3e3e3 — pressed, selected row */
+  /* Pressed, and the active tab. A *selected* row is --cg-accent-soft. */
+  --cg-active: oklch(91% 0 0); /* #e1e1e1 */
 
   /* ── Hairlines. Three tiers. The subtle tier is lifted from the value white
         alone would suggest because it spends most of its life on `panel`, not on
@@ -101,7 +102,6 @@
   /* ── Accent blue. ─────────────────────────────────────────────── */
   --cg-accent: oklch(58.1% 0.23 259.5); /* #026fff — fills, focus, active bar */
   --cg-accent-hover: oklch(52% 0.209 259.5); /* #005ede */
-  --cg-accent-active: oklch(46% 0.186 259.5); /* #004fbd */
   --cg-accent-on: oklch(100% 0 0); /* #ffffff — text on an accent fill */
   /* A separate, darker token: an accent's fill colour and its text colour can
      never be the same value in both themes. */
@@ -114,7 +114,9 @@
   ); /* #d6e6fe — selected and hovered */
   --cg-accent-border: oklch(
     82% 0.085 259.5
-  ); /* #a4c6fc — border of a selected control */
+  ); /* #a4c6fc — border of a selected control, or a filled progress segment */
+  /* For AG Grid's cell ring only. The app's focus is a 2px outline
+     (style.css), which inside a grid cell clips against the cell edge. */
   --cg-focus-ring: oklch(58.1% 0.23 259.5 / 0.35);
 
   /* The scrim behind a dialog. Alpha is fine here and is not the color-mix()
@@ -131,9 +133,6 @@
   --cg-warning-text: oklch(52% 0.12 62); /* #995600 — 5.7:1 */
   --cg-warning-soft: oklch(96% 0.035 80); /* #fef0d8 */
   --cg-danger: oklch(57% 0.2 26); /* #d43031 */
-  --cg-danger-hover: oklch(
-    51% 0.19 26
-  ); /* #ba2225 — an opaque step, not bg-destructive/90 */
   --cg-danger-text: oklch(50% 0.19 26); /* #b71920 — 6.6:1 */
   --cg-danger-soft: oklch(95.5% 0.022 26); /* #ffebe8 */
   --cg-danger-on: oklch(100% 0 0); /* #ffffff */
@@ -208,7 +207,8 @@
   --cg-row-header-h: 28px; /* AG Grid header row */
   --cg-font-size: 13px; /* mirrors --text-base */
   --cg-font-size-sm: 12px; /* mirrors --text-sm — ECharts, AG Grid cells, Monaco */
-  --cg-code-line-height: 18px; /* Monaco: 12px at 1.5, looser than --text-sm's 16 */
+  --cg-font-size-2xs: 10px; /* mirrors --text-2xs — chart zoom labels, map chrome */
+  --cg-code-line-height: 18px; /* every code surface: Monaco, the log, a <pre> */
 
   /* ── Elevation. Three steps, because shadcn's seven-name ramp has to land
         somewhere: 0 for a flat surface, 1 for a menu, 2 for a dialog. Nothing
@@ -251,7 +251,6 @@
      chroma blue on a near-black surface vibrates. */
   --cg-accent: oklch(62% 0.205 258); /* #2481fe */
   --cg-accent-hover: oklch(68% 0.17 258); /* #5097ff */
-  --cg-accent-active: oklch(56% 0.2 258); /* #0e6ee6 */
   --cg-accent-on: oklch(100% 0 0); /* #ffffff */
   --cg-accent-text: oklch(76% 0.124 256); /* #7bb3ff — 7.8:1 */
   --cg-accent-soft: oklch(28% 0.045 258); /* #1b293f */
@@ -268,7 +267,6 @@
   --cg-warning-text: oklch(85% 0.13 80); /* #fac463 */
   --cg-warning-soft: oklch(30% 0.05 72); /* #3d290e */
   --cg-danger: oklch(68% 0.185 25); /* #f5605b */
-  --cg-danger-hover: oklch(62% 0.19 25); /* #e4514c */
   --cg-danger-text: oklch(76% 0.142 25); /* #ff8a83 */
   --cg-danger-soft: oklch(30% 0.055 25); /* #462220 */
   --cg-danger-on: oklch(17% 0 0); /* #0f0f0f */

@@ -19,6 +19,7 @@ import InfoTip from "@/components/app/InfoTip.vue";
 import TooltipButton from "@/components/app/TooltipButton.vue";
 import {
   DANGER_BUTTON_MD,
+  IDENTIFIER,
   PRIMARY_BUTTON,
   SECONDARY_BUTTON_MD,
 } from "@/lib/formClasses";
@@ -249,7 +250,7 @@ function setRetention(keep: number | null) {
 
       <StateMessage v-if="!runs.ordered.length" variant="inline">
         No runs yet. Solving writes results beside the model, in
-        <code class="font-mono text-xs">calliope-studio/runs/</code>.
+        <code :class="IDENTIFIER">calliope-studio/runs/</code>.
       </StateMessage>
     </div>
 

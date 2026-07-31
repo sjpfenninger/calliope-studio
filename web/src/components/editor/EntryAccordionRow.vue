@@ -37,7 +37,7 @@ defineEmits<{ remove: [] }>();
       <!-- No `py-1.5` and no `hover:no-underline`: AccordionTrigger is already
            `h-7` and has never underlined. All five copies carried both anyway,
            and the padding only squeezed the row's own content. -->
-      <AccordionTrigger class="min-w-0 flex-1 items-center gap-2 font-mono text-sm">
+      <AccordionTrigger class="min-w-0 flex-1 items-center gap-2 text-sm">
         <span class="truncate">{{ name }}</span>
         <slot name="meta" />
       </AccordionTrigger>

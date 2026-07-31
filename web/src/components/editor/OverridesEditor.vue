@@ -30,7 +30,7 @@ import { Accordion } from "@/components/ui/accordion";
 import EntryAccordionRow from "./EntryAccordionRow.vue";
 import FieldRow from "@/components/app/FieldRow.vue";
 import TooltipButton from "@/components/app/TooltipButton.vue";
-import { FIELD, FIELD_MONO, GHOST_BUTTON } from "@/lib/formClasses";
+import { FIELD, GHOST_BUTTON } from "@/lib/formClasses";
 
 import { cn } from "@/lib/utils";
 import { useComponentTreeStore } from "@/stores/componentTree";
@@ -225,7 +225,7 @@ const onChange = markDirty;
                   list="override-paths"
                   placeholder="config.init.name"
                   :title="setting.path"
-                  :class="FIELD_MONO"
+                  :class="FIELD"
                   @input="onChange"
                 />
               </template>

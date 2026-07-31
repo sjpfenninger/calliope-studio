@@ -23,7 +23,7 @@ import ScalarOrDataVar from "./ScalarOrDataVar.vue";
 import Eyebrow from "@/components/app/Eyebrow.vue";
 import FieldRow from "@/components/app/FieldRow.vue";
 import TooltipButton from "@/components/app/TooltipButton.vue";
-import { FIELD, FIELD_MONO, GHOST_BUTTON } from "@/lib/formClasses";
+import { FIELD, GHOST_BUTTON } from "@/lib/formClasses";
 import { cn } from "@/lib/utils";
 import { parseScalar, type Param } from "@/lib/entries";
 import { unmatchedInherited, type Inherited } from "@/lib/inherited";
@@ -91,7 +91,7 @@ function materialise(key: string, raw: string) {
           v-model="param.key"
           type="text"
           placeholder="parameter"
-          :class="FIELD_MONO"
+          :class="FIELD"
           @input="emit('change')"
         />
       </template>

@@ -30,7 +30,7 @@ import StateMessage from "@/components/app/StateMessage.vue";
 import TreeSearch from "@/components/app/TreeSearch.vue";
 import MathFilesPanel from "@/components/math/MathFilesPanel.vue";
 import { Badge } from "@/components/ui/badge";
-import { GHOST_BUTTON, SECONDARY_BUTTON } from "@/lib/formClasses";
+import { CODE_BLOCK, GHOST_BUTTON, SECONDARY_BUTTON } from "@/lib/formClasses";
 import { renderMarkdown } from "@/lib/markdown";
 import { hasRenderError, renderLatex } from "@/lib/mathRender";
 import { useMathStore } from "@/stores/math";
@@ -292,7 +292,7 @@ watch(
               :data-math-component="component.name"
               @click="math.select(component.name)"
             >
-              <span class="truncate font-mono text-xs">{{ component.name }}</span>
+              <span class="truncate text-sm">{{ component.name }}</span>
               <span class="flex-1" />
               <Badge
                 v-if="component.overridden"
@@ -343,7 +343,7 @@ watch(
               math.payload.groups.find((group) => group.key === selected!.group)?.label ??
               selected.group
             }}</Eyebrow>
-            <h2 class="font-mono text-md text-foreground">{{ selected.name }}</h2>
+            <h2 class="text-lg text-foreground">{{ selected.name }}</h2>
             <p v-if="selected.title" class="text-sm text-text-dim">
               {{ selected.title }}
             </p>
@@ -402,7 +402,7 @@ watch(
                 v-for="name in selected.uses"
                 :key="name"
                 type="button"
-                class="rounded-xs px-1 font-mono text-xs text-accent-text hover:bg-hover"
+                class="rounded-xs px-1 text-sm text-accent-text hover:bg-hover"
                 :disabled="!math.componentsByName.has(name)"
                 :data-math-ref="name"
                 @click="math.select(name)"
@@ -419,7 +419,7 @@ watch(
                 v-for="name in selected.used_in"
                 :key="name"
                 type="button"
-                class="rounded-xs px-1 font-mono text-xs text-accent-text hover:bg-hover"
+                class="rounded-xs px-1 text-sm text-accent-text hover:bg-hover"
                 :disabled="!math.componentsByName.has(name)"
                 :data-math-ref="name"
                 @click="math.select(name)"
@@ -434,7 +434,8 @@ watch(
           <div v-if="selected.yaml" class="flex flex-col gap-1">
             <Eyebrow class="mb-0">Definition</Eyebrow>
             <pre
-              class="overflow-auto rounded-sm border border-border-subtle bg-panel p-2 font-mono text-xs leading-4"
+              class="overflow-auto rounded-sm border border-border-subtle bg-panel p-2"
+              :class="CODE_BLOCK"
             >{{ selected.yaml }}</pre>
           </div>
         </div>

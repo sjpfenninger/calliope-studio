@@ -100,7 +100,7 @@ async function opened(id: string) {
             <span class="block truncate">{{ project.name }}</span>
             <!-- Shortened from the head: `truncate` clips the end, and the end
                  is the only part that tells two models in one tree apart. -->
-            <span class="block truncate font-mono text-xs text-text-faint">
+            <span class="block truncate text-sm text-text-faint">
               {{ shortenPath(project.description, 2) }}
             </span>
           </span>

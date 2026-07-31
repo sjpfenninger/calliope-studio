@@ -67,7 +67,7 @@ defineExpose({ browse });
       />
       <span
         data-testid="browse-path"
-        class="min-w-0 flex-1 truncate rounded-sm border border-border bg-surface-2 px-2 py-1 font-mono text-xs"
+        class="min-w-0 flex-1 truncate rounded-sm border border-border bg-surface-2 px-2 py-1 text-sm"
       >
         {{ listing?.path ?? "…" }}
       </span>

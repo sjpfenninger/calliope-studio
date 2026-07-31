@@ -9,7 +9,12 @@
  */
 import { ref } from "vue";
 import StateMessage from "@/components/app/StateMessage.vue";
-import { PRIMARY_BUTTON_MD, SECONDARY_BUTTON, SECONDARY_BUTTON_MD } from "@/lib/formClasses";
+import {
+  IDENTIFIER,
+  PRIMARY_BUTTON_MD,
+  SECONDARY_BUTTON,
+  SECONDARY_BUTTON_MD,
+} from "@/lib/formClasses";
 import { cn } from "@/lib/utils";
 import { FolderPlus } from "@lucide/vue";
 
@@ -62,7 +67,8 @@ async function openHere() {
       <DialogHeader>
         <DialogTitle>Open a model</DialogTitle>
         <DialogDescription>
-          Pick the folder containing your model's <code>model.yaml</code>.
+          Pick the folder containing your model's
+          <code :class="IDENTIFIER">model.yaml</code>.
         </DialogDescription>
       </DialogHeader>
 
@@ -71,7 +77,7 @@ async function openHere() {
       <StateMessage v-if="error" variant="inline" tone="danger">{{ error }}</StateMessage>
       <div v-else-if="listing && !listing.is_model" class="flex items-center gap-2">
         <p class="min-w-0 flex-1 text-2xs text-text-faint">
-          This folder has no <code>model.yaml</code>.
+          This folder has no <code :class="IDENTIFIER">model.yaml</code>.
         </p>
         <button
           type="button"

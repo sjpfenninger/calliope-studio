@@ -47,9 +47,9 @@ export function ordinalRamp(): string[] {
 
 export function buildTheme() {
   const text = resolvedColor("--cg-text", "#1f1f1f");
-  const muted = resolvedColor("--cg-text-muted", "#6c6c6c");
+  const muted = resolvedColor("--cg-text-muted", "#686868");
   // The subtle tier: gridlines should be felt rather than read.
-  const border = resolvedColor("--cg-border-subtle", "#e9e9e9");
+  const border = resolvedColor("--cg-border-subtle", "#e5e5e5");
   const divider = resolvedColor("--cg-border", "#dcdcdc");
   const surface = resolvedColor("--cg-surface", "#ffffff");
   const accent = resolvedColor("--cg-accent", "#026fff");
@@ -106,7 +106,7 @@ export function buildTheme() {
           lineStyle: { color: muted },
           areaStyle: { color: muted },
         },
-        textStyle: { color: muted, fontFamily, fontSize: cssVarPx("--text-2xs", 10) },
+        textStyle: { color: muted, fontFamily, fontSize: cssVarPx("--cg-font-size-2xs", 10) },
       },
     ],
     categoryAxis: axis,

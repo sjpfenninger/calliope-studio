@@ -92,8 +92,8 @@ function nodeStyle(isRoot: boolean) {
     color: isRoot ? "var(--cg-accent-text)" : "var(--cg-text)",
     borderRadius: "var(--cg-radius-sm)",
     padding: "4px 10px",
-    fontSize: "12px",
-    fontFamily: "var(--cg-font-mono)",
+    fontSize: "var(--cg-font-size-sm)",
+    fontFamily: "var(--cg-font-sans)",
     // Vue Flow's default node has a fixed width, which truncates every path
     // longer than about twenty characters — which is most of them.
     width: "auto",

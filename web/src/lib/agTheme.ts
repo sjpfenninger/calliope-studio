@@ -30,8 +30,8 @@ export const gridTheme = themeQuartz.withParams({
 
   fontFamily: "var(--cg-font-sans)",
   fontSize: "var(--cg-font-size-sm)",
-  // Cell values are data, and data lines up in a mono face.
-  cellFontFamily: "var(--cg-font-mono)",
+  // No `cellFontFamily`: columns line up on tabular figures, not on the face,
+  // and `style.css` already gives `.ag-root-wrapper` `tabular-nums`.
 
   spacing: 4,
   rowHeight: "var(--cg-row-h)",

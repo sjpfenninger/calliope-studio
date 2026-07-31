@@ -1,6 +1,6 @@
 import * as monaco from "monaco-editor";
 
-import { cssVarPx, resolvedHex } from "../lib/cssColor";
+import { cssVar, cssVarPx, resolvedHex } from "../lib/cssColor";
 
 /**
  * A Monaco theme built from the CSS design tokens.
@@ -24,12 +24,14 @@ import { cssVarPx, resolvedHex } from "../lib/cssColor";
 export const MONACO_THEME = "calliope-studio";
 
 /**
- * Font size and line height, as numbers — Monaco measures text width in JS and
- * so cannot be handed a CSS variable.
+ * Face, size and line height. Monaco measures text width in JS, so it cannot be
+ * handed a CSS variable for any of them.
  *
  * Functions rather than constants: a module-level read can run before the
  * stylesheet has landed, and would then bake in the fallback for the session.
  */
+export const monacoFontFamily = () =>
+  cssVar("--cg-font-mono", "ui-monospace, monospace");
 export const monacoFontSize = () => cssVarPx("--cg-font-size-sm", 12);
 export const monacoLineHeight = () => cssVarPx("--cg-code-line-height", 18);
 
@@ -44,7 +46,7 @@ export function applyMonacoTheme(mode: "light" | "dark"): void {
     rules: [
       // Comments are the one token worth aligning: YAML models are heavily
       // commented and the stock colour fights the muted text elsewhere.
-      { token: "comment", foreground: hex("--cg-text-muted", "#6c6c6c").slice(1) },
+      { token: "comment", foreground: hex("--cg-text-muted", "#686868").slice(1) },
     ],
     colors: {
       "editor.background": hex("--cg-surface", "#ffffff"),
@@ -52,13 +54,13 @@ export function applyMonacoTheme(mode: "light" | "dark"): void {
       "editorGutter.background": hex("--cg-surface", "#ffffff"),
       "editorLineNumber.foreground": hex("--cg-text-faint", "#8f8f8f"),
       "editorLineNumber.activeForeground": hex("--cg-text", "#1f1f1f"),
-      "editor.lineHighlightBackground": hex("--cg-surface-2", "#f8f8f8"),
+      "editor.lineHighlightBackground": hex("--cg-surface-2", "#f2f2f2"),
       // The default is a pair of rules above and below the line, which reads as
       // a selection rather than a cursor position.
       "editor.lineHighlightBorder": transparent,
       "editor.selectionBackground": hex("--cg-accent-soft-2", "#d6e6fe"),
-      "editor.inactiveSelectionBackground": hex("--cg-active", "#e8e8e8"),
-      "editorIndentGuide.background1": hex("--cg-border-subtle", "#e9e9e9"),
+      "editor.inactiveSelectionBackground": hex("--cg-active", "#e1e1e1"),
+      "editorIndentGuide.background1": hex("--cg-border-subtle", "#e5e5e5"),
       "editorIndentGuide.activeBackground1": hex("--cg-border-strong", "#bebebe"),
       "editorCursor.foreground": hex("--cg-accent", "#026fff"),
       "editorWidget.background": hex("--cg-surface", "#ffffff"),

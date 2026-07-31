@@ -15,6 +15,7 @@ import { stringify as yamlStringify, parse as yamlParse } from "yaml";
 import { getFile, getYamlSection, putYamlSection } from "../../api/versions";
 import {
   applyMonacoTheme,
+  monacoFontFamily,
   monacoFontSize,
   monacoLineHeight,
   MONACO_THEME,
@@ -215,6 +216,7 @@ onMounted(() => {
   editor = monaco.editor.create(containerRef.value, {
     model: null,
     theme: MONACO_THEME,
+    fontFamily: monacoFontFamily(),
     fontSize: monacoFontSize(),
     lineHeight: monacoLineHeight(),
     lineNumbers: "on",

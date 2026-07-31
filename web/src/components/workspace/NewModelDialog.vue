@@ -13,7 +13,12 @@
  */
 import { computed, ref, watch } from "vue";
 import StateMessage from "@/components/app/StateMessage.vue";
-import { FIELD, PRIMARY_BUTTON_MD, SECONDARY_BUTTON_MD } from "@/lib/formClasses";
+import {
+  FIELD,
+  IDENTIFIER,
+  PRIMARY_BUTTON_MD,
+  SECONDARY_BUTTON_MD,
+} from "@/lib/formClasses";
 import { cn } from "@/lib/utils";
 
 import { createProject } from "@/api/projects";
@@ -117,7 +122,7 @@ async function create() {
         <DialogTitle>New model</DialogTitle>
         <DialogDescription>
           Copies one of Calliope's example models — the same thing
-          <code>calliope new</code> does — and opens it.
+          <code :class="IDENTIFIER">calliope new</code> does — and opens it.
         </DialogDescription>
       </DialogHeader>
 
@@ -148,7 +153,7 @@ async function create() {
 
       <StateMessage v-if="error" variant="inline" tone="danger">{{ error }}</StateMessage>
       <p v-else-if="problem" class="text-2xs text-danger-text">{{ problem }}</p>
-      <p v-else-if="target" data-testid="new-model-target" class="truncate font-mono text-xs text-text-faint">
+      <p v-else-if="target" data-testid="new-model-target" class="truncate text-sm text-text-faint">
         {{ target }}
       </p>
       <p v-else class="text-2xs text-text-faint">

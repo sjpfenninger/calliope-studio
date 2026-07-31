@@ -277,10 +277,27 @@ const backgroundOf = async (selector) => {
 
 const darkSurface = await asPixels("--cg-surface");
 
+const fontOf = async (selector) =>
+  page.evaluate((one) => {
+    const element = document.querySelector(one);
+    return element ? getComputedStyle(element).fontFamily : null;
+  }, selector);
+
 const monacoBackground = await backgroundOf(".monaco-editor .monaco-editor-background");
 if (monacoBackground) {
   // Monaco was hardcoded to `vs-dark`, so it was a dark rectangle in a light app.
   check(`Monaco follows the theme (${monacoBackground})`, monacoBackground === darkSurface);
+  // Nothing static can see the face: it is passed in JS at `editor.create`, and
+  // getting it wrong looks like a slightly different monospace.
+  //
+  // `.view-lines`, not `.monaco-editor`: the option reaches the *text*, while
+  // the container keeps VS Code's own UI stack for its widgets. Reading the
+  // container reports that stack and fails on a working editor.
+  const monacoFont = await fontOf(".monaco-editor .view-lines");
+  check(
+    `Monaco's text is set in the mono token (${monacoFont?.split(",")[0]})`,
+    Boolean(monacoFont?.includes("IBM Plex Mono")),
+  );
 } else {
   console.log("  skip  Monaco is not on this page");
 }
@@ -293,6 +310,12 @@ if (gridBackground) {
     "no legacy ag-theme class (AG Grid error #239)",
     (await page.locator(".ag-theme-quartz").count()) === 0,
   );
+  // Columns line up on Inter's tabular figures, which `.ag-root-wrapper` asks
+  // for, rather than on a mono face.
+  const cellFont = await fontOf(".ag-cell");
+  if (cellFont) {
+    check(`AG Grid cells are sans (${cellFont})`, cellFont.includes("Inter"));
+  }
 } else {
   console.log("  skip  AG Grid is not on this page");
 }

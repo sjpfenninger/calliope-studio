@@ -27,7 +27,12 @@ import {
 } from "@/components/ui/dialog";
 import { createFile, createFolder } from "@/api/versions";
 import { errorDetail } from "@/api/errors";
-import { FIELD, PRIMARY_BUTTON_MD, SECONDARY_BUTTON_MD } from "@/lib/formClasses";
+import {
+  FIELD,
+  IDENTIFIER,
+  PRIMARY_BUTTON_MD,
+  SECONDARY_BUTTON_MD,
+} from "@/lib/formClasses";
 import { cn } from "@/lib/utils";
 
 const props = defineProps<{
@@ -121,7 +126,7 @@ async function create() {
       <DialogHeader>
         <DialogTitle>New {{ noun }}</DialogTitle>
         <DialogDescription>
-          In <code>{{ parent || "the model folder" }}</code
+          In <code :class="IDENTIFIER">{{ parent || "the model folder" }}</code
           >. A name may contain “/” to create folders along the way.
         </DialogDescription>
       </DialogHeader>
@@ -144,7 +149,7 @@ async function create() {
       <p
         v-else-if="target"
         data-testid="new-entry-target"
-        class="truncate font-mono text-xs text-text-faint"
+        class="truncate text-sm text-text-faint"
       >
         {{ target }}
       </p>

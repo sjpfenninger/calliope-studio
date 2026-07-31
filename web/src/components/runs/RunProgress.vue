@@ -51,7 +51,7 @@ const segments = computed<Segment[]>(() => {
 const SEGMENT_STYLE: Record<Segment["state"], string> = {
   done: "bg-accent-border",
   active: "bg-primary animate-pulse",
-  waiting: "bg-border",
+  waiting: "bg-border-strong",
 };
 </script>
 

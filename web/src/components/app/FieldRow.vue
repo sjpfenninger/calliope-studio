@@ -128,7 +128,7 @@ const sourceTitle = computed(() => {
            spans below say, unclipped. -->
       <span
         v-if="inherited"
-        class="flex min-w-0 items-center gap-1 text-2xs text-muted-foreground"
+        class="flex min-w-0 items-center gap-1 text-2xs text-text-muted"
         :title="sourceTitle"
       >
         <CornerDownRight class="size-3 shrink-0" />

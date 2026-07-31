@@ -192,7 +192,7 @@
   border: 1px solid var(--cg-border-subtle);
   border-radius: var(--cg-radius-sm);
   box-shadow: var(--cg-shadow-1);
-  font-size: 10px;
+  font-size: var(--cg-font-size-2xs);
 }
 
 .maplibregl-ctrl-attrib a {
@@ -212,7 +212,7 @@
   border: 1px solid var(--cg-border);
   border-radius: var(--cg-radius-sm);
   box-shadow: var(--cg-shadow-2);
-  font-size: 12px;
+  font-size: var(--cg-font-size-sm);
   padding: 6px 8px;
 }
 

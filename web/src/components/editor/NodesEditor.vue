@@ -30,7 +30,7 @@ import EditorToolbar from "./EditorToolbar.vue";
 import NodeFields, { type DataTableParam } from "./NodeFields.vue";
 import { Accordion } from "@/components/ui/accordion";
 import EntryAccordionRow from "./EntryAccordionRow.vue";
-import { GHOST_BUTTON } from "@/lib/formClasses";
+import { GHOST_BUTTON, IDENTIFIER } from "@/lib/formClasses";
 
 import { useModelGeo } from "@/composables/useModelGeo";
 import { useComponentTreeStore } from "@/stores/componentTree";
@@ -294,11 +294,11 @@ function openElsewhere() {
           />
           <div
             v-else-if="activeElsewhere"
-            class="flex items-center gap-2 py-1 text-sm text-muted-foreground"
+            class="flex items-center gap-2 py-1 text-sm text-text-muted"
           >
             <span>
-              <code class="font-mono">{{ activeNode }}</code> is defined in
-              <code class="font-mono">{{ activeElsewhere.file }}</code>.
+              <code :class="IDENTIFIER">{{ activeNode }}</code> is defined in
+              <code :class="IDENTIFIER">{{ activeElsewhere.file }}</code>.
             </span>
             <button type="button" :class="GHOST_BUTTON" @click="openElsewhere">
               Open it
@@ -306,7 +306,7 @@ function openElsewhere() {
           </div>
           <p
             v-else
-            class="flex h-full items-center justify-center text-sm text-muted-foreground"
+            class="flex h-full items-center justify-center text-sm text-text-muted"
           >
             Click a node to edit it, or drag one to move it.
           </p>

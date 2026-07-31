@@ -24,7 +24,7 @@ import FieldRow from "@/components/app/FieldRow.vue";
 import TooltipButton from "@/components/app/TooltipButton.vue";
 import { Switch } from "@/components/ui/switch";
 import Eyebrow from "@/components/app/Eyebrow.vue";
-import { FIELD, FIELD_MONO } from "@/lib/formClasses";
+import { FIELD } from "@/lib/formClasses";
 
 import type { NodeEntry } from "@/lib/entries";
 import { collectInherited, nodeSetsKey } from "@/lib/inherited";
@@ -190,7 +190,7 @@ function removeTech(index: number) {
               v-model="techOvr.techName"
               type="text"
               placeholder="tech name"
-              :class="FIELD_MONO"
+              :class="FIELD"
               @input="onChange"
             />
           </template>

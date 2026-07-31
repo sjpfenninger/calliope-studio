@@ -139,12 +139,15 @@ export const RASTER_PAINT = {
  * destroy the node and link sources along with it.
  */
 export function basemapPaint(): [layer: string, property: PaintProperty, value: string][] {
-  const land = resolvedColor("--cg-map-land", "#f4f5f6");
-  const landAlt = resolvedColor("--cg-map-land-alt", "#ecf1ed");
-  const water = resolvedColor("--cg-map-water", "#dfe8ee");
-  const boundary = resolvedColor("--cg-map-boundary", "#adafb2");
-  const road = resolvedColor("--cg-map-road", "#e0e1e2");
-  const label = resolvedColor("--cg-map-label", "#6c6e71");
+  // Each fallback is the token's own light value, so it is chroma 0 like the
+  // token: a first paint that beats the stylesheet must not draw a blue ocean.
+  // `lib/tokens.test.ts` keeps them in step.
+  const land = resolvedColor("--cg-map-land", "#f3f3f3");
+  const landAlt = resolvedColor("--cg-map-land-alt", "#ebebeb");
+  const water = resolvedColor("--cg-map-water", "#dcdcdc");
+  const boundary = resolvedColor("--cg-map-boundary", "#a4a4a4");
+  const road = resolvedColor("--cg-map-road", "#d4d4d4");
+  const label = resolvedColor("--cg-map-label", "#5d5d5d");
   const halo = resolvedColor("--cg-map-label-halo", "#fcfcfc");
 
   return [

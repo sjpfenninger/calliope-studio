@@ -30,7 +30,12 @@ import EditorToolbar from "./EditorToolbar.vue";
 import LinkFields from "./LinkFields.vue";
 import { Accordion } from "@/components/ui/accordion";
 import EntryAccordionRow from "./EntryAccordionRow.vue";
-import { FIELD, FIELD_LABEL, GHOST_BUTTON } from "@/lib/formClasses";
+import {
+  FIELD,
+  FIELD_LABEL,
+  GHOST_BUTTON,
+  IDENTIFIER,
+} from "@/lib/formClasses";
 
 import { cn } from "@/lib/utils";
 import { useModelGeo } from "@/composables/useModelGeo";
@@ -382,11 +387,11 @@ function openElsewhere() {
 
           <span
             v-if="pendingFrom"
-            class="flex items-center gap-1.5 text-xs text-text-dim"
+            class="flex items-center gap-1.5 text-sm text-text-dim"
             data-testid="pending-link"
           >
             Click a second node to link from
-            <code class="font-mono text-foreground">{{ pendingFrom }}</code>
+            <code :class="IDENTIFIER">{{ pendingFrom }}</code>
             <TooltipButton
               label="Cancel (Esc)"
               :icon="X"
@@ -394,7 +399,7 @@ function openElsewhere() {
               @click="pendingFrom = null"
             />
           </span>
-          <span v-else class="text-xs text-text-faint">
+          <span v-else class="text-sm text-text-faint">
             Click two nodes to draw a link, or a line to edit one.
           </span>
         </template>
@@ -402,7 +407,7 @@ function openElsewhere() {
         <template #detail>
           <template v-if="activeEntry">
             <div class="flex items-center justify-between gap-1.5">
-              <span class="truncate font-mono text-sm">{{ activeEntry.name }}</span>
+              <span class="truncate text-sm">{{ activeEntry.name }}</span>
               <TooltipButton
                 label="Remove this link"
                 :icon="Trash2"
@@ -419,11 +424,11 @@ function openElsewhere() {
           </template>
           <div
             v-else-if="activeElsewhere"
-            class="flex items-center gap-2 py-1 text-sm text-muted-foreground"
+            class="flex items-center gap-2 py-1 text-sm text-text-muted"
           >
             <span>
-              <code class="font-mono">{{ activeLink }}</code> is defined in
-              <code class="font-mono">{{ activeElsewhere.file }}</code>.
+              <code :class="IDENTIFIER">{{ activeLink }}</code> is defined in
+              <code :class="IDENTIFIER">{{ activeElsewhere.file }}</code>.
             </span>
             <button type="button" :class="GHOST_BUTTON" @click="openElsewhere">
               Open it
@@ -431,7 +436,7 @@ function openElsewhere() {
           </div>
           <p
             v-else
-            class="flex h-full items-center justify-center text-sm text-muted-foreground"
+            class="flex h-full items-center justify-center text-sm text-text-muted"
           >
             Click a link to edit it, or two nodes to draw a new one.
           </p>

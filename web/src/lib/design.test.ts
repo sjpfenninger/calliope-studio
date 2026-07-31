@@ -28,11 +28,17 @@ import {
 
 const SRC = join(import.meta.dirname, "..");
 
+/**
+ * Every file a rule below might have something to say about, `.css` included —
+ * a stylesheet is where a literal colour is most likely to be written by hand.
+ * The utility rules are unaffected: `UTILITY` needs a delimiter before the
+ * prefix and rejects a name followed by `:`, so `border-radius:` is not one.
+ */
 function walk(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {
     const path = join(dir, name);
     if (statSync(path).isDirectory()) return walk(path);
-    return /\.(vue|ts)$/.test(name) && !/\.test\.ts$/.test(name) ? [path] : [];
+    return /\.(vue|ts|css)$/.test(name) && !/\.test\.ts$/.test(name) ? [path] : [];
   });
 }
 
@@ -44,11 +50,28 @@ interface Line {
   before: string;
 }
 
-const FILES = walk(SRC).map((path) => ({
-  path,
-  rel: relative(SRC, path).split(sep).join("/"),
-  text: readFileSync(path, "utf8"),
-}));
+/**
+ * A stylesheet with its comments blanked, line count intact.
+ *
+ * `offenders` drops a line whose *first* characters open a comment, which works
+ * for `//` and for a JSDoc block. A wrapped CSS block comment continues on a
+ * line of ordinary prose, so a paragraph explaining why `outline-none` is not
+ * used reads as a use of it. Blanking rather than deleting keeps the reported
+ * line numbers pointing at the real file.
+ */
+function blankComments(text: string): string {
+  return text.replace(/\/\*[\s\S]*?\*\//g, (block) =>
+    // A pragma is the one comment that has to survive, since it is read out of
+    // the ten lines *above* the line it excuses.
+    block.includes("design-check:") ? block : block.replace(/[^\n]/g, " "),
+  );
+}
+
+const FILES = walk(SRC).map((path) => {
+  const rel = relative(SRC, path).split(sep).join("/");
+  const text = readFileSync(path, "utf8");
+  return { path, rel, text: rel.endsWith(".css") ? blankComments(text) : text };
+});
 
 const LINES: Line[] = FILES.flatMap(({ rel, text }) =>
   text.split("\n").map((line, i, all) => ({
@@ -104,13 +127,19 @@ function declared(css: string, namespace: string): Set<string> {
 const UTILITY =
   /(?:^|[\s"'`:[])((?:text|bg|border|ring|fill|stroke|divide|shadow)-([a-z0-9][a-z0-9-]*))(?![a-z0-9\-:])/g;
 
-function utilities(): Array<{ where: string; prefix: string; name: string }> {
+function utilities(): Array<{
+  where: string;
+  file: string;
+  prefix: string;
+  name: string;
+}> {
   return LINES.filter(
     // Prose about a rule is not a breach of it, as in `offenders`.
     (line) => !/^\s*(\/?\*|\/\/|<!--)/.test(line.text),
   ).flatMap((line) =>
     [...line.text.matchAll(UTILITY)].map((m) => ({
       where: `${line.file}:${line.no}  ${m[1]}`,
+      file: line.file,
       prefix: m[1].slice(0, m[1].indexOf("-")),
       name: m[2],
     })),
@@ -306,13 +335,14 @@ describe("design language", () => {
     expect(
       offenders(
         "colour",
-        /#[0-9a-fA-F]{3,8}\b|\brgba?\(|\bhsla?\(|\boklch\(/,
-        (f) => f !== "assets/tokens.css" && !f.endsWith(".css"),
+        /#[0-9a-fA-F]{3,8}\b|\brgba?\(|\bhsla?\(|\boklch\(|\bcolor-mix\(/,
+        (f) => f !== "assets/tokens.css",
       ).filter(
-        // The non-DOM renderers pass a hex fallback to cssVar/resolvedColor by
-        // necessity — the probe has to have something to return before the
-        // stylesheet lands.
-        (line) => !/\bhex\(|resolvedColor|resolvedHex|cssVar|fallback/.test(line),
+        // The renderer fallbacks are exempt here — a probe must have something
+        // to return before the stylesheet lands — and are checked against their
+        // tokens by `lib/tokens.test.ts` instead. `hex(` is `monacoTheme.ts`'s
+        // alias for `resolvedHex`.
+        (line) => !/resolvedColor|resolvedHex|cssVar|\bhex\(/.test(line),
       ),
     ).toEqual([]);
   });
@@ -398,23 +428,75 @@ describe("design language", () => {
     expect(orphans).toEqual([]);
   });
 
-  it("uses monospace only at the mono step", () => {
-    // 11px is *the* mono step: IBM Plex Mono at 11px optically matches Inter at
-    // 12px, which is why the scale in style.css says every app-side use of the
-    // face is `font-mono text-xs`. At `text-2xs` it stops matching anything and
-    // reads as a footnote in a different typeface — which is exactly how the
-    // editors' inherited-values box looked, and what a user notices about that
-    // screen without being able to name it.
+  it("reaches for the mono face only through the shared code block", () => {
+    // Mono means code — text the user could paste into a file or a terminal —
+    // and the surfaces that qualify all go through `CODE_BLOCK`. Naming the
+    // *places* rather than the sizes is the point: adding a fifth means editing
+    // this list, which is where the previous rule (mono must be 11px) let the
+    // face spread across every label and path in the app.
     //
-    // Line-based, so it catches the two classes written into one string and not
-    // `cn(FIELD, "font-mono")`, where the size comes from the other constant.
-    // FIELD_MONO exists so that case has nowhere left to occur.
+    // The stylesheets are the other half. `markdown.css` sets a code span,
+    // `math.css` an unparsed LaTeX command, `style.css` the Tailwind bridge and
+    // `tokens.css` the token; `monacoTheme.ts` reads it rather than writing a
+    // stack of its own.
+    const MAY_NAME_MONO = new Set([
+      "lib/formClasses.ts",
+      "editor/monacoTheme.ts",
+      "assets/markdown.css",
+      "assets/math.css",
+      "assets/tokens.css",
+      "style.css",
+    ]);
     expect(
-      offenders(
-        "mono",
-        /\bfont-mono\b[^"']*\btext-2xs\b|\btext-2xs\b[^"']*\bfont-mono\b/,
-        isApp,
-      ),
+      offenders("mono", /\bfont-mono\b|--cg-font-mono/, (f) => !MAY_NAME_MONO.has(f)),
     ).toEqual([]);
+  });
+
+  it("names a type step that exists", () => {
+    // The same silent failure as the colour rule above, in the other namespace:
+    // Tailwind emits no rule for a size it has never heard of, so `text-md`
+    // typechecks, lints, reviews clean and sets no font-size at all.
+    //
+    // A closed set, because `text-` is the most overloaded prefix in Tailwind:
+    // a size, a colour, an alignment or an overflow behaviour. Colours are
+    // admitted here and judged by the first rule.
+    const KEYWORDS = new Set([
+      "left", "center", "right", "justify", "start", "end",
+      "wrap", "nowrap", "balance", "pretty", "ellipsis", "clip",
+      "current", "transparent", "inherit",
+    ]);
+    // `lib/basemap.ts` authors a MapLibre style object, whose layout and paint
+    // namespace collides wholesale with this one — `text-font`, `text-size`,
+    // `text-halo-color`. Out of scope rather than pragma'd line by line.
+    const steps = declared(STYLE_CSS, "text");
+    const colours = declared(STYLE_CSS, "color");
+    const unknown = utilities()
+      .filter(
+        ({ prefix, name, file }) =>
+          prefix === "text" &&
+          file !== "lib/basemap.ts" &&
+          !steps.has(name) &&
+          !colours.has(name) &&
+          !KEYWORDS.has(name),
+      )
+      .map(({ where }) => where);
+    expect([...new Set(unknown)]).toEqual([]);
+  });
+
+  it("spells a shared token one way outside the primitives", () => {
+    // Four of shadcn's names reach a --cg-* token the app also names directly,
+    // and both spellings were in use for one token. Worse, shadcn's `accent` is
+    // the *hover grey* rather than the brand colour, so `bg-accent` beside
+    // `bg-accent-soft` reads as two steps of one ramp and is not.
+    // `components/ui/` keeps shadcn's vocabulary so a fresh copy-in lands clean.
+    //
+    // Through `utilities()` rather than a regex, because `\b` is not a delimiter
+    // here: `-` is a non-word character, so `\btext-muted` matches inside
+    // `text-text-muted` and would flag the spelling being standardised *on*.
+    const SHADCN_ONLY = new Set(["muted-foreground", "muted", "secondary", "accent"]);
+    const wrong = utilities()
+      .filter(({ file, name }) => SHADCN_ONLY.has(name) && isApp(file))
+      .map(({ where }) => where);
+    expect([...new Set(wrong)]).toEqual([]);
   });
 });

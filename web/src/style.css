@@ -81,21 +81,6 @@
   --border: var(--cg-border);
   --input: var(--cg-border);
   --ring: var(--cg-accent);
-
-  --chart-1: var(--cg-chart-1);
-  --chart-2: var(--cg-chart-2);
-  --chart-3: var(--cg-chart-3);
-  --chart-4: var(--cg-chart-4);
-  --chart-5: var(--cg-chart-5);
-
-  --sidebar: var(--cg-panel);
-  --sidebar-foreground: var(--cg-text);
-  --sidebar-primary: var(--cg-accent);
-  --sidebar-primary-foreground: var(--cg-accent-on);
-  --sidebar-accent: var(--cg-hover);
-  --sidebar-accent-foreground: var(--cg-text);
-  --sidebar-border: var(--cg-border);
-  --sidebar-ring: var(--cg-accent);
 }
 
 /* `inline` is load-bearing. Without it Tailwind re-declares each variable at
@@ -114,19 +99,18 @@
      all. Shrinking the root to "make things smaller" would silently rescale the
      entire spacing scale and h-7 would become 22.75px.
 
-     Five steps, one role each. Micro (10px) is for an uppercase heading, a badge
-     or a keyboard shortcut and nothing else; 11px is the *mono* step, because
-     IBM Plex Mono at 11px optically matches Inter at 12px, which is why every
-     app-side use of it is `font-mono text-xs`; 12px is UI control text; 13px is
-     body, reached with no class at all.
+     Four steps, one role each. Micro (10px) is for an uppercase heading, a badge
+     or a keyboard shortcut and nothing else; 12px is UI control text; 13px is
+     body, reached with no class at all; 16px is the one step above it. There is
+     no 11px step: it existed only because IBM Plex Mono at 11px matches Inter at
+     12px, and mono is now reserved for code (see tokens.css).
 
      --text-md/-xl/-2xl are deliberately absent. They had no uses, and if a
      copy-in ever reaches for one it falls back to Tailwind's stock 14/20, 20/28
-     and 24/32 — the exact numbers that were here. */
+     and 24/32 — the exact numbers that were here, which is why the design test
+     rejects a size outside this set rather than letting it fall back. */
   --text-2xs: 10px;
   --text-2xs--line-height: 14px;
-  --text-xs: 11px;
-  --text-xs--line-height: 16px;
   /* Most shadcn components say `text-sm`; landing that at 12px is the single
      highest-leverage line in this file. */
   --text-sm: 12px;
@@ -197,19 +181,6 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
-  --color-chart-1: var(--chart-1);
-  --color-chart-2: var(--chart-2);
-  --color-chart-3: var(--chart-3);
-  --color-chart-4: var(--chart-4);
-  --color-chart-5: var(--chart-5);
-  --color-sidebar: var(--sidebar);
-  --color-sidebar-foreground: var(--sidebar-foreground);
-  --color-sidebar-primary: var(--sidebar-primary);
-  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-  --color-sidebar-accent: var(--sidebar-accent);
-  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-  --color-sidebar-border: var(--sidebar-border);
-  --color-sidebar-ring: var(--sidebar-ring);
 
   /* Direct exposure for the vocabulary shadcn has no name for. A data console
      needs to say "the same grey as the tab strip" and "a hairline inside a
@@ -231,12 +202,12 @@
      the app spells it one way and half the other, and only one half rendered. */
   --color-text-muted: var(--cg-text-muted);
   --color-accent-text: var(--cg-accent-text);
-  /* The opaque hover/active ladder. These exist so nothing has to reach for
+  /* The opaque hover step. It exists so nothing has to reach for
      `bg-primary/90`, whose opacity modifier compiles to a color-mix() — the very
-     thing tokens.css forbids, and which compounds when nested. */
+     thing tokens.css forbids, and which compounds when nested. There is no
+     matching `active` rung: a danger button is soft at rest and goes solid on
+     hover, and nothing else has a third state. */
   --color-accent-hover: var(--cg-accent-hover);
-  --color-accent-active: var(--cg-accent-active);
-  --color-danger-hover: var(--cg-danger-hover);
   --color-scrim: var(--cg-scrim);
   --color-accent-soft: var(--cg-accent-soft);
   --color-accent-soft-2: var(--cg-accent-soft-2);

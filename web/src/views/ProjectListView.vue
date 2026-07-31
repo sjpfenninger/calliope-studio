@@ -21,7 +21,11 @@ import Panel from "@/components/app/Panel.vue";
 import StateMessage from "@/components/app/StateMessage.vue";
 import InfoTip from "@/components/app/InfoTip.vue";
 import TooltipButton from "@/components/app/TooltipButton.vue";
-import { PRIMARY_BUTTON_MD, SECONDARY_BUTTON_MD } from "@/lib/formClasses";
+import {
+  IDENTIFIER,
+  PRIMARY_BUTTON_MD,
+  SECONDARY_BUTTON_MD,
+} from "@/lib/formClasses";
 import { useRouter } from "vue-router";
 import { FolderOpen, FolderPlus, FolderSearch, X } from "@lucide/vue";
 
@@ -128,7 +132,7 @@ function open(id: string) {
           </span>
           <!-- The full path, not the folder name: two models called `model` in
                different places are otherwise indistinguishable. -->
-          <span class="block truncate font-mono text-xs text-text-faint">
+          <span class="block truncate text-sm text-text-faint">
             {{ model.description }}
           </span>
         </button>
@@ -151,7 +155,7 @@ function open(id: string) {
 
       <!-- design-check: allow native-title — `StateMessage`'s `title` is a prop. -->
       <StateMessage v-if="!hasModels" variant="block" title="No models yet">
-        Open a folder containing a <code class="font-mono">model.yaml</code>, or
+        Open a folder containing a <code :class="IDENTIFIER">model.yaml</code>, or
         start a new one from a Calliope example with <strong>New model…</strong>
       </StateMessage>
     </Panel>
@@ -160,7 +164,7 @@ function open(id: string) {
 
     <p class="mt-2 shrink-0 text-2xs text-text-faint">
       This list is kept in
-      <code class="font-mono">{{ registryPath ?? "the Calliope Studio state directory" }}</code
+      <code :class="IDENTIFIER">{{ registryPath ?? "the Calliope Studio state directory" }}</code
       >. Removing a model here does not delete anything on disk.
     </p>
 

@@ -83,7 +83,7 @@ function namesShown(): string {
                empty yet. -->
           <p
         v-if="geo && !geo.nodes.features.length && !missing.length && !error"
-            class="pointer-events-none absolute inset-x-0 top-2 z-[1] text-center text-xs text-text-muted"
+            class="pointer-events-none absolute inset-x-0 top-2 z-[1] text-center text-sm text-text-muted"
             data-testid="map-empty-hint"
           >
             <slot name="empty">No nodes yet.</slot>
@@ -110,7 +110,7 @@ function namesShown(): string {
                 <span data-testid="map-missing-coords">
                   Not all nodes have coordinates — first add coordinates to them.
                 </span>
-                <span class="font-mono text-xs text-text-faint">{{ namesShown() }}</span>
+                <span class="text-sm text-text-faint">{{ namesShown() }}</span>
               </template>
               <button
                 type="button"

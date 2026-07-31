@@ -17,6 +17,15 @@ updates:
     groups:
       minor-and-patch:
         update-types: [minor, patch]
+      # Majors are grouped for the same reason the others are, learned the hard
+      # way: left ungrouped they arrive one PR per package, and five of them —
+      # typescript, maplibre-gl, echarts, apache-arrow, vitest — filled
+      # `open-pull-requests-limit` exactly, which then blocked the
+      # minor-and-patch PR from opening at all. The group carrying routine
+      # updates was starved by the group nobody merges in a hurry. (Security
+      # updates have their own separate limit and were never at risk.)
+      major:
+        update-types: [major]
     ignore:
       # Pinned deliberately: 0.53 changed how a worker hands its foreign module
       # to the main thread, monaco-yaml still speaks the older protocol, and
@@ -26,6 +35,16 @@ updates:
       - dependency-name: monaco-editor
         update-types:
           - "version-update:semver-minor"
+          - "version-update:semver-major"
+      # TypeScript 7 is the Go compiler, and vue-tsc cannot run on it: Volar
+      # embeds TypeScript's classic programmatic API, which 7.0 ships without a
+      # stable replacement for — that is 7.1's headline, expected around
+      # October 2026. `pixi run web-typecheck` *is* vue-tsc, so a bump here is
+      # not a config nit but a dead type check: it fails in vue-tsc's own
+      # entry point with ERR_PACKAGE_PATH_NOT_EXPORTED. Lift the pin when
+      # vue-tsc declares support, not when 7.x merely installs.
+      - dependency-name: typescript
+        update-types:
           - "version-update:semver-major"
 
   # This is what keeps the SHA-pinned actions in ci.yml current. Without it,

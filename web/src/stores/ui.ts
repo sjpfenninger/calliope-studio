@@ -358,9 +358,9 @@ export const useUiStore = defineStore("ui", () => {
    * out, saying so, with a way through to the list — rather than quietly showing
    * something different depending on the state of the file.
    *
-   * Here rather than as a `ref` inside the component, because CLAUDE.md's rule
-   * that UI state lives in a store exists precisely for this: as a local ref it
-   * reset every time the tab was switched away from and back. Per *section*
+   * Here rather than as a `ref` inside the component, because the rule that UI
+   * state lives in a store exists precisely for this: as a local ref it reset
+   * every time the tab was switched away from and back. Per *section*
    * rather than per tab: two files' nodes are still the same kind of thing to
    * look at, and this matches how the toggle behaved before.
    */

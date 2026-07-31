@@ -104,7 +104,7 @@ def catalog(results: ResultHandle = Depends(resolve)) -> dict:
         "links": [link.as_dict() for link in links],
         # What the sidebar groups the technologies by, so that selecting or
         # clearing every supply tech is one click. Calliope's answer, not ours —
-        # see "Structure and meaning" in CLAUDE.md.
+        # what a definition means is asked of Calliope, never reimplemented here.
         "base_techs": tech_base_techs(results.model),
         "colors": colors,
         "time_extent": time_extent,

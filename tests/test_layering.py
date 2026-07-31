@@ -1,6 +1,6 @@
 """Guards for the layered architecture's import rules.
 
-Three rules, all stated in CLAUDE.md:
+Three rules:
 
 - `results`, `modeldef` and `runs` must stay importable without a web framework,
   so that they remain usable from a notebook and cannot grow HTTP concerns.
@@ -62,7 +62,7 @@ class TestImportRules:
         assert not violations, "\n".join(violations)
 
     def test_domain_layers_do_not_import_each_other(self):
-        """CLAUDE.md's third rule, previously unchecked.
+        """The third rule above, previously unchecked.
 
         Snapshotting a model definition made this live: freezing needs
         `modeldef`, and it happens as part of starting a run, so the tempting

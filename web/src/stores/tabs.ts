@@ -706,6 +706,31 @@ export const useTabsStore = defineStore("tabs", () => {
   }
 
   /**
+   * Moves a tab to `toIndex`, which is a position in the bar as it is now.
+   *
+   * The Map is rebuilt rather than kept alongside an order array. Insertion order
+   * *is* the bar's order — `ordered`, `persist` and `closeTab`'s neighbour walk
+   * all read it straight off the Map — so a second source of truth would be a
+   * second thing to keep in step, and the entries are the same objects either
+   * way, so nothing a tab is carrying is disturbed by the move.
+   *
+   * Persistence needs no help: `AppShell` watches the joined key list, which a
+   * reorder changes.
+   */
+  function moveTab(id: string, toIndex: number) {
+    const entries = [...openTabs.entries()];
+    const from = entries.findIndex(([key]) => key === id);
+    if (from < 0) return;
+
+    const to = Math.max(0, Math.min(entries.length - 1, toIndex));
+    if (to === from) return;
+
+    entries.splice(to, 0, ...entries.splice(from, 1));
+    openTabs.clear();
+    for (const [key, tab] of entries) openTabs.set(key, tab);
+  }
+
+  /**
    * Closes a tab, activating its right-hand neighbour and then its left.
    *
    * The previous store jumped to whatever happened to be *last* in the map, so
@@ -862,6 +887,7 @@ export const useTabsStore = defineStore("tabs", () => {
     setEditorMode,
     setFileViewMode,
     setSubView,
+    moveTab,
     closeTab,
     jumpTo,
     saveYamlFile,

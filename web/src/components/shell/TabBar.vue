@@ -19,6 +19,9 @@
  * height, drawn straight across the tabs. The wheel and the auto-reveal below
  * are what replace it.
  *
+ * Tabs are dragged into whatever order the user wants; see "Reordering" below.
+ * The order lives in the store, since it is what `persist` writes.
+ *
  * Scrolling is also why the hairline is an inset shadow and not a `border-b`.
  * `overflow-x: auto` computes `overflow-y` to `auto` too, and the clip is at the
  * padding box — so the `-bottom-px` bridge every other strip erases its border
@@ -28,13 +31,14 @@
  * `SEGMENT_STRIP_LINE_SCROLLED`. The bridge is still in the shared class and is
  * simply inert here.
  */
-import { ref, watch } from "vue";
+import { computed, nextTick, ref, watch } from "vue";
 import { BarChart3, ShieldCheck } from "@lucide/vue";
 import { X } from "@lucide/vue";
 
 import {
   SEGMENT_BASE,
   SEGMENT_NAV_ACTIVE,
+  SEGMENT_NAV_EDGE_LEAD,
   SEGMENT_NAV_EDGES_RULED,
   SEGMENT_NAV_SEAM,
   SEGMENT_STRIP_LINE_SCROLLED,
@@ -52,10 +56,13 @@ const TAB_CLASS = cn(
   SEGMENT_NAV_ACTIVE,
   SEGMENT_NAV_SEAM.surface,
   SEGMENT_NAV_EDGES_RULED,
-  "px-3 data-[preview]:italic hover:bg-hover",
+  "px-3 data-[preview]:italic data-[dragging]:opacity-40 hover:bg-hover",
 );
 
 const strip = ref<HTMLElement | null>(null);
+
+/** The well's separator follows the same rule a tab's does; see segmented.ts. */
+const leadsActive = computed(() => tabs.ordered[0]?.id === tabs.activeId);
 
 function onWheel(event: WheelEvent) {
   const el = strip.value;
@@ -68,18 +75,80 @@ function onWheel(event: WheelEvent) {
   el.scrollLeft += event.deltaY;
 }
 
+/** Brings a tab that is off the end of the scroller back into it. */
+function reveal(selector: string) {
+  strip.value
+    ?.querySelector(selector)
+    // `block: "nearest"` matters: without it the whole shell scrolls.
+    ?.scrollIntoView({ inline: "nearest", block: "nearest" });
+}
+
 // `post`, so the tab exists in the DOM by the time we look for it — activating
 // something can be what created it.
-watch(
-  () => tabs.activeId,
-  () => {
-    strip.value
-      ?.querySelector("[data-active]")
-      // `block: "nearest"` matters: without it the whole shell scrolls.
-      ?.scrollIntoView({ inline: "nearest", block: "nearest" });
-  },
-  { flush: "post" },
-);
+watch(() => tabs.activeId, () => reveal("[data-active]"), { flush: "post" });
+
+// ── Reordering ──────────────────────────────────────────────────────────────
+//
+// HTML5 drag-and-drop rather than pointer capture: the drag image, the cursor,
+// the auto-cancel on Escape and the distinction between a click and a drag all
+// come from the browser, and the tab is already `select-none`. The reorder is
+// applied *as the drag moves*, so `drop` has nothing left to do — and nothing is
+// restored on a cancel, which is deliberate rather than missing: the tab is
+// where the pointer last put it, which is what every editor does and what the
+// live preview has been showing all along.
+
+const draggingId = ref<string | null>(null);
+
+/**
+ * The payload's type, and the reason it is not `text/plain`.
+ *
+ * Firefox will not start a drag with no data at all, but *what* is offered
+ * decides who will take it: a `text/plain` tab is a valid drop into Monaco, so
+ * releasing one over the editor would paste the tab's id into the user's file. A
+ * private type nothing else reads keeps the drag inside this strip.
+ */
+const DRAG_TYPE = "application/x-calliope-tab";
+
+function onDragStart(id: string, event: DragEvent) {
+  if (!event.dataTransfer) return;
+  draggingId.value = id;
+  event.dataTransfer.effectAllowed = "move";
+  event.dataTransfer.setData(DRAG_TYPE, id);
+  // Choosing where a tab sits is intent to keep it. Left in the preview slot it
+  // would be evicted by the next click in the tree, taking the position with it.
+  tabs.promote(id);
+}
+
+function onDragOver(id: string, event: DragEvent) {
+  const held = draggingId.value;
+  // Not our drag — a file from the desktop, say. Leave it to whatever wants it.
+  if (!held || !event.dataTransfer) return;
+  event.preventDefault();
+  event.dataTransfer.dropEffect = "move";
+  if (id === held) return;
+
+  const from = tabs.ordered.findIndex((tab) => tab.id === held);
+  const to = tabs.ordered.findIndex((tab) => tab.id === id);
+  if (from < 0 || to < 0) return;
+
+  // Only once the pointer is past the target's midpoint, and only in the
+  // direction of travel. Moving on entry alone oscillates between two tabs of
+  // unequal widths: the move puts the dragged tab under a pointer still inside
+  // the tab it displaced, which hands it straight back.
+  const box = (event.currentTarget as HTMLElement).getBoundingClientRect();
+  const middle = box.left + box.width / 2;
+  if (from < to ? event.clientX < middle : event.clientX > middle) return;
+
+  tabs.moveTab(held, to);
+  // The same auto-reveal an activation gets. The strip does not scroll from the
+  // pointer resting at its edge, so without this a tab dragged towards the end
+  // of an overflowing bar walks out of sight.
+  nextTick(() => reveal("[data-dragging]"));
+}
+
+function onDragEnd() {
+  draggingId.value = null;
+}
 
 // The fallthrough reads `tab.section`, so every kind without one has to be
 // handled before it or it resolves `sectionIcon(undefined)`.
@@ -149,8 +218,19 @@ function onAuxClick(id: string, event: MouseEvent) {
     v-if="tabs.ordered.length"
     class="flex h-8 shrink-0 items-stretch bg-panel"
   >
+    <!-- The well carries the separator the first tab cannot: a tab's rule is its
+         own `border-r`, so the left end of a ruled strip has none, and the tabs
+         scroll, so one owned by the first tab would slide out of the strip. -->
     <div
-      :class="cn('flex items-center gap-0.5 px-1', SEGMENT_STRIP_LINE_SCROLLED)"
+      data-testid="tab-lead"
+      :data-next-active="leadsActive || undefined"
+      :class="
+        cn(
+          'flex items-center gap-0.5 px-1',
+          SEGMENT_NAV_EDGE_LEAD,
+          SEGMENT_STRIP_LINE_SCROLLED,
+        )
+      "
     >
       <TabHistory />
     </div>
@@ -170,18 +250,28 @@ function onAuxClick(id: string, event: MouseEvent) {
     >
       <!-- design-check: allow native-title — the tab's own label, which is
            `max-w-40 truncate`; a tooltip here would be a portal per tab. -->
+      <!-- `:key` is the tab's id and that is load-bearing for the drag: Vue moves
+           the very element the pointer is holding rather than rebuilding the row,
+           and a drag whose source element is replaced mid-flight is cancelled. -->
       <button
         v-for="tab in tabs.ordered"
         :key="tab.id"
         type="button"
+        draggable="true"
         :data-testid="`tab-${tab.kind}`"
+        :data-tab-id="tab.id"
         :data-active="tab.id === tabs.activeId || undefined"
         :data-preview="tab.id === tabs.previewId || undefined"
+        :data-dragging="tab.id === draggingId || undefined"
         :title="titleFor(tab)"
         :class="TAB_CLASS"
         @click="tabs.activate(tab.id)"
         @dblclick="tabs.promote(tab.id)"
         @auxclick="onAuxClick(tab.id, $event)"
+        @dragstart="onDragStart(tab.id, $event)"
+        @dragover="onDragOver(tab.id, $event)"
+        @drop.prevent="onDragEnd"
+        @dragend="onDragEnd"
       >
         <component
           :is="iconFor(tab)"

@@ -124,11 +124,31 @@ export const SEGMENT_NAV_EDGES =
  * cannot simply be the variant above: adding a left border to every tab would put
  * it hard against the neighbour's separator and draw the boundary twice.
  *
- * An active *first* tab gets no left edge, for the same reason the flush variant
- * drops its outer two: the shell's own boundary is already there.
+ * The first tab gets no left edge of its own, because a separator belongs to
+ * whatever sits *before* it — see `SEGMENT_NAV_EDGE_LEAD`, which is that thing.
  */
 export const SEGMENT_NAV_EDGES_RULED =
   "border-r border-border-subtle data-[active]:border-r-border [&:has(+[data-active])]:border-r-border";
+
+/**
+ * The separator owned by whatever leads a ruled strip — `TabBar`'s back and
+ * forward well, which shares the row with the tabs rather than bounding it.
+ *
+ * The ruled variant above cannot draw this. Every separator there is a tab's own
+ * `border-r`, so the strip's left end had none at all: with the first tab
+ * inactive it is the same `bg-panel` as the well beside it and the two read as
+ * one undivided field, and with it active only a colour step says where the tab
+ * begins. Nor can the first tab draw its own left edge — the tabs scroll, so a
+ * rule the first tab owns slides out of the strip and the boundary vanishes at
+ * exactly the moment there is something to its left to be divided from.
+ *
+ * Same two strengths as the tab separators, and the same rule about which:
+ * `data-next-active` is the lead's spelling of `:has(+[data-active])`, set by the
+ * strip because a following *sibling* is reachable in CSS and a following
+ * sibling's first *child* is not.
+ */
+export const SEGMENT_NAV_EDGE_LEAD =
+  "border-r border-border-subtle data-[next-active]:border-r-border";
 
 /** Setting a value: the soft accent wash selection means everywhere else. */
 export const SEGMENT_VALUE_ACTIVE =

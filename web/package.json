@@ -28,6 +28,7 @@
     "smoke:results": "node scripts/smoke-results.mjs",
     "smoke:table": "node scripts/smoke-table.mjs",
     "source-link": "node scripts/source-link.mjs",
+    "tab-drag": "node scripts/tab-drag.mjs",
     "test": "vitest run",
     "token-check": "node scripts/token-check.mjs",
     "tree-search": "node scripts/tree-search.mjs"

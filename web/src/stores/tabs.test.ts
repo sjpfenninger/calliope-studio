@@ -339,6 +339,82 @@ describe("useTabsStore", () => {
     });
   });
 
+  /**
+   * The bar's order is the Map's insertion order, so a move rebuilds the Map.
+   * That is cheap and has one true source, but it is also the one operation here
+   * that touches every entry at once — a mistake in it does not lose a position,
+   * it loses tabs.
+   */
+  describe("reordering", () => {
+    const three = () => {
+      const tabs = useTabsStore();
+      tabs.openFile("a.yaml");
+      tabs.openFile("b.yaml");
+      tabs.openFile("c.yaml");
+      return tabs;
+    };
+    const order = (tabs: ReturnType<typeof useTabsStore>) =>
+      tabs.ordered.map((tab) => tab.title);
+
+    it("moves a tab to the right", () => {
+      const tabs = three();
+      tabs.moveTab(fileTabId("a.yaml"), 2);
+      expect(order(tabs)).toEqual(["b.yaml", "c.yaml", "a.yaml"]);
+    });
+
+    it("moves a tab to the left", () => {
+      const tabs = three();
+      tabs.moveTab(fileTabId("c.yaml"), 0);
+      expect(order(tabs)).toEqual(["c.yaml", "a.yaml", "b.yaml"]);
+    });
+
+    it("clamps an index past either end", () => {
+      const tabs = three();
+      tabs.moveTab(fileTabId("b.yaml"), 99);
+      tabs.moveTab(fileTabId("a.yaml"), -4);
+      expect(order(tabs)).toEqual(["a.yaml", "c.yaml", "b.yaml"]);
+    });
+
+    it("does nothing for an unknown id or a move to where the tab already is", () => {
+      const tabs = three();
+      tabs.moveTab(fileTabId("nowhere.yaml"), 0);
+      tabs.moveTab(fileTabId("b.yaml"), 1);
+      expect(order(tabs)).toEqual(["a.yaml", "b.yaml", "c.yaml"]);
+    });
+
+    it("carries each tab's own state across, rather than rebuilding it", () => {
+      // The entries are the same objects on the other side of the move: a dirty
+      // buffer or a mounted run pane must not be disturbed by a drag.
+      const tabs = three();
+      const id = fileTabId("a.yaml");
+      tabs.markDirty(id);
+      const entry = tabs.get(id);
+
+      tabs.moveTab(id, 2);
+      expect(tabs.get(id)).toBe(entry);
+      expect(tabs.get(id)?.isDirty).toBe(true);
+      expect(tabs.activeId).toBe(fileTabId("c.yaml"));
+    });
+
+    it("is what the next session reopens", () => {
+      localStorage.clear();
+      const first = three();
+      first.setVersion("v1");
+      first.moveTab(fileTabId("c.yaml"), 0);
+      first.persist();
+
+      setActivePinia(createPinia());
+      const restored = useTabsStore();
+      restored.restore("v1");
+
+      expect(restored.ordered.map((tab) => tab.title)).toEqual([
+        "c.yaml",
+        "a.yaml",
+        "b.yaml",
+      ]);
+    });
+  });
+
   describe("mounting", () => {
     it("latches on first activation, so a pane is built once", () => {
       const tabs = useTabsStore();

@@ -158,6 +158,15 @@ jobs:
       - name: File actions and viewers
         run: pixi run -- pnpm --dir web run file-actions http://127.0.0.1:8791
 
+      # Reordering tabs by dragging them. The order is applied mid-drag, so the
+      # element under the pointer is re-parented while it is being held — which
+      # cancels the drag outright if Vue rebuilds the row rather than moving it.
+      # And the drag must offer a payload no one else takes: as `text/plain` a
+      # tab released over the editor pastes its own id into the user's file,
+      # which this check does end to end because it really happened.
+      - name: Tab reordering
+        run: pixi run -- pnpm --dir web run tab-drag http://127.0.0.1:8791
+
       # Really solves, with CBC, and drives the run tab from log to charts.
       - name: Run lifecycle
         run: pixi run -- pnpm --dir web run run-lifecycle http://127.0.0.1:8791

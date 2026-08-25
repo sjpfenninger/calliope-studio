@@ -80,16 +80,16 @@ function commitRename() {
 </script>
 
 <template>
-  <!-- The actions button is out of the flow entirely, over the first line's right
-       end. In the flow it reserved 26px on that line and nothing else, so the
-       scenario stopped well short of where `size` ended and the right edge of the
-       list was ragged; reserving the same gutter on both lines lined them up but
-       pushed both a control's width in from the border. Overlaying costs the tail
-       of a long scenario while the row is hovered, and that is the cheaper of the
-       two — it is the state the pointer is already in, and moving away restores
-       it. -->
+  <!-- The row reserves the actions button's width on the right, and the button
+       sits absolutely inside that gutter. It used to overlay the first line
+       instead, on the reasoning that losing the tail of a long scenario was
+       cheaper than insetting every row — but the tail vanishes at the moment the
+       pointer arrives, which is the moment the scenario is being read. The
+       padding is on the row rather than on either line, so the name/scenario
+       line and the metrics line keep a single right edge; and the button never
+       moves, so nothing reflows under the cursor. -->
   <div
-    class="group relative flex flex-col gap-0.5 border-b border-border-subtle px-2 py-1"
+    class="group relative flex flex-col gap-0.5 border-b border-border-subtle py-1 pl-2 pr-7"
     :class="active ? 'bg-active' : 'hover:bg-hover'"
     data-testid="run-item"
     :data-run-id="run.id"
@@ -171,14 +171,7 @@ function commitRename() {
               type="button"
               aria-label="Run actions"
               data-testid="run-menu"
-              :class="[
-                'grid size-5 place-items-center rounded-xs text-text-faint hover:text-foreground',
-                // Takes the row's own background, so that when it appears it masks
-                // the text beneath rather than sitting on top of it — `bg-inherit`
-                // rather than a named colour because the row is hovered, active or
-                // plain, and the button has to be whichever one it currently is.
-                'bg-inherit hover:bg-active',
-              ]"
+              class="grid size-5 place-items-center rounded-xs text-text-faint hover:bg-active hover:text-foreground"
             >
               <MoreHorizontal class="size-3.5" />
             </button>

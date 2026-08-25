@@ -24,6 +24,7 @@
 import { computed } from "vue";
 import { CornerDownRight, Undo2 } from "@lucide/vue";
 
+import InfoTip from "./InfoTip.vue";
 import SourceLink from "./SourceLink.vue";
 import TooltipButton from "./TooltipButton.vue";
 import { FIELD_LABEL, FIELD_ROW, FIELD_ROW_WIDE, FIELD_WIDTH } from "@/lib/formClasses";
@@ -35,6 +36,14 @@ const props = withDefaults(
   defineProps<{
     /** The key this field edits. */
     label: string;
+    /**
+     * What this key means, in prose.
+     *
+     * Calliope declares a `description` for every config property and every
+     * parameter in its math registry, and none of it used to reach the form —
+     * so a field called `pre_validate_math_strings` was a name and nothing else.
+     */
+    description?: string;
     /** How much room the control gets. */
     width?: FieldWidth;
     /** `start` for a control taller than one row — a nested object, an indexed value. */
@@ -49,6 +58,7 @@ const props = withDefaults(
     revertable?: boolean;
   }>(),
   {
+    description: undefined,
     width: "fill",
     align: "center",
     gutter: "default",
@@ -98,12 +108,14 @@ const sourceTitle = computed(() => {
          design-check: allow native-title — the value is the label itself, so
          this is the browser revealing what a 9rem gutter clipped, not help. -->
     <slot name="label">
-      <label
-        :class="cn(FIELD_LABEL, 'truncate', align === 'start' ? 'pt-1' : '')"
-        :title="label"
-      >
-        {{ label }}
-      </label>
+      <InfoTip :label="description ?? ''" side="right">
+        <label
+          :class="cn(FIELD_LABEL, 'truncate', align === 'start' ? 'pt-1' : '')"
+          :title="label"
+        >
+          {{ label }}
+        </label>
+      </InfoTip>
     </slot>
 
     <!-- Follows `align` too, so the remove button beside a three-row indexed

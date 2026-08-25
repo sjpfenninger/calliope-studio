@@ -166,9 +166,6 @@ const viewSegments = computed(() => [
           {{ external.length }} file(s) outside the model folder
         </span>
       </InfoTip>
-      <span v-else-if="manifest?.solve_from" class="text-2xs text-text-faint">
-        solved from the {{ manifest.solve_from }}
-      </span>
     </PanelHeader>
 
     <StateMessage v-if="manifest && !manifest.available" variant="inline">

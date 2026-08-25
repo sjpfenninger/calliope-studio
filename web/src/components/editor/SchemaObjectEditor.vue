@@ -10,12 +10,13 @@
  *
  * Recursive: an object-typed property renders another one of these.
  */
-import { reactive, computed, onMounted } from "vue";
+import { reactive, computed, onMounted, useId } from "vue";
 import { Plus, X } from "@lucide/vue";
 
 import { Switch } from "@/components/ui/switch";
 import Eyebrow from "@/components/app/Eyebrow.vue";
 import FieldRow from "@/components/app/FieldRow.vue";
+import InfoTip from "@/components/app/InfoTip.vue";
 import TooltipButton from "@/components/app/TooltipButton.vue";
 import { FIELD, type FieldWidth } from "@/lib/formClasses";
 // Self-import for recursive nested-object rendering.
@@ -37,6 +38,15 @@ export interface FieldConfig {
   widget?: WidgetType;
   /** Enum option list — replaces the schema's own enum values. */
   options?: string[];
+  /**
+   * Values worth offering for a field the schema leaves open.
+   *
+   * A `datalist`, not an `enum`: the schema says any string is valid and means
+   * it, so the menu narrows the typing rather than the answers. Use this rather
+   * than `options` wherever the list is a convenience — `options` on a field
+   * with no schema enum invents a constraint Calliope does not have.
+   */
+  suggestions?: string[];
   /** Extra attributes forwarded verbatim to the rendered control. */
   inputProps?: Record<string, any>;
   /** Display label (defaults to the property key). */
@@ -78,8 +88,27 @@ interface FieldEntry {
   widget: WidgetType;
   fieldSchema: Record<string, any>;
   options: string[] | null;
+  suggestions: string[] | null;
+  /** Calliope's own prose for this property, shown on the label. */
+  description: string | null;
+  /** What Calliope uses when the model says nothing, shown as ghost text. */
+  placeholder: string | undefined;
   inputProps: Record<string, any>;
   width: FieldWidth;
+}
+
+/**
+ * The schema's `default`, as ghost text.
+ *
+ * Only where it is a value the field could hold: `null` is the absence of a
+ * default rather than one, and an object default (`subset`, `operate`) would
+ * print `[object Object]` into a box the user is about to type in. A `switch`
+ * gets none either — it has no empty state to annotate.
+ */
+function placeholderFor(fieldSchema: Record<string, any>): string | undefined {
+  const value = fieldSchema.default;
+  if (value == null || typeof value === "object") return undefined;
+  return String(value);
 }
 
 /** What each widget usually holds, and therefore how much room it needs. */
@@ -173,12 +202,23 @@ const fieldEntries = computed<FieldEntry[]>(() => {
       widget,
       fieldSchema,
       options,
+      suggestions: fc.suggestions?.length ? fc.suggestions : null,
+      description: fieldSchema.description ?? null,
+      placeholder: widget === "switch" ? undefined : placeholderFor(fieldSchema),
       inputProps: fc.inputProps ?? {},
       width: fc.width ?? WIDGET_WIDTH[widget],
     });
   }
   return entries;
 });
+
+/**
+ * One id per instance of this editor, so a `datalist` in the `solve` section
+ * cannot be reached by a same-named field in `build`. Recursive nested editors
+ * get their own.
+ */
+const instanceId = useId();
+const listId = (key: string) => `${instanceId}-${key}`;
 
 // ---------------------------------------------------------------------------
 // Local mutable caches for commaSeparated and keyValue widgets.
@@ -262,6 +302,7 @@ function flushKV(key: string) {
       <FieldRow
         v-if="entry.widget === 'switch'"
         :label="entry.label"
+        :description="entry.description ?? undefined"
         :width="entry.width"
       >
         <Switch
@@ -274,6 +315,7 @@ function flushKV(key: string) {
       <FieldRow
         v-else-if="entry.widget === 'select'"
         :label="entry.label"
+        :description="entry.description ?? undefined"
         :width="entry.width"
       >
         <select
@@ -284,8 +326,10 @@ function flushKV(key: string) {
             update(entry.key, ($event.target as HTMLSelectElement).value || null)
           "
         >
-          <!-- Blank first, so a value that was set can be unset again. -->
-          <option value="">—</option>
+          <!-- Blank first, so a value that was set can be unset again. A
+               select takes no placeholder, so this is where its default goes:
+               unset is not "nothing", it is whatever Calliope falls back to. -->
+          <option value="">{{ entry.placeholder ? `— ${entry.placeholder}` : "—" }}</option>
           <option v-for="option in entry.options ?? []" :key="option" :value="option">
             {{ option }}
           </option>
@@ -295,11 +339,13 @@ function flushKV(key: string) {
       <FieldRow
         v-else-if="entry.widget === 'number'"
         :label="entry.label"
+        :description="entry.description ?? undefined"
         :width="entry.width"
       >
         <input
           type="number"
           :value="modelValue[entry.key] ?? ''"
+          :placeholder="entry.placeholder"
           :class="FIELD"
           v-bind="entry.inputProps"
           @change="updateNumber(entry.key, ($event.target as HTMLInputElement).value)"
@@ -309,11 +355,13 @@ function flushKV(key: string) {
       <FieldRow
         v-else-if="entry.widget === 'commaSeparated'"
         :label="entry.label"
+        :description="entry.description ?? undefined"
         :width="entry.width"
       >
         <input
           v-model="commaSepCache[entry.key]"
           type="text"
+          :placeholder="entry.placeholder"
           :class="FIELD"
           v-bind="entry.inputProps"
           @change="updateCommaSep(entry.key)"
@@ -324,7 +372,9 @@ function flushKV(key: string) {
            and its own rows in the same gutter rather than a label beside it. -->
       <div v-else-if="entry.widget === 'keyValue'" class="flex flex-col gap-1">
         <div class="flex items-center justify-between">
-          <Eyebrow class="mb-0">{{ entry.label }}</Eyebrow>
+          <InfoTip :label="entry.description ?? ''" side="right">
+            <Eyebrow class="mb-0">{{ entry.label }}</Eyebrow>
+          </InfoTip>
           <TooltipButton
             label="Add a row"
             :icon="Plus"
@@ -370,7 +420,9 @@ function flushKV(key: string) {
         v-else-if="entry.widget === 'object'"
         class="flex flex-col gap-1 rounded-sm border border-border p-2"
       >
-        <Eyebrow>{{ entry.label }}</Eyebrow>
+        <InfoTip :label="entry.description ?? ''" side="right">
+          <Eyebrow>{{ entry.label }}</Eyebrow>
+        </InfoTip>
         <SchemaObjectEditor
           :schema="entry.fieldSchema"
           :model-value="modelValue[entry.key] ?? {}"
@@ -380,16 +432,28 @@ function flushKV(key: string) {
         />
       </div>
 
-      <FieldRow v-else :label="entry.label" :width="entry.width">
+      <FieldRow
+        v-else
+        :label="entry.label"
+        :description="entry.description ?? undefined"
+        :width="entry.width"
+      >
         <input
           type="text"
           :value="modelValue[entry.key] != null ? String(modelValue[entry.key]) : ''"
+          :placeholder="entry.placeholder"
+          :list="entry.suggestions ? listId(entry.key) : undefined"
           :class="FIELD"
           v-bind="entry.inputProps"
           @change="
             update(entry.key, ($event.target as HTMLInputElement).value || null)
           "
         />
+        <!-- A menu, not a constraint: the schema says any string is valid here
+             and the field goes on accepting one. -->
+        <datalist v-if="entry.suggestions" :id="listId(entry.key)">
+          <option v-for="value in entry.suggestions" :key="value" :value="value" />
+        </datalist>
       </FieldRow>
     </template>
   </div>

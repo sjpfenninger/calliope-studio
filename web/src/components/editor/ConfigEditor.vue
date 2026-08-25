@@ -67,20 +67,21 @@ const initOverlay: FieldOverlay = {
   pre_validate_math_strings: { hidden: true },
 };
 
+// backend: the schema's own enum, which is `pyomo | gurobi`. It used to be
+// overridden to add `highs` — a backend Calliope does not have, so choosing it
+// produced a model that would not load.
 const buildOverlay: FieldOverlay = {
-  // backend: schema enum is pyomo/gurobi; we override to reflect common backends.
-  backend: { options: ["pyomo", "highs", "gurobi"] },
   // ensure_feasibility: auto-detected as a switch.
   objective: { hidden: true },
   operate: { hidden: true },
 };
 
-const solveOverlay: FieldOverlay = {
-  // solver: the schema type is a free string; offer the ones that exist.
-  solver: {
-    widget: "select",
-    options: ["cbc", "glpk", "highs", "gurobi", "cplex", "cpsat"],
-  },
+const solveOverlay = computed<FieldOverlay>(() => ({
+  // A free string in the schema, and it means it — Calliope takes any name with
+  // a Pyomo interface. So: suggestions from what this machine can actually
+  // reach, and no constraint. The list used to be six names written here, of
+  // which one was installed and two were not Pyomo solvers at all.
+  solver: { widget: "text", suggestions: schemaStore.solvers },
   // A tolerance like 1e-10 must not be rounded by a stepper, and needs more
   // room than a plain number: the exponent plus the spinner does not fit 64px.
   zero_threshold: { inputProps: { step: "any" }, width: "short" },
@@ -92,7 +93,7 @@ const solveOverlay: FieldOverlay = {
   shadow_prices: { hidden: true },
   solver_io: { hidden: true },
   solver_options: { hidden: true },
-};
+}));
 
 // Overlay for the nested SolveSpores object — show only 'number'.
 const sporesOverlay: FieldOverlay = {
@@ -167,7 +168,12 @@ watch([timeSubsetStart, timeSubsetEnd], () => {
 
 // The section load and its lifecycle belong to the composable; the schema is
 // this editor's own and is fetched alongside it rather than after it.
-onMounted(() => void schemaStore.load());
+onMounted(() => {
+  void schemaStore.load();
+  // Only this editor suggests solvers, so it is not folded into `load()` —
+  // which every editor that mounts Monaco calls.
+  void schemaStore.loadSolvers();
+});
 </script>
 
 <template>

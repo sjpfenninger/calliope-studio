@@ -181,7 +181,15 @@ watch(
            characters beside it are the visible prefix. -->
       <span :title="run.id">{{ run.id.slice(0, 8) }}</span>
       <span v-if="run.scenario">· {{ run.scenario }}</span>
-      <span v-if="run.solved_from">· solved from {{ run.solved_from }}</span>
+      <!-- Only the fallback is worth saying. Every run is frozen and a model
+           that refers to nothing outside its own folder always solves from that
+           freeze, so "solved from snapshot" appeared on essentially every run
+           and carried no information. The other value means the snapshot was
+           not buildable and the live tree was solved instead, which is the one
+           case where "as written" and "as solved" can differ. -->
+      <span v-if="run.solved_from === 'workspace'" class="text-warning-text">
+        · solved from the live workspace, not the frozen snapshot
+      </span>
       <div class="flex-1" />
       <span>{{ formatTimestamp(run.started_at ?? run.created_at) }}</span>
     </PanelFooter>

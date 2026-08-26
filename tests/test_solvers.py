@@ -9,9 +9,17 @@ several want a Python package that is not installed — is dropped rather than
 taking the whole probe down with it.
 """
 
+import sys
+
+import pytest
 from fastapi.testclient import TestClient
 
 from calliope_studio.runs import solvers
+
+
+@pytest.fixture
+def ws(client: TestClient) -> str:
+    return client.workspace_id
 
 
 def test_probes_rather_than_asserts():
@@ -35,17 +43,43 @@ def test_a_candidate_that_cannot_be_constructed_is_dropped(monkeypatch):
             raise ModuleNotFoundError("No module named 'nope'")
         return real_factory(name)
 
-    solvers.available_solvers.cache_clear()
+    solvers.forget_probes()
     monkeypatch.setattr("pyomo.opt.SolverFactory", explode)
     try:
         assert "cbc" not in solvers.available_solvers()
     finally:
-        solvers.available_solvers.cache_clear()
+        solvers.forget_probes()
 
 
-def test_endpoint_serves_the_probe(client: TestClient):
-    """`GET /api/solvers/` is what the config editor's suggestions come from."""
-    response = client.get("/api/solvers/")
+def test_endpoint_serves_the_probe(client: TestClient, ws: str):
+    """The config editor's suggestions come from the model's own route.
+
+    Under `/versions/{id}/` rather than at the root because the answer depends on
+    where the model's runs happen, and today's global answer is a coincidence of
+    there being one interpreter — not a property of the question.
+    """
+    response = client.get(f"/api/versions/{ws}/solvers/")
 
     assert response.status_code == 200
     assert response.json() == {"solvers": solvers.available_solvers()}
+
+
+def test_a_foreign_interpreter_is_refused_rather_than_guessed_at():
+    """Reporting the host's solvers for another environment is a wrong answer.
+
+    The registry that makes one selectable is not built yet. Until it is, the
+    only honest reply about another interpreter is that we cannot say — the same
+    rule this codebase applies to substituting one Calliope for another.
+    """
+    with pytest.raises(NotImplementedError):
+        solvers.available_solvers("/some/other/python")
+
+
+def test_the_probe_cache_is_keyed_by_interpreter():
+    """A single-slot cache would answer for whichever environment asked last."""
+    solvers.forget_probes()
+    try:
+        solvers.available_solvers()
+        assert list(solvers._probed) == [sys.executable]
+    finally:
+        solvers.forget_probes()

@@ -326,6 +326,31 @@ class TestTargetValidation:
         with pytest.raises(click.ClickException, match="not a Calliope results file"):
             cli_module.describe_target(national_scale / "model.yaml")
 
+    def test_no_path_at_all_lands_on_the_picker(self):
+        """A bare `calliope-studio` offers your models rather than failing.
+
+        `path` used to default to `"."`, so running the command from anywhere
+        that was not itself a model — which is almost anywhere — exited with an
+        error instead of showing the list of models you have opened. The list
+        already existed and the server already reported it as the landing for
+        `mode: "unknown"`; the CLI was the only thing that would not go there.
+        """
+        assert cli_module.describe_target(None) == cli_module.PICKER_LANDING
+
+    def test_a_wrong_path_is_still_an_error(self, tmp_path):
+        """Absent and wrong are different, and only one of them means "picker".
+
+        A mistyped folder silently becoming the model list would hide the typo:
+        the user asked for something specific and got something else, with
+        nothing on screen to say so. Click gives the distinction because the
+        default is None rather than a path.
+        """
+        empty = tmp_path / "not-a-model"
+        empty.mkdir()
+
+        with pytest.raises(click.ClickException):
+            cli_module.describe_target(empty)
+
     def test_the_cli_refuses_before_binding_a_port(self, tmp_path, monkeypatch):
         """Nothing should be started for a path that cannot be opened."""
         import calliope_studio.cli as cli

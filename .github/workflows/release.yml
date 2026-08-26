@@ -1,0 +1,51 @@
+name: Release
+
+# Tag-driven, so cutting a release is `git tag v0.1.0 && git push --tags` and
+# nothing else. setuptools-scm derives the version from the tag, which is why
+# `fetch-depth: 0` below is not optional: a shallow clone has no tags and would
+# publish a `0.1.0.dev0` built from `fallback_version`.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Build and publish to PyPI
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      # Trusted publishing: PyPI verifies this workflow's OIDC identity, so
+      # there is no API token in secrets to leak or rotate.
+      id-token: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+
+      - uses: prefix-dev/setup-pixi@a09b6247153796b190642a2b53fac4241043cf6f # v0.10.0
+        with:
+          cache: true
+
+      # Builds the frontend into the package first, then checks that both the
+      # wheel *and* the sdist actually contain it. The sdist matters as much:
+      # conda-forge builds from it, and one without the bundle would ship a
+      # package that serves a blank page.
+      - name: Build the wheel and sdist
+        run: pixi run -e build build
+
+      # The README is the PyPI long description, and a release cannot be
+      # re-uploaded under the same version — so a description that fails to
+      # render is permanent. Cheaper to find out here than on the live page.
+      - name: Check the artefacts render
+        run: pixi run -e build twine check dist/*
+
+      - name: Publish
+        # Pinned by commit SHA, like every other action here: this is the one
+        # workflow holding an OIDC identity, so a retagged action would be
+        # shipping new code straight into the job that can publish as us.
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
+        with:
+          attestations: true

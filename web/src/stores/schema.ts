@@ -1,6 +1,6 @@
 import { ref } from "vue";
 import { defineStore } from "pinia";
-import { getCalliopeSchema, getSolvers } from "../api/system";
+import { getCalliopeSchema } from "../api/system";
 import { withSiblingSchemas } from "../lib/calliopeSchema";
 
 /**
@@ -21,17 +21,6 @@ import { withSiblingSchemas } from "../lib/calliopeSchema";
 export const useSchemaStore = defineStore("schema", () => {
   const resolved = ref<Record<string, any> | null>(null);
   const isLoaded = ref(false);
-
-  /**
-   * Solvers this machine can actually run, for the config editor to suggest.
-   *
-   * Kept here because the store already answers "what does the installed
-   * Calliope allow", and this is the other half of the same question — what it
-   * can be asked to do here. Loaded separately from `load()`, though: every
-   * editor that mounts Monaco calls that, and only the config editor wants this.
-   */
-  const solvers = ref<string[]>([]);
-  const solversLoaded = ref(false);
 
   /** Recursively resolve all $ref pointers using the schema's $defs. */
   function deref(
@@ -86,17 +75,6 @@ export const useSchemaStore = defineStore("schema", () => {
     }
   }
 
-  /** Fetch the solver list. Failure leaves the field free text with no menu. */
-  async function loadSolvers() {
-    if (solversLoaded.value) return;
-    try {
-      solvers.value = await getSolvers();
-      solversLoaded.value = true;
-    } catch {
-      // Nothing to suggest — the field still accepts any name.
-    }
-  }
-
   /**
    * Navigate the resolved schema by dot-notation path through `properties`.
    * e.g. subschema("config.init") → the fully-resolved Init object schema.
@@ -112,5 +90,5 @@ export const useSchemaStore = defineStore("schema", () => {
     return cursor;
   }
 
-  return { resolved, isLoaded, solvers, load, loadSolvers, subschema };
+  return { resolved, isLoaded, load, subschema };
 });

@@ -48,12 +48,47 @@ def results_id(path: Path) -> str:
 
 
 @dataclass(frozen=True)
+class LoadedModel:
+    """What a solved model is, to everything outside the worker.
+
+    Six attributes, which is the entire `calliope.Model` surface this
+    application ever touched — `colors`, `catalog` and `geo` read `inputs`,
+    `links` reads `definition`, `summaries` reads `config` and `runtime`, and
+    every query already worked on `handle.dataset`. Reproducing those six is what
+    lets this module read a `.nc` **without importing Calliope at all**, which is
+    the strongest form of the layering rule `results/` already lives under and
+    what makes the layer usable from a notebook with no Calliope installed.
+
+    It is also what makes the layer version-tolerant. `calliope.read_netcdf`
+    constructs a `Model`, and a `Model` insists on math the installed version
+    understands — so seven of the eleven sample `.nc` files in this repository,
+    every one written before 0.7.0.dev7, failed to open at all with
+    `ModelError: Requested math 'base' was not initialised`. Nothing about
+    reading a results file needs that object.
+
+    `config`, `definition`, `runtime` and `math` are plain dicts rather than
+    Calliope's pydantic models, for the same reason: a pydantic model is this
+    version's schema, and an older file is not obliged to satisfy it.
+    """
+
+    name: str
+    inputs: xr.Dataset
+    results: xr.Dataset
+    config: dict
+    definition: dict
+    runtime: dict
+    math: dict
+    #: What wrote the file, for reporting — never for deciding how to read it.
+    calliope_version: str | None = None
+
+
+@dataclass(frozen=True)
 class ResultHandle:
     """A loaded Calliope model. `dataset` is inputs-only if it was not solved."""
 
     id: str
     path: Path
-    model: "object"  # calliope.Model, untyped to keep the import lazy
+    model: LoadedModel
     dataset: xr.Dataset
 
     @property
@@ -61,11 +96,272 @@ class ResultHandle:
         return getattr(self.model, "name", None) or self.path.stem
 
 
-def _read(path_str: str) -> ResultHandle:
-    import calliope
+#: Groups a Calliope 0.7.0.dev7-and-later `.nc` is written as. Their presence is
+#: what identifies the layout — never the version string, because
+#: `urban_scale_07.dev7.nc` reports `calliope_version_initialised = 0.7.0.dev6`
+#: while using dev7's layout, and a reader that trusted it would take the wrong
+#: branch on a real file this repository ships.
+GROUPED_LAYOUT = ("inputs", "results", "attrs")
 
+#: Attributes Calliope encodes on the way out, and the decoding each needs.
+#: Mirrors `calliope.io._deserialise`, which cannot be imported here.
+_SERIALISED_KEYS = (
+    "serialised_dicts",
+    "serialised_bools",
+    "serialised_nones",
+    "serialised_single_element_list",
+    "serialised_sets",
+)
+
+
+def _listify(value):
+    """`calliope.util.tools.listify`, reproduced.
+
+    A string is one item, not a list of characters — which is the whole reason
+    Calliope has this rather than calling `list()`.
+    """
+    if value is None:
+        return []
+    if not isinstance(value, str) and hasattr(value, "__iter__"):
+        return list(value)
+    return [value]
+
+
+def _deserialise(attrs: dict) -> dict:
+    """Undoes the encoding Calliope applies to netCDF attributes.
+
+    netCDF attributes are scalars, strings and arrays, so Calliope writes a dict
+    as YAML, a bool as an int, None as a string and a set as a list — and records
+    which keys got which treatment in `serialised_*` attributes beside them. That
+    bookkeeping is the only way back: nothing about the stored value says whether
+    `1` was an integer or True.
+
+    Reimplemented rather than imported because this module may not import
+    Calliope — which is the point of the whole reader. It is copied from
+    `calliope.io._deserialise` and must stay equal to it; the sample files across
+    four Calliope versions are what checks that.
+
+    Returns a new dict; the caller's is left alone.
+    """
+    out = dict(attrs)
+    encoded = {key: _listify(out.pop(key, [])) for key in _SERIALISED_KEYS}
+
+    for name in encoded["serialised_dicts"]:
+        if name in out:
+            out[name] = _parse_yaml(out[name])
+    for name in encoded["serialised_bools"]:
+        if name in out:
+            out[name] = bool(out[name])
+    for name in encoded["serialised_nones"]:
+        out[name] = None
+    for name in encoded["serialised_single_element_list"]:
+        if name in out:
+            out[name] = _listify(out[name])
+    for name in encoded["serialised_sets"]:
+        if name in out:
+            out[name] = set(_listify(out[name]))
+    return out
+
+
+def _parse_yaml(text):
+    """A serialised dict attribute, as a plain dict.
+
+    `typ="safe"` because this is data from a file the user opened, and a Calliope
+    `.nc` has no business constructing Python objects on load. Anything
+    unreadable becomes an empty dict rather than taking the whole open down: a
+    model whose `definition` will not parse is still a model whose *results* are
+    perfectly good, and the results are what was asked for.
+    """
+    if not isinstance(text, str):
+        return text if isinstance(text, dict) else {}
+    try:
+        from ruamel.yaml import YAML
+
+        parsed = YAML(typ="safe").load(text)
+    except Exception:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+class UnreadableResults(ValueError):
+    """Raised when a `.nc` is not a Calliope model this build can make sense of.
+
+    Reported rather than guessed at. The reader covers the two layouts Calliope
+    has actually written; a third would be a future version, and inventing an
+    interpretation of it produces numbers that are wrong in a way nobody can see.
+    """
+
+
+def _open_group(path: Path, group: str | None) -> xr.Dataset | None:
+    """One netCDF group as a dataset, or None if it cannot be read.
+
+    `OSError` is what xarray raises for a missing group, which is the same thing
+    Calliope's own reader catches — the file is fine, that part of it simply does
+    not exist. A results-free model is the ordinary case for a resolution.
+
+    `ValueError` is the other half, and catching only `OSError` was a hole:
+    xarray raises it — *"did not find a match in any of xarray's currently
+    installed IO backend"* — when a file is so unlike netCDF that no backend will
+    claim it, which is precisely a renamed CSV, a truncated download or an empty
+    file. Those escaped as that message, naming xarray's plugin machinery to
+    somebody who had merely opened the wrong file.
+
+    Which absence is fatal is the caller's decision: a missing `results` group is
+    ordinary, a missing root group means there is no model here at all.
+
+    **The open and the load are caught separately, and only the open is
+    forgiven.** `ValueError` means two different things depending on where it
+    comes from: raised by `open_dataset` it is "no backend claimed this file",
+    raised by `load()` it is a real array that will not decode — a bad time unit,
+    a corrupt chunk. Catching both together would turn the second into a silently
+    empty `results` group, so a chart would draw nothing where it should have
+    failed loudly.
+    """
+    try:
+        opened = xr.open_dataset(path, group=group)
+    except OSError:
+        return None  # the group is not in this file
+    except ValueError:
+        return None  # nothing will claim this file at all
+    with opened:
+        return opened.load()
+
+
+def _decode_variables(dataset: xr.Dataset) -> xr.Dataset:
+    """Applies Calliope's attribute decoding to every array in a dataset.
+
+    Per variable as well as per dataset because `unit`, `title` and `default` are
+    written on the arrays, and `results/catalog.py` reads them to label a chart.
+    """
+    for array in dataset.data_vars.values():
+        array.attrs = _deserialise(array.attrs)
+    return dataset
+
+
+def _read_grouped(path: Path) -> LoadedModel | None:
+    """A 0.7.0.dev7-and-later file: `inputs`, `results` and `attrs` groups.
+
+    The `attrs` group holds no variables at all — `config`, `definition`,
+    `runtime` and the whole applied `math` are netCDF *attributes* on it,
+    serialised as YAML.
+    """
+    inputs = _open_group(path, "inputs")
+    if inputs is None:
+        return None
+    results = _open_group(path, "results")
+    attrs_group = _open_group(path, "attrs")
+    meta = _deserialise(attrs_group.attrs) if attrs_group is not None else {}
+
+    runtime = meta.get("runtime") or {}
+    return LoadedModel(
+        name=str(meta.get("name") or runtime.get("name") or path.stem),
+        inputs=_decode_variables(inputs),
+        results=_decode_variables(results if results is not None else xr.Dataset()),
+        config=meta.get("config") or {},
+        definition=meta.get("definition") or {},
+        runtime=runtime,
+        math=meta.get("math") or {},
+        calliope_version=_version_from(runtime, meta),
+    )
+
+
+def _read_flat(path: Path) -> LoadedModel:
+    """A 0.7.0.dev6-and-earlier file: one dataset, split on `is_result`.
+
+    The split is per variable, and a variable that does not say is treated as an
+    input. That is the safe direction: `inputs` is what the map, the colours and
+    the catalogue read, and a result mistaken for an input is visible in the
+    interface, where an input mistaken for a result silently vanishes from it.
+
+    Metadata is thinner here than in the grouped layout and differently spelled —
+    `applied_math` in dev6, `math` before it, `def_path` against `_model_def_dict`
+    — so this reads what is there and leaves the rest empty rather than
+    reconstructing something Calliope never wrote.
+    """
+    root = _open_group(path, None)
+    if root is None:
+        # Both layouts have now declined it, so this is the end of the line.
+        # The message says what was tried, because the two likely causes want
+        # opposite responses: a file that is not a model at all is the user's
+        # to correct, while one written by a newer Calliope is ours.
+        raise UnreadableResults(
+            f"{path.name} is not a Calliope results file this build can read. "
+            "It is neither a grouped (0.7.0.dev7 and later) nor a flat "
+            "(0.7.0.dev6 and earlier) model, and may not be netCDF at all."
+        )
+
+    meta = _deserialise(root.attrs)
+    result_names = [
+        name
+        for name, array in root.data_vars.items()
+        if bool(array.attrs.get("is_result", 0))
+    ]
+    input_names = [name for name in root.data_vars if name not in result_names]
+
+    results = _decode_variables(root[result_names])
+    inputs = _decode_variables(root[input_names])
+    # `is_result` has done its job and is an implementation detail of a layout
+    # nothing downstream knows about.
+    for dataset in (inputs, results):
+        for array in dataset.data_vars.values():
+            array.attrs.pop("is_result", None)
+
+    return LoadedModel(
+        name=str(meta.get("name") or path.stem),
+        inputs=inputs,
+        results=results,
+        config=meta.get("config") or {},
+        definition=meta.get("_model_def_dict") or {},
+        runtime=_runtime_from_flat(meta),
+        math=meta.get("applied_math") or meta.get("math") or {},
+        calliope_version=_version_from({}, meta),
+    )
+
+
+def _runtime_from_flat(meta: dict) -> dict:
+    """The handful of runtime facts an old file records, under dev7's names.
+
+    dev7 gathered these into a `runtime` mapping; before it they were loose root
+    attributes. Translated here so `results/summaries.py` has one shape to read
+    and does not grow a branch per Calliope version.
+    """
+    runtime = {
+        key: meta[key]
+        for key in (
+            "termination_condition",
+            "applied_overrides",
+            "scenario",
+            "calliope_version_defined",
+            "calliope_version_initialised",
+        )
+        if key in meta
+    }
+    timings = {
+        key: meta[key]
+        for key in meta
+        if isinstance(key, str) and key.startswith("timestamp_")
+    }
+    if timings:
+        runtime["timings"] = timings
+    return runtime
+
+
+def _version_from(runtime: dict, meta: dict) -> str | None:
+    """What wrote the file, for display only.
+
+    Deliberately never consulted to choose a branch — see `GROUPED_LAYOUT`.
+    """
+    for source in (runtime, meta):
+        for key in ("calliope_version_initialised", "calliope_version_defined"):
+            value = source.get(key)
+            if value:
+                return str(value)
+    return None
+
+
+def _read(path_str: str) -> ResultHandle:
     path = Path(path_str)
-    model = calliope.read_netcdf(path)
+    model = _read_grouped(path) or _read_flat(path)
     # Results and inputs merged into one namespace, so that a variable can be
     # requested by name without the caller knowing which side it came from.
     # `override` because the two legitimately share coordinate variables.

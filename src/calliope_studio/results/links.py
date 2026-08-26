@@ -94,19 +94,31 @@ def _from_inputs(model) -> dict[str, tuple[str, str]]:
 def _from_definition(model) -> dict[str, tuple[str, str]]:
     """Endpoints as Calliope recorded the definition.
 
-    Degrades to nothing rather than raising: this reaches into Calliope's own schema
-    classes, and a shape change there should cost the labels, not the catalogue.
+    A plain dict lookup, because `LoadedModel.definition` is a plain dict: the
+    file stores it as YAML and the reader parses it, so there is no schema object
+    to walk and no Calliope version to agree with about one. That is simpler than
+    the `model.definition.techs.root` attribute chain it replaces, and it is also
+    what stops this being a source of version skew.
+
+    Degrades to nothing rather than raising. The definition is absent altogether
+    from 0.7.0.dev6 files, which record only a path to it, and flattened to
+    dotted keys in dev2-era ones — in both cases `_from_inputs` still answers,
+    and endpoints are labels rather than data.
     """
-    try:
-        techs = model.definition.techs.root
-    except AttributeError:
+    definition = getattr(model, "definition", None)
+    if not isinstance(definition, dict):
+        return {}
+    techs = definition.get("techs")
+    if not isinstance(techs, dict):
         return {}
 
     found = {}
     for name, entry in techs.items():
+        if not isinstance(entry, dict):
+            continue
         # Absent, not None, on a technology that never declared them.
-        source = _named(getattr(entry, "link_from", None))
-        target = _named(getattr(entry, "link_to", None))
+        source = _named(entry.get("link_from"))
+        target = _named(entry.get("link_to"))
         if source and target:
             found[str(name)] = (source, target)
     return found

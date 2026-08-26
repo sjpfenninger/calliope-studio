@@ -110,20 +110,63 @@ def _synthetic_dims(
     return tuple(seen)
 
 
+#: Math blocks whose entries declare a `unit:`.
+_UNIT_BEARING_BLOCKS = ("parameters", "variables", "global_expressions")
+
+
+def units_from_math(math: Mapping | None) -> dict[str, str]:
+    """Unit declarations read out of a model's *own* stored math.
+
+    A solved `.nc` carries the math it was built with, so it can answer for
+    itself — 82 declarations on `urban_scale_07.dev7.nc`, including any the user
+    wrote. That makes the unit question independent of whichever Calliope happens
+    to be installed here, which the injected declarations can never be.
+
+    Tolerant by construction: an older file stores its math differently or not at
+    all, and the answer then is simply fewer units, never a wrong one.
+    """
+    if not isinstance(math, Mapping):
+        return {}
+    build = math.get("build")
+    if not isinstance(build, Mapping):
+        return {}
+
+    units: dict[str, str] = {}
+    for block in _UNIT_BEARING_BLOCKS:
+        entries = build.get(block)
+        if not isinstance(entries, Mapping):
+            continue
+        for name, entry in entries.items():
+            if isinstance(entry, Mapping) and entry.get("unit"):
+                units.setdefault(str(name), str(entry["unit"]))
+    return units
+
+
 def unit_for(
-    dataset: xr.Dataset, variable: str, declared: Mapping[str, str] | None = None
+    dataset: xr.Dataset,
+    variable: str,
+    declared: Mapping[str, str] | None = None,
+    file_units: Mapping[str, str] | None = None,
 ) -> str:
     """A variable's generalised unit — `energy`, `power`, `cost` — or `""`.
 
-    The array's own `attrs` first, because that is the model speaking and it is
-    the only thing that can answer for math a user wrote themselves. Calliope's
-    declarations second, because the attrs are patchy in a way that reverses
-    between files: `urban_scale_07.dev7.nc` has them on 23 of 34 inputs and none
-    of its 24 results, while the older flat files have them on the results and
-    almost nothing else.
+    Three sources, in this order.
 
-    Not two answers to one question. Calliope copies the declared unit onto the
-    array, so where both speak they say the same thing — the same relationship
+    The array's own `attrs` first, because that is the model speaking and it is
+    the only thing that can answer for math a user wrote themselves.
+
+    The file's *own* stored math second (`units_from_math`), because the attrs
+    are patchy in a way that reverses between files: `urban_scale_07.dev7.nc` has
+    them on 23 of 34 inputs and none of its 24 results, while the older flat
+    files have them on the results and almost nothing else. This source is new,
+    and it is the better of the two remaining: it was written by the Calliope
+    that built *this* file, so it cannot disagree with it.
+
+    The declarations injected from the installed Calliope last, which is all
+    there is for a file too old to carry its own math.
+
+    Not three answers to one question. Calliope copies the declared unit onto the
+    array, so where they speak they say the same thing — the same relationship
     the catalogue's `colors` already has with the Arrow field metadata.
     """
     synthetic = SYNTHETIC_VARIABLES.get(variable)
@@ -133,6 +176,9 @@ def unit_for(
         unit = dataset[variable].attrs.get("unit")
         if unit:
             return str(unit)
+    from_file = (file_units or {}).get(variable)
+    if from_file:
+        return str(from_file)
     return str((declared or {}).get(variable, ""))
 
 
@@ -140,6 +186,7 @@ def build_catalog(
     dataset: xr.Dataset,
     transmission_techs: Iterable[str] = (),
     declared_units: Mapping[str, str] | None = None,
+    file_units: Mapping[str, str] | None = None,
 ) -> VariableCatalog:
     """Categorises a dataset's variables.
 
@@ -170,7 +217,7 @@ def build_catalog(
     units = {
         name: unit
         for name in list(dims)
-        if (unit := unit_for(dataset, name, declared_units))
+        if (unit := unit_for(dataset, name, declared_units, file_units))
     }
     return VariableCatalog(
         all=tuple(sorted(variables)),

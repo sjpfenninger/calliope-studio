@@ -20,9 +20,16 @@ from calliope_studio.server.app import WORKSPACE_ENV_VAR
 PORT_SCAN_ATTEMPTS = 20
 
 
+#: Where the frontend lands when nothing was opened — the recents-and-create
+#: screen. `server/mode.py` already reports it as the landing for
+#: `mode: "unknown"`; this is the same string, and the one place the CLI needs
+#: to know it.
+PICKER_LANDING = "/projects"
+
+
 @click.command()
 @click.argument(
-    "path", type=click.Path(exists=True, path_type=Path), required=False, default="."
+    "path", type=click.Path(exists=True, path_type=Path), required=False, default=None
 )
 @click.option("--host", default="127.0.0.1", show_default=True, help="Host to bind to.")
 @click.option(
@@ -45,20 +52,25 @@ PORT_SCAN_ATTEMPTS = 20
     help="Show request logs and uvicorn's own startup output.",
 )
 def main(
-    path: Path, host: str, port: int, browser: bool, reload: bool, verbose: bool
+    path: Path | None, host: str, port: int, browser: bool, reload: bool, verbose: bool
 ) -> None:
     """Explore a Calliope model.
 
     PATH is either a model definition folder to edit and run, or a solved
-    `.nc` file to analyse. Defaults to the current directory.
+    `.nc` file to analyse. With no PATH, Calliope Studio opens the model picker.
     """
     import uvicorn
 
     landing = describe_target(path)
 
     # The app factory reads this, so it is also picked up under --reload, where
-    # uvicorn imports the module in a fresh subprocess.
-    os.environ[WORKSPACE_ENV_VAR] = str(path.resolve())
+    # uvicorn imports the module in a fresh subprocess. Cleared rather than left
+    # when there is nothing to open: a stale value from an earlier invocation in
+    # the same shell would silently reopen the wrong model.
+    if path is None:
+        os.environ.pop(WORKSPACE_ENV_VAR, None)
+    else:
+        os.environ[WORKSPACE_ENV_VAR] = str(path.resolve())
 
     listener = bind_available(host, port)
     bound_port = listener.getsockname()[1]
@@ -104,7 +116,7 @@ def main(
     server.run(sockets=[listener])
 
 
-def describe_target(path: Path) -> str:
+def describe_target(path: Path | None) -> str:
     """Checks that `path` is something to open, and says where to land.
 
     Delegates the decision to `server.mode.resolve_target`, which the application
@@ -114,13 +126,25 @@ def describe_target(path: Path) -> str:
     Serving a directory with no model in it used to succeed and then show an empty
     file tree, which reads as a broken application rather than a mistyped path.
 
+    **No argument and a wrong argument are different things**, which is the whole
+    of the picker mode. An absent PATH means "I did not say", and the honest
+    answer is the list of models you have opened; a PATH that is not a model
+    means "I said, and I was wrong", and silently showing the picker instead
+    would hide a typo. Click gives the distinction for free now that the default
+    is None rather than `"."`, which conflated the two — a bare `calliope-studio`
+    was indistinguishable from someone naming the working directory, so it
+    failed wherever that happened not to be a model.
+
     Returns:
         The path within the app to open.
 
     Raises:
-        click.ClickException: If there is nothing there to open.
+        click.ClickException: If a path was given and there is nothing there.
     """
     from calliope_studio.server.mode import NotSomethingToOpen, resolve_target
+
+    if path is None:
+        return PICKER_LANDING
 
     try:
         return resolve_target(path).landing
@@ -143,10 +167,17 @@ def bind_available(
     for offset in range(attempts):
         candidate = 0 if port == 0 else port + offset
         listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        # Permits rebinding a port left in TIME_WAIT by a previous run. It does
-        # not allow two live listeners, so this cannot mask a port genuinely in
-        # use and silently produce a second server nobody can reach.
-        listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        if os.name != "nt":
+            # Permits rebinding a port left in TIME_WAIT by a previous run. It
+            # does not allow two live listeners, so this cannot mask a port
+            # genuinely in use and silently produce a second server nobody can
+            # reach.
+            #
+            # Not on Windows, where the same flag means very nearly the
+            # opposite: it permits binding over a *live* listener, so the scan
+            # below would never advance past the first port and two servers
+            # would both hold 8000, with delivery between them arbitrary.
+            listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
             listener.bind((host, candidate))
             listener.listen()

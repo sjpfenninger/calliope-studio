@@ -26,6 +26,6 @@ def check_syntax(base: Path) -> dict:
     root = Path(base)
     errors: list[dict] = []
     for path in yaml_files(root):
-        for error in syntax_errors(path, str(path.relative_to(root))):
+        for error in syntax_errors(path, path.relative_to(root).as_posix()):
             errors.append({**error, "tier": TIER})
     return {"errors": errors}

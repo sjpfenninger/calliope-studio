@@ -34,6 +34,7 @@ Three things make this liveable in an editor:
   in the import graph invalidates it.
 """
 
+import logging
 import shutil
 import threading
 from dataclasses import dataclass
@@ -44,8 +45,10 @@ from calliope_studio.modeldef import snapshot
 from calliope_studio.modeldef.imports import find_model_yaml
 from calliope_studio.results import store as results_store
 from calliope_studio.runs import protocol
-from calliope_studio.runs.manager import RunManager
+from calliope_studio.runs.manager import RunManager, WorkerStartError
 from calliope_studio.server.storage import LocalStorage, Workspace
+
+LOGGER = logging.getLogger(__name__)
 
 #: From a resolution built from the files exactly as they are now.
 SOURCE_RESOLVED = "resolved"
@@ -126,6 +129,9 @@ class _Entry:
     #: Fingerprint whose resolve failed, so it is not retried on every request.
     failed_fingerprint: tuple | None = None
     error: str | None = None
+    #: A real `calliope.Model` over `artefact`, built only if the math path asks
+    #: for one. See `Resolver.calliope_model`; cleared whenever `artefact` is.
+    calliope_model: Any = None
 
 
 class Resolver:
@@ -236,6 +242,7 @@ class Resolver:
             self._discard(entry.artefact)
             entry.artefact = None
             entry.fingerprint = None
+            entry.calliope_model = None
             return None
 
     def _start(self, entry: _Entry, workspace: Workspace, current: tuple) -> None:
@@ -243,17 +250,78 @@ class Resolver:
         model_yaml = find_model_yaml(workspace.path)
         if model_yaml is None:
             return
-        record = self._runs.start(
-            self._storage.resolutions_dir(),
-            protocol.RunRequest(
-                workspace=str(workspace.path),
-                model_file=model_yaml.name,
-                init_only=True,
-                label=f"resolve {workspace.name}",
-            ),
-        )
+        try:
+            record = self._runs.start(
+                self._storage.resolutions_dir(),
+                protocol.RunRequest(
+                    workspace=str(workspace.path),
+                    model_file=model_yaml.name,
+                    init_only=True,
+                    label=f"resolve {workspace.name}",
+                ),
+            )
+        except WorkerStartError as problem:
+            # Recorded, not raised: this runs behind a request that has a
+            # perfectly good structural answer to give, and the resolver's whole
+            # contract is to degrade to `source: structural` rather than fail.
+            #
+            # `failed_fingerprint` is the important half. Without it a broken
+            # installation spawns a worker on every request for ever, because
+            # nothing else here remembers that this exact set of files has
+            # already been tried and could not be.
+            entry.failed_fingerprint = current
+            entry.error = str(problem)
+            return
         entry.task_id = record.id
         entry.pending_fingerprint = current
+
+    def calliope_model(self, workspace: Workspace) -> Any | None:
+        """A real `calliope.Model` over the current artefact, for the math path.
+
+        Everything else here is served by `results.store`'s `LoadedModel`, which
+        is six plain attributes and no Calliope import — that is what lets a
+        user's older `.nc` open at all. The math path cannot use it: both
+        `mathcache.fingerprint` and `mathdoc.check_inputs` want the pydantic
+        `math` and `config` objects and a real backend constructor, which only
+        Calliope can build.
+
+        Asking here is safe in a way that asking about a *results* file would not
+        be: an artefact is `resolved.nc`, written minutes ago by this
+        installation's own worker, so it is always the current version and always
+        the current layout. `routes/math.py` additionally requires
+        `is_resolved` — a stale artefact was built from files that have since
+        changed, so its math names notation nobody asked for.
+
+        Cached on the entry rather than re-read per request, and dropped with the
+        artefact it describes. Returns None if there is nothing to load or
+        Calliope will not load it, which is what the caller already does about a
+        model it cannot render math for.
+        """
+        import calliope
+
+        with self._lock:
+            entry = self._entries.get(workspace.id)
+            if entry is None or entry.artefact is None:
+                return None
+            if entry.calliope_model is not None:
+                return entry.calliope_model
+            artefact = entry.artefact
+
+        try:
+            model = calliope.read_netcdf(artefact)
+        except Exception as caught:
+            # Not fatal and not recorded on the entry: the structural and
+            # results readings of this artefact are both fine, and only the math
+            # tab is affected.
+            LOGGER.debug("Calliope could not reload %s: %s", artefact, caught)
+            return None
+
+        with self._lock:
+            entry = self._entries.get(workspace.id)
+            # Only if nothing superseded the artefact while it was loading.
+            if entry is not None and entry.artefact == artefact:
+                entry.calliope_model = model
+        return model
 
     def _collect(self, entry: _Entry, workspace: Workspace) -> None:
         """Picks up a finished resolve, if one was in flight."""
@@ -277,6 +345,10 @@ class Resolver:
         if record.status == "success" and artefact is not None:
             previous = entry.artefact
             entry.artefact = artefact
+            # The cached Calliope model describes `previous`, which is about to
+            # be deleted. Left in place it would answer the math path with the
+            # math of a definition the user has already changed.
+            entry.calliope_model = None
             entry.fingerprint = pending
             entry.error = None
             # Released only now: until the replacement is on disk, the old model is

@@ -12,9 +12,11 @@ import shutil
 import subprocess
 import sys
 import time
+from unittest import mock
 
 import pytest
 
+from calliope_studio.runs import manager as manager_module
 from calliope_studio.runs import protocol
 from calliope_studio.runs.manager import RunManager, RunRecord
 
@@ -800,11 +802,46 @@ class TestCancellation:
 
         # Calliope has no interrupt API, so cancelling means the process group
         # is killed; verify it really is gone rather than merely marked.
+        #
+        # This checks the *worker* only, which is as far as a test driven through
+        # the API can see — the solver it starts has no pid anything here knows.
+        # `test_process.py` is what covers the grandchild, and it is the half
+        # that would still pass if the group kill were replaced by a plain
+        # terminate-this-pid.
         process = client.app.state.runs._processes[run_id]
         deadline = time.time() + 15
         while time.time() < deadline and process.poll() is None:
             time.sleep(0.25)
         assert process.poll() is not None, "worker process survived cancellation"
+        assert client.get(f"/api/runs/{run_id}/").json()["status"] == "cancelled"
+
+    def test_a_run_can_be_cancelled_after_a_restart(self, client, ws):
+        """Cancel a run the current manager never started, and check it dies.
+
+        The inverse of the test below, and the one that matters more: that one
+        cancels first and restarts second, so it only ever asserts what the
+        record *says*. This one restarts first, which throws away the tracked
+        `Popen` and leaves the recorded pid — and on Windows the named job — as
+        the only handle on a live solve. If either is unresolvable, the run is
+        uncancellable and nothing in the reported status would say so.
+        """
+        run_id = client.post(f"/api/versions/{ws}/runs/").json()["id"]
+        # Kept only so the test can reap it. The worker is a child of *pytest*,
+        # not of the manager, so once it dies nothing else here would collect it
+        # and `os.kill(pid, 0)` would keep reporting the zombie as alive.
+        child = client.app.state.runs._processes[run_id]
+        assert protocol.read_pid(client.app.state.runs.run_dir(run_id)) == child.pid
+
+        manager = restart(client)
+        assert run_id not in manager._processes, (
+            "the replacement manager must have no tracked process, or this test "
+            "exercises the wrong path"
+        )
+        assert client.post(f"/api/runs/{run_id}/cancel/").status_code == 200
+
+        assert child.wait(timeout=20) is not None, (
+            "the worker survived a cancel issued after a restart"
+        )
         assert client.get(f"/api/runs/{run_id}/").json()["status"] == "cancelled"
 
     def test_cancellation_survives_a_restart(self, client, ws):
@@ -988,3 +1025,89 @@ class TestLogNoise:
             "Running SPORE 1.",
             "Running SPORE 1.",
         ]
+
+
+class TestADeadWorkerSaysWhyItDied:
+    """A worker that dies before writing an event must not fail in silence.
+
+    `GET /runs/{id}/logs/` streams `events.jsonl`, and a child that dies during
+    import never appends a line to it — a bad interpreter, a missing dependency,
+    a syntax error under a Python older than the worker supports. `run.log` has
+    the traceback and is served by no endpoint, so every one of those failures
+    used to read as *"Run did not complete; the process is no longer present."*
+    and nothing else, in the interface and in the record alike.
+
+    This matters more once a run can be pointed at another environment, where
+    "the child could not start" stops being a broken installation and becomes an
+    ordinary, correctable mistake.
+    """
+
+    def test_the_log_tail_is_carried_into_the_record(self, tmp_path):
+        """The failed record quotes what the worker actually printed."""
+        run_dir = tmp_path / "11111111-2222-3333-4444-555555555555"
+        run_dir.mkdir()
+        protocol.RunRequest(workspace=str(tmp_path), model_file="model.yaml").write(
+            run_dir
+        )
+        (run_dir / protocol.LOG_FILE).write_text(
+            "Traceback (most recent call last):\n"
+            "ModuleNotFoundError: No module named 'calliope'\n"
+        )
+
+        manager = RunManager()
+        manager.register_dir(run_dir.name, run_dir)
+        record = manager.get(run_dir.name)
+
+        assert record.status == "failed"
+        assert "No module named 'calliope'" in (record.traceback or "")
+
+    def test_an_empty_log_leaves_the_traceback_unset(self, tmp_path):
+        """Nothing to quote must stay None rather than becoming an empty string.
+
+        An empty string is truthy enough to render, so the interface would draw a
+        traceback pane containing nothing at all.
+        """
+        run_dir = tmp_path / "11111111-2222-3333-4444-666666666666"
+        run_dir.mkdir()
+        protocol.RunRequest(workspace=str(tmp_path), model_file="model.yaml").write(
+            run_dir
+        )
+        (run_dir / protocol.LOG_FILE).write_text("   \n")
+
+        manager = RunManager()
+        manager.register_dir(run_dir.name, run_dir)
+
+        assert manager.get(run_dir.name).traceback is None
+
+    def test_only_the_tail_is_quoted(self, tmp_path):
+        """A solver's whole output must not arrive as an error message."""
+        run_dir = tmp_path / "11111111-2222-3333-4444-777777777777"
+        run_dir.mkdir()
+        protocol.RunRequest(workspace=str(tmp_path), model_file="model.yaml").write(
+            run_dir
+        )
+        (run_dir / protocol.LOG_FILE).write_text("x" * 100_000 + "\nthe real problem\n")
+
+        manager = RunManager()
+        manager.register_dir(run_dir.name, run_dir)
+        traceback = manager.get(run_dir.name).traceback or ""
+
+        assert "the real problem" in traceback
+        assert len(traceback) <= manager_module.LOG_TAIL_BYTES
+
+    def test_a_spawn_that_cannot_happen_is_raised_not_recorded(self, tmp_path, storage):
+        """An unstartable worker must refuse the request, not sit in "running".
+
+        `_is_alive` finds no tracked process and no pid file, so a swallowed
+        spawn failure would leave a run reporting itself as running for ever.
+        """
+        manager = RunManager()
+        request = protocol.RunRequest(workspace=str(tmp_path), model_file="model.yaml")
+
+        with mock.patch.object(
+            manager_module.subprocess, "Popen", side_effect=OSError("no such file")
+        ):
+            with pytest.raises(manager_module.WorkerStartError) as raised:
+                manager.start(tmp_path / "runs", request)
+
+        assert "no such file" in str(raised.value)

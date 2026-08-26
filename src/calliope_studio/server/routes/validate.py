@@ -22,7 +22,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from calliope_studio.modeldef.imports import find_model_yaml
 from calliope_studio.modeldef.validate import check_syntax
 from calliope_studio.runs import protocol
-from calliope_studio.runs.manager import RunManager
+from calliope_studio.runs.manager import RunManager, WorkerStartError
 from calliope_studio.runs.validate import errors_from_outcome
 from calliope_studio.server.deps import get_runs, get_storage, get_workspace
 from calliope_studio.server.storage import LocalStorage, Workspace
@@ -57,12 +57,24 @@ def validate(
     # click used to leave a permanent directory beside the user's model.
     storage.prune_validations()
 
-    record = runs.start(
-        storage.validations_dir(),
-        protocol.RunRequest(
-            workspace=str(workspace.path), model_file=model_yaml.name, build_only=True
-        ),
-    )
+    try:
+        record = runs.start(
+            storage.validations_dir(),
+            protocol.RunRequest(
+                workspace=str(workspace.path),
+                model_file=model_yaml.name,
+                build_only=True,
+            ),
+        )
+    except WorkerStartError as problem:
+        # The interpreter is this server's own, so a failure here is a broken
+        # installation rather than a bad request — 500, with the operating
+        # system's own complaint, which is the only thing that says what is
+        # actually wrong.
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(problem)
+        ) from problem
+
     return {"task_id": record.id, "status": "running", "phase": "build", "result": None}
 
 

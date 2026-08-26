@@ -17,7 +17,6 @@ from calliope_studio.server.routes import (
     results,
     runs,
     schema,
-    solvers,
     structure,
     validate,
     yaml_sections,
@@ -38,7 +37,6 @@ for module in (
     runs,
     results,
     schema,
-    solvers,
 ):
     api_router.include_router(module.router)
 

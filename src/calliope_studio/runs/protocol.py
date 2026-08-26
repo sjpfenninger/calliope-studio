@@ -35,6 +35,7 @@ import json
 import os
 import tempfile
 import threading
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterator
@@ -83,6 +84,21 @@ META_FILE = "meta.json"
 #: outlives the server; without this, a server restarted mid-solve reports a
 #: perfectly healthy run as failed.
 PID_FILE = "worker.pid"
+
+
+def group_name(run_id: str) -> str:
+    """The name of the killable process group a run's worker belongs to.
+
+    Derived from the run id rather than written down, so nothing new goes on
+    disk and a restarted server can name a group it never created. Safe to put
+    in a kernel namespace unescaped: `manager.RUN_ID_RE` has already established
+    that a run id is a UUID.
+
+    Used only where a group has a name — Windows job objects. POSIX identifies
+    the same group by the leader's pid, which is in `PID_FILE` already.
+    """
+    return f"calliope-studio-run-{run_id}"
+
 
 #: Presence means cancellation was requested. A file rather than a set in memory,
 #: so that cancelling and then restarting does not report "failed" with the
@@ -219,13 +235,46 @@ def _read_json(path: Path) -> dict[str, Any] | None:
     return loaded if isinstance(loaded, dict) else None
 
 
-def _write_json_atomic(path: Path, payload: dict) -> None:
-    """Replaces a JSON file atomically."""
+#: How many times to retry `os.replace` over an existing file, and how long to
+#: wait between attempts.
+#:
+#: Windows only in practice. `MoveFileExW` fails outright if *anything* holds the
+#: destination — another reader, an antivirus scanner mid-scan, a search indexer
+#: — where POSIX `rename` simply unlinks the old name and carries on. Half a
+#: second of retries covers a scanner; anything longer is a genuine lock and
+#: should be reported rather than waited out.
+REPLACE_ATTEMPTS = 10
+REPLACE_DELAY = 0.05
+
+
+def _replace_retrying(source: str | Path, destination: Path) -> None:
+    """`os.replace`, retried briefly when the destination is momentarily held."""
+    for attempt in range(REPLACE_ATTEMPTS):
+        try:
+            os.replace(source, destination)
+            return
+        except PermissionError:
+            if attempt == REPLACE_ATTEMPTS - 1:
+                raise
+            time.sleep(REPLACE_DELAY)
+
+
+def write_json_atomic(path: Path, payload: Any) -> None:
+    """Replaces a JSON file atomically, creating it if it is not there.
+
+    Public because `server.storage` writes the workspace registry exactly this
+    way and had its own copy — including the same Windows-blind `os.replace`. A
+    registry lost to a half-written file is every model the user has ever opened,
+    so the two must not drift.
+
+    `default=str` because outcomes carry timestamps and numpy scalars.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
     try:
         with os.fdopen(fd, "w") as fh:
             json.dump(payload, fh, indent=2, default=str)
-        os.replace(tmp, path)
+        _replace_retrying(tmp, path)
     except BaseException:
         Path(tmp).unlink(missing_ok=True)
         raise
@@ -260,7 +309,7 @@ def write_meta(run_dir: Path, meta: dict) -> None:
     Atomic because a half-written `meta.json` would make the run look unnamed
     forever, and there is no other copy of the name.
     """
-    _write_json_atomic(run_dir / META_FILE, meta)
+    write_json_atomic(run_dir / META_FILE, meta)
 
 
 def mark_cancelled(run_dir: Path) -> None:

@@ -4,7 +4,12 @@ import { defineStore } from "pinia";
 import { errorDetail } from "../api/errors";
 import * as api from "../api/runs";
 import { runLogsUrl } from "../api/runs";
-import { getScenarioCatalog, getSettings, patchSettings } from "../api/versions";
+import {
+  getScenarioCatalog,
+  getSettings,
+  getSolvers,
+  patchSettings,
+} from "../api/versions";
 import { useTabsStore } from "./tabs";
 
 /**
@@ -169,6 +174,16 @@ export const useRunsStore = defineStore("runs", () => {
   const scenarioVersionId = ref<string | null>(null);
   /** The one the next run applies. Null runs the model as written. */
   const scenario = ref<string | null>(null);
+  /**
+   * Solver names Pyomo can reach where this model's runs happen.
+   *
+   * Here rather than in the schema store, which answers what the installed
+   * Calliope *allows* — a different question from what this machine can be
+   * asked to do, and one whose answer is per model rather than global.
+   */
+  const solvers = ref<string[]>([]);
+  /** Which model the list is for, so switching models re-asks. */
+  const solverVersionId = ref<string | null>(null);
 
   // Not reactive: nothing renders a timer or an EventSource, and making them
   // reactive would mean Vue proxying objects the browser handed us.
@@ -389,6 +404,23 @@ export const useRunsStore = defineStore("runs", () => {
   }
 
   /**
+   * Fetches what this model's runs can be solved with.
+   *
+   * Failure leaves the field free text with no menu, which is the honest
+   * degradation: the name is a suggestion either way, and a viewer-mode server
+   * has no workspace to ask about.
+   */
+  async function loadSolvers(versionId: string): Promise<void> {
+    if (solverVersionId.value === versionId) return;
+    try {
+      solvers.value = await getSolvers(versionId);
+      solverVersionId.value = versionId;
+    } catch {
+      solvers.value = [];
+    }
+  }
+
+  /**
    * Changes how much history this workspace keeps.
    *
    * Nothing is deleted here — the server prunes when a run *starts*. A settings
@@ -477,7 +509,9 @@ export const useRunsStore = defineStore("runs", () => {
     scenarios,
     scenario,
     hasScenarios,
+    solvers,
     loadScenarios,
+    loadSolvers,
     get,
     logsFor,
     trimmedFor,

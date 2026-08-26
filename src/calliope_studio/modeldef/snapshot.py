@@ -157,7 +157,7 @@ def collect(workspace: Path) -> Collected:
             )
             return
 
-        relative = str(resolved.relative_to(root))
+        relative = resolved.relative_to(root).as_posix()
         # Guards against a pathological `import: calliope-studio/runs/x/snapshot/...`
         # making every snapshot contain the previous one.
         if is_excluded(Path(relative)) or relative in seen:
@@ -245,7 +245,18 @@ def write_snapshot(workspace: Path, destination: Path) -> dict:
 
 
 def _relative(path: Path, root: Path) -> str:
+    """A snapshot-relative POSIX path, or the absolute one if it is outside.
+
+    POSIX because `snapshot.json` is read back on whatever machine has the
+    workspace, and the run history's whole premise is that a workspace can be
+    copied or checked out. A manifest written on Windows with backslash-separated
+    entries is not readable by the same code on macOS, and the failure is a run
+    whose frozen tree silently lists nothing.
+
+    The fallback keeps `str()`: a path outside the root is absolute and platform
+    specific already, and there is no root to make it relative to.
+    """
     try:
-        return str(Path(path).resolve().relative_to(root))
+        return Path(path).resolve().relative_to(root).as_posix()
     except ValueError:
         return str(path)

@@ -9,6 +9,7 @@ import Eyebrow from "@/components/app/Eyebrow.vue";
 import { FIELD, FIELD_WIDTH, SECTION } from "@/lib/formClasses";
 import { cn } from "@/lib/utils";
 import { useSchemaStore } from "@/stores/schema";
+import { useRunsStore } from "@/stores/runs";
 import SchemaObjectEditor, { type FieldOverlay } from "./SchemaObjectEditor.vue";
 
 const props = defineProps<{
@@ -18,6 +19,9 @@ const props = defineProps<{
 }>();
 
 const schemaStore = useSchemaStore();
+// The solver suggestions are a question about where runs happen, not about
+// what the schema allows, so they come from the runs store.
+const runsStore = useRunsStore();
 
 // ---------------------------------------------------------------------------
 // Section data — owned here; SchemaObjectEditor instances v-model into these.
@@ -81,7 +85,7 @@ const solveOverlay = computed<FieldOverlay>(() => ({
   // a Pyomo interface. So: suggestions from what this machine can actually
   // reach, and no constraint. The list used to be six names written here, of
   // which one was installed and two were not Pyomo solvers at all.
-  solver: { widget: "text", suggestions: schemaStore.solvers },
+  solver: { widget: "text", suggestions: runsStore.solvers },
   // A tolerance like 1e-10 must not be rounded by a stepper, and needs more
   // room than a plain number: the exponent plus the spinner does not fit 64px.
   zero_threshold: { inputProps: { step: "any" }, width: "short" },
@@ -170,9 +174,9 @@ watch([timeSubsetStart, timeSubsetEnd], () => {
 // this editor's own and is fetched alongside it rather than after it.
 onMounted(() => {
   void schemaStore.load();
-  // Only this editor suggests solvers, so it is not folded into `load()` —
-  // which every editor that mounts Monaco calls.
-  void schemaStore.loadSolvers();
+  // Only this editor suggests solvers, so it is not folded into the schema
+  // store's `load()` — which every editor that mounts Monaco calls.
+  void runsStore.loadSolvers(props.versionId);
 });
 </script>
 

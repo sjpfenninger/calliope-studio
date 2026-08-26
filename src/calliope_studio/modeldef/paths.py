@@ -155,12 +155,17 @@ def walk_files(base: Path) -> list[dict]:
         relative = path.relative_to(root)
         if is_excluded(relative):
             continue
+        # POSIX, always. This is what the frontend keys on and splits on "/" —
+        # `lib/fileTree.ts`, `lib/modelPaths.ts`, `stores/tabs.ts` and
+        # `api/paths.ts` all do it unconditionally — so a Windows `str()` here
+        # would collapse the whole tree into a flat list of `techs\supply.yaml`.
+        as_key = relative.as_posix()
         if path.is_dir():
-            entries.append({"path": str(relative), "type": "directory"})
+            entries.append({"path": as_key, "type": "directory"})
         elif path.is_file():
             entries.append(
                 {
-                    "path": str(relative),
+                    "path": as_key,
                     "type": file_type(path.name),
                     "size": path.stat().st_size,
                 }

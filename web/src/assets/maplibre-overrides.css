@@ -187,6 +187,10 @@
    same reason: it is what reserves the button's 24px. */
 .maplibregl-ctrl.maplibregl-ctrl-attrib,
 .maplibregl-ctrl-attrib.maplibregl-compact {
+  /* design-check: allow colour — the attribution pill is ordinary DOM, which is
+     the case the rule exempts: nothing here is ever handed to a canvas renderer
+     to parse. It has to sit over map tiles, so a translucent surface is the
+     point rather than an opaque step. */
   background-color: color-mix(in srgb, var(--cg-surface) 82%, transparent);
   color: var(--cg-text-muted);
   border: 1px solid var(--cg-border-subtle);
@@ -239,6 +243,9 @@
    parser ever sees this rule. It is the only styling ModelMap still needs
    outside the token vocabulary. */
 .map-scrim {
+  /* design-check: allow colour — an overlay div, not a canvas paint. The scrim
+     must let the greyed-out map show through it, which is exactly what an
+     opaque token cannot express. */
   background: color-mix(in oklch, var(--cg-surface) 72%, transparent);
   backdrop-filter: grayscale(1) blur(1.5px);
 }

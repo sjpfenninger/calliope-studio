@@ -21,6 +21,7 @@ from calliope_studio.results.catalog import (
     dimension_members,
     tech_base_techs,
     unit_for,
+    units_from_math,
 )
 from calliope_studio.results.colors import tech_colors
 from calliope_studio.results.links import link_orientation, transmission_links
@@ -83,6 +84,10 @@ def catalog(results: ResultHandle = Depends(resolve)) -> dict:
         # `results` may not import `modeldef`, so the math's declarations are
         # handed in here — the same reason `ResultStore` is given `candidates`.
         declared_units=component_units(),
+        # Outranked only by an array's own attrs: this is the math the file was
+        # actually built with, so unlike the injected declarations it cannot
+        # belong to a different Calliope than the one that wrote the numbers.
+        file_units=units_from_math(results.model.math),
     )
     colors = tech_colors(results.model)
 
@@ -144,7 +149,12 @@ def frame(
         colors=tech_colors(results.model),
         # So a frame says what it is measured in without a second request, and so
         # the stream stays readable outside this app.
-        unit=unit_for(results.dataset, query.variable, component_units()),
+        unit=unit_for(
+            results.dataset,
+            query.variable,
+            component_units(),
+            units_from_math(results.model.math),
+        ),
     )
     return StreamingResponse(
         frames.stream_ipc(table),

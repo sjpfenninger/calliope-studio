@@ -38,7 +38,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from calliope_studio.modeldef.imports import find_model_yaml
 from calliope_studio.modeldef.mathdef import math_components, math_sources
 from calliope_studio.runs import mathcache, mathdoc, protocol
-from calliope_studio.runs.manager import RunManager
+from calliope_studio.runs.manager import RunManager, WorkerStartError
 from calliope_studio.server import resolution
 from calliope_studio.server.deps import (
     get_resolver,
@@ -106,15 +106,25 @@ def render_math(
         return stored
 
     storage.prune_math()
-    record = runs.start(
-        storage.math_dir(),
-        protocol.RunRequest(
-            workspace=str(workspace.path),
-            model_file=model_yaml.name,
-            math_only=True,
-            label=f"math {workspace.name}",
-        ),
-    )
+    try:
+        record = runs.start(
+            storage.math_dir(),
+            protocol.RunRequest(
+                workspace=str(workspace.path),
+                model_file=model_yaml.name,
+                math_only=True,
+                label=f"math {workspace.name}",
+            ),
+        )
+    except WorkerStartError as problem:
+        # The interpreter is this server's own, so a failure here is a broken
+        # installation rather than a bad request — 500, with the operating
+        # system's own complaint, which is the only thing that says what is
+        # actually wrong.
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(problem)
+        ) from problem
+
     return {
         "task_id": record.id,
         "status": "running",
@@ -147,14 +157,19 @@ def _from_disk(
     if not resolved.is_resolved or resolved.model is None:
         return None
 
-    payload = mathcache.read(
-        storage.math_cache_dir(), mathcache.fingerprint(resolved.model)
-    )
+    # A real `calliope.Model`, not the reader's `LoadedModel`: the fingerprint
+    # and the checks both need Calliope's pydantic math and a backend
+    # constructor. See `Resolver.calliope_model` for why asking is safe here.
+    model = resolver.calliope_model(workspace)
+    if model is None:
+        return None
+
+    payload = mathcache.read(storage.math_cache_dir(), mathcache.fingerprint(model))
     if payload is None:
         return None
 
     try:
-        mathdoc.check_inputs(resolved.model)
+        mathdoc.check_inputs(model)
     except Exception as caught:
         return _failed(None, str(caught) or "The math could not be read.")
     return _envelope(None, payload, current)

@@ -11,6 +11,11 @@ Three rules:
   v0.2.0 had to keep in sync by hand.
 - The three domain layers may not import *each other*. `server` may import all
   three and is the only place allowed to compose them.
+- `results` may not import **Calliope** at all. That is stronger than the rules
+  above and is what makes the layer version-tolerant: `calliope.read_netcdf`
+  builds a `Model`, and a `Model` insists on math the installed version
+  understands, so seven of this repository's eleven sample `.nc` files could not
+  be opened at all. Reading a results file needs none of that.
 """
 
 import pathlib
@@ -77,6 +82,26 @@ class TestImportRules:
                 if bad:
                     violations.append(f"{path.relative_to(SRC)}: imports {sorted(bad)}")
         assert not violations, "\n".join(violations)
+
+    def test_results_does_not_import_calliope(self):
+        """`results` reads a `.nc` structurally, so any Calliope is readable.
+
+        The moment this import comes back, a user's file written by a different
+        Calliope stops opening — which is exactly how it was: `ModelError:
+        Requested math 'base' was not initialised` for every file older than
+        0.7.0.dev7. It is also what lets the layer be used from a notebook that
+        has no Calliope installed, which is its stated purpose.
+
+        `runs` legitimately imports Calliope, and `server` composes both, so the
+        rule is deliberately narrower than the layer rules above.
+        """
+        offenders = {
+            path.name
+            for path in _python_files("results")
+            if "calliope" in _imported_top_level_modules(path)
+        }
+
+        assert offenders == set()
 
     def test_no_layer_imports_a_plotting_library(self):
         violations = []

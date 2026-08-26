@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterator
 
-from calliope_studio.runs import protocol
+from calliope_studio.runs import process, protocol
 from calliope_studio.runs.stages import StageEvent, StageTracker
 
 #: Solver output is only emitted when this logger is at DEBUG. Calliope routes
@@ -129,6 +129,55 @@ def _install_logging(run_dir: Path, tracker: StageTracker) -> None:
     logging.getLogger(WARNINGS_LOGGER).addHandler(handler)
 
 
+#: Windows standard-handle slots, for `SetStdHandle`. Ignored elsewhere.
+_STD_OUTPUT_HANDLE = -11
+_STD_ERROR_HANDLE = -12
+
+
+def _redirect_native_stdio(write_fd: int) -> dict | None:
+    """Points Windows' standard handles at the capture pipe as well as the fds.
+
+    Returns what was there before, for `_restore_native_stdio`, or None on any
+    platform where `dup2` alone is the whole story. Never raises: losing the
+    solver's output to `run.log` is a degradation, and taking the run down for it
+    would not be.
+    """
+    if os.name != "nt":
+        return None
+    try:
+        import ctypes
+        import msvcrt
+
+        k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        handle = msvcrt.get_osfhandle(write_fd)
+        # Inheritable, or a spawned solver gets a handle it cannot use.
+        # HANDLE_FLAG_INHERIT is 1, and the mask is the same value.
+        k32.SetHandleInformation(handle, 1, 1)
+        saved = {
+            slot: k32.GetStdHandle(slot)
+            for slot in (_STD_OUTPUT_HANDLE, _STD_ERROR_HANDLE)
+        }
+        for slot in saved:
+            k32.SetStdHandle(slot, handle)
+        return saved
+    except Exception:
+        return None
+
+
+def _restore_native_stdio(saved: dict | None) -> None:
+    """Puts the standard handles back. A no-op where there were none to save."""
+    if not saved:
+        return
+    try:
+        import ctypes
+
+        k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        for slot, handle in saved.items():
+            k32.SetStdHandle(slot, handle)
+    except Exception:
+        pass
+
+
 @contextlib.contextmanager
 def _capture_stdio(run_dir: Path) -> Iterator[None]:
     """Puts everything written to stdout and stderr into the event stream.
@@ -145,6 +194,16 @@ def _capture_stdio(run_dir: Path) -> Iterator[None]:
     Lines are written through to the original descriptor as well, so `run.log`
     stays the complete backstop it is documented to be — including past
     `MAX_STDIO_LINES`, where the event stream gives up and it does not.
+
+    **On Windows `dup2` is not enough.** It rewrites the C runtime's descriptor
+    table, which covers this process's own `print` and anything else going
+    through the CRT — but a native writer calls `GetStdHandle`, and so does every
+    *child* process, which inherits its handles from the standard-handle slots
+    rather than from fds. `SetStdHandle` is what redirects those, and the pipe's
+    write end has to be made inheritable for the child to be able to use it at
+    all: `os.pipe()` returns a non-inheritable handle on Windows by design. Both
+    are done below; without them a Gurobi solve on Windows reaches `run.log`
+    only, which is a degradation rather than a failure.
     """
     sys.stdout.flush()
     sys.stderr.flush()
@@ -155,6 +214,7 @@ def _capture_stdio(run_dir: Path) -> Iterator[None]:
     read_fd, write_fd = os.pipe()
     os.dup2(write_fd, 1)
     os.dup2(write_fd, 2)
+    saved_handles = _redirect_native_stdio(write_fd)
     os.close(write_fd)
     # Otherwise this process's own writes sit in a block buffer until it exits,
     # fd 1 no longer being a terminal.
@@ -202,6 +262,7 @@ def _capture_stdio(run_dir: Path) -> Iterator[None]:
         # end, which is what lets the reader see EOF and finish.
         os.dup2(saved_out, 1)
         os.dup2(saved_err, 2)
+        _restore_native_stdio(saved_handles)
         os.close(saved_out)
         os.close(saved_err)
         reader.join(timeout=5)
@@ -268,7 +329,11 @@ def _model_root(run_dir: Path, request: protocol.RunRequest) -> Path:
 
 
 def _execute(
-    run_dir: Path, request: protocol.RunRequest, outcome: dict, tracker: StageTracker
+    run_dir: Path,
+    request: protocol.RunRequest,
+    outcome: dict,
+    tracker: StageTracker,
+    cancelled: threading.Event | None = None,
 ) -> None:
     """Reads, builds, solves and saves, recording what happened into `outcome`.
 
@@ -278,6 +343,10 @@ def _execute(
     """
 
     def stage(name: str, status: str) -> None:
+        # Checked at the boundary rather than continuously: this is where the
+        # worker is between two pieces of work and so is safe to abandon.
+        if cancelled is not None and cancelled.is_set():
+            raise _Cancelled()
         for event in tracker.announce(name, status):
             _stage_event(run_dir, event)
 
@@ -363,6 +432,51 @@ def _execute(
     _record_diagnostics(outcome, model, build_only=request.build_only)
 
 
+#: The worker's membership of its killable group, held for the process's whole
+#: life. See `main`.
+_GROUP_HANDLE: object | None = None
+
+
+class _Cancelled(Exception):
+    """Raised at a stage boundary when the parent has asked the run to stop.
+
+    Not an error: it is how a cancel becomes an orderly return rather than a
+    process disappearing mid-write. Caught in `run`.
+    """
+
+
+#: How often the worker looks for the cancellation marker.
+#:
+#: A `stat` twice a second, which is nothing beside a solve. It exists because
+#: there is no graceful kill on Windows — a job is terminated outright — so
+#: without it a cancel during preprocess or build, which is where most cancels
+#: land, would lose whatever the worker was part-way through writing. It runs on
+#: POSIX too, so the two platforms behave the same rather than differing in a way
+#: only one developer's machine would ever show.
+CANCEL_POLL_INTERVAL = 0.5
+
+
+def _watch_for_cancellation(run_dir: Path) -> threading.Event:
+    """Starts a daemon thread that notices the cancellation marker.
+
+    Returns the event it sets, so the run can stop at a boundary of its own
+    choosing rather than wherever the signal happened to land. The thread is a
+    daemon because the marker may never appear, and a run that completes
+    normally must not wait for a poll to notice nothing.
+    """
+    cancelled = threading.Event()
+
+    def poll() -> None:
+        while not cancelled.is_set():
+            if protocol.is_cancelled(run_dir):
+                cancelled.set()
+                return
+            time.sleep(CANCEL_POLL_INTERVAL)
+
+    threading.Thread(target=poll, daemon=True).start()
+    return cancelled
+
+
 def run(run_dir: Path) -> int:
     """Executes the run described by `run_dir/request.json`.
 
@@ -373,6 +487,7 @@ def run(run_dir: Path) -> int:
     request = protocol.RunRequest.read(run_dir)
     tracker = StageTracker()
     _install_logging(run_dir, tracker)
+    cancelled = _watch_for_cancellation(run_dir)
 
     outcome: dict = {
         "started_at": datetime.now(timezone.utc).isoformat(),
@@ -384,7 +499,13 @@ def run(run_dir: Path) -> int:
         # reading at `done`, so anything the pump were still draining after it
         # would never be delivered.
         with _capture_stdio(run_dir):
-            _execute(run_dir, request, outcome, tracker)
+            _execute(run_dir, request, outcome, tracker, cancelled)
+    except _Cancelled:
+        # The parent has already written the cancellation marker, and `manager.get`
+        # reads the status off that rather than off here — so this exists to let
+        # the outcome be written at all. Without it the kill arrives wherever it
+        # arrives and the run leaves no record of how far it got.
+        outcome["status"] = "cancelled"
     except Exception as exc:
         outcome["status"] = "failed"
         outcome["error"] = f"{type(exc).__name__}: {exc}"
@@ -440,7 +561,21 @@ def main(argv: list[str] | None = None) -> int:
     if len(args) != 1:
         print("usage: python -m calliope_studio.runs.worker <run_dir>", file=sys.stderr)
         return 2
-    return run(Path(args[0]))
+
+    global _GROUP_HANDLE
+
+    run_dir = Path(args[0])
+    # First, before `import calliope` and therefore before anything can spawn a
+    # solver: joining afterwards would leave a window in which a grandchild
+    # escapes the group and survives the kill.
+    #
+    # Held at module level rather than in a local because it has to outlive this
+    # call for the reason `process.join_group` documents: on Windows the job is
+    # unlinked from the namespace when its last handle closes, and the manager
+    # finds it by name.
+    _GROUP_HANDLE = process.join_group(protocol.group_name(run_dir.name))
+
+    return run(run_dir)
 
 
 if __name__ == "__main__":

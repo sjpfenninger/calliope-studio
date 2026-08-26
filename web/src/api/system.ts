@@ -68,17 +68,6 @@ export async function getCalliopeSchema(): Promise<Record<string, any>> {
   return res.data;
 }
 
-/**
- * Solver names the server's own Python environment can actually reach.
- *
- * Suggestions, not a whitelist: Calliope accepts any name with a Pyomo
- * interface, and the config editor's field stays free text.
- */
-export async function getSolvers(): Promise<string[]> {
-  const res = await client.get<{ solvers: string[] }>("/api/solvers/");
-  return res.data.solvers;
-}
-
 // ---------------------------------------------------------------------------
 // Tasks — a build started by validation, and the process-group kill that stops it
 // ---------------------------------------------------------------------------

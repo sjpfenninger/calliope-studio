@@ -65,6 +65,38 @@ jobs:
       - name: Build
         run: pixi run web-build
 
+  windows:
+    name: Windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+      # Deliberately not pixi. This is tier 1: it proves the parts that are
+      # *platform* code — spawning a worker into a killable group, killing it
+      # and the solver it started, capturing native stdout, and the relative
+      # paths that go into `snapshot.json` — and none of those need a solver.
+      # The selections below cancel while the worker is still in preprocess, so
+      # CBC is never invoked. Tier 2 is `pixi run test` here, which needs the
+      # solver and is the gate on *claiming* Windows support rather than on
+      # fixing it.
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.12"
+      - name: Install
+        # No pixi and no solver: `pip install -e .` brings Calliope and the
+        # server, which is everything these selections touch.
+        run: pip install -e . pytest
+      - name: Process group, cancellation and paths
+        run: >
+          pytest -q
+          tests/test_process.py
+          tests/test_paths.py
+          tests/test_snapshot.py
+          tests/test_yaml_io.py
+          tests/test_storage.py
+          tests/test_runs.py::TestADeadWorkerSaysWhyItDied
+
   browser:
     name: Browser
     runs-on: ubuntu-latest

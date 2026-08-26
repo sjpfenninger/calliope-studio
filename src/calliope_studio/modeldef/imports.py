@@ -110,7 +110,7 @@ def import_graph(base: Path) -> dict:
     nodes: dict[str, dict] = {}
 
     def add(path: Path, node_type: str = "file") -> str:
-        relative = str(path.relative_to(base))
+        relative = path.relative_to(base).as_posix()
         if relative not in nodes:
             nodes[relative] = {"id": relative, "label": relative, "type": node_type}
         return relative
@@ -180,7 +180,7 @@ def scenario_catalog(base: Path) -> dict:
         document = load_quietly(path)
         if not isinstance(document, dict):
             continue
-        relative = str(path.relative_to(base))
+        relative = path.relative_to(base).as_posix()
         for section in ("scenarios", "overrides"):
             block = document.get(section)
             if not isinstance(block, dict):
@@ -244,7 +244,7 @@ def component_tree(base: Path) -> dict:
         document = load_quietly(path)
         if not isinstance(document, dict):
             continue
-        relative = str(path.relative_to(base))
+        relative = path.relative_to(base).as_posix()
 
         for section in TREE_SECTIONS:
             if section not in document:
@@ -306,7 +306,7 @@ def component_tree(base: Path) -> dict:
         from calliope_studio.modeldef.mathdef import math_sources
 
         tree["math"] = {
-            "file": str(root.relative_to(base)),
+            "file": root.relative_to(base).as_posix(),
             "entries": math_sources(base),
         }
 

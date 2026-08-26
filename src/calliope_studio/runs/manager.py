@@ -19,7 +19,6 @@ import dataclasses
 import os
 import re
 import shutil
-import signal
 import subprocess
 import sys
 import uuid
@@ -28,7 +27,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import AsyncIterator, Callable, Iterable
 
-from calliope_studio.runs import protocol
+from calliope_studio.runs import process, protocol
 
 #: How often the event tailer looks for new lines. Fast enough to feel live,
 #: slow enough not to spin a core on a long solve.
@@ -45,6 +44,17 @@ RUN_ID_RE = re.compile(r"\A[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}\
 
 class RunStillActive(RuntimeError):
     """Raised when an operation needs a run to have finished, and it has not."""
+
+
+class WorkerStartError(RuntimeError):
+    """Raised when the worker process could not be spawned at all.
+
+    Distinct from a run that starts and then fails: nothing was solved, no
+    `outcome.json` exists and none ever will, so the caller can refuse the
+    request outright instead of writing a run into the history that has nothing
+    in it. What `Popen` raises here is an `OSError` about an executable, which
+    says nothing about runs.
+    """
 
 
 @dataclass(frozen=True)
@@ -107,19 +117,58 @@ def _directory_size(path: Path) -> int:
     return total
 
 
-def _pid_alive(pid: int) -> bool:
+#: How much of `run.log` to quote when a worker died without saying anything.
+#: A traceback and the import chain above it, and not so much that a solver's
+#: last few thousand lines of output arrive as an error message.
+LOG_TAIL_BYTES = 8192
+
+
+def _log_tail(run_dir: Path, limit: int = LOG_TAIL_BYTES) -> str | None:
+    """The last `limit` bytes of `run.log`, or None if there is nothing there.
+
+    This is the only evidence a worker that died before it could append a single
+    event leaves behind — a bad interpreter, a missing dependency, a syntax error
+    under a Python older than the worker supports. `GET /runs/{id}/logs/` streams
+    `events.jsonl`, which such a run never wrote a line of, and `run.log` is
+    served by no endpoint, so without this the failure reads only as *"Run did
+    not complete; the process is no longer present."*
+
+    Read in binary from the end: the file may hold a solver's whole output, and
+    decoding megabytes to keep the last few lines is waste. `errors="replace"`
+    because a tail can begin mid-character, and because a solver writing bytes
+    straight to fd 1 is under no obligation to be valid UTF-8.
+    """
+    path = run_dir / protocol.LOG_FILE
     try:
-        os.kill(pid, 0)
+        with open(path, "rb") as handle:
+            handle.seek(0, os.SEEK_END)
+            handle.seek(max(0, handle.tell() - limit))
+            raw = handle.read()
     except OSError:
-        return False
-    return True
+        return None
+    text = raw.decode("utf-8", errors="replace").strip()
+    return text or None
+
+
+def _pid_alive(pid: int, run_id: str | None = None) -> bool:
+    """Whether a worker is still running.
+
+    Delegates to `process`, which is where the platform difference lives. The
+    group name is passed where the caller has one: on Windows the job's
+    existence answers this without touching the pid at all, which is immune to
+    the pid reuse the POSIX side has to accept.
+    """
+    group = None if run_id is None else protocol.group_name(run_id)
+    return process.is_running(pid, group)
 
 
 class RunManager:
     """Owns the child processes and resolves run ids to directories."""
 
     def __init__(
-        self, search_roots: Callable[[], Iterable[Path]] | None = None
+        self,
+        search_roots: Callable[[], Iterable[Path]] | None = None,
+        release: Callable[[Path], None] | None = None,
     ) -> None:
         """
         Args:
@@ -128,10 +177,19 @@ class RunManager:
                 Injected rather than imported because `runs` knows nothing about
                 workspaces — that is `server`'s concern. Defaults to knowing
                 nothing, which makes lookups memory-only as they were before.
+            release: Called with a `.nc` about to be deleted, to drop any loaded
+                model still holding it open. Injected for the same reason and a
+                stricter one: `runs` may not import `results` at all, and
+                `results.store.release` is what has to be called. Without it a
+                run's results file is deleted while the byte-budgeted cache still
+                holds its netCDF handle — which POSIX tolerates and Windows does
+                not, where `rmtree` then removes nothing and, with
+                `ignore_errors=True`, says so to nobody.
         """
         self._processes: dict[str, subprocess.Popen] = {}
         self._dirs: dict[str, Path] = {}
         self._search_roots = search_roots or (lambda: ())
+        self._release = release or (lambda _path: None)
 
     # -- lookup -----------------------------------------------------------
 
@@ -179,7 +237,14 @@ class RunManager:
         run_dir = self.run_dir(run_id)
         if self.get(run_id).status not in TERMINAL_STATUSES:
             raise RunStillActive(run_id)
-        shutil.rmtree(run_dir, ignore_errors=True)
+        # Before the delete, not after: the results cache may still hold this
+        # file open, and an open handle is what makes the removal fail. The
+        # resolver has done it this way around `_discard` all along.
+        self._release(run_dir / protocol.RESULTS_FILE)
+        self._release(run_dir / protocol.RESOLVED_FILE)
+        # No `ignore_errors`: the user asked for this and a 204 that deleted
+        # nothing is a lie. `OSError` reaches the route, which reports it.
+        shutil.rmtree(run_dir)
         self.forget(run_id)
 
     def discover(self, runs_root: Path) -> list[RunRecord]:
@@ -255,18 +320,27 @@ class RunManager:
         # the handle, and holding one open per run leaks a descriptor for the
         # lifetime of the server.
         with open(run_dir / protocol.LOG_FILE, "w") as log_file:
-            process = subprocess.Popen(
-                [sys.executable, "-m", "calliope_studio.runs.worker", str(run_dir)],
-                stdout=log_file,
-                stderr=subprocess.STDOUT,
-                # Its own process group, so cancelling kills the solver too rather
-                # than leaving it orphaned and still burning CPU.
-                start_new_session=True,
-            )
-        self._processes[run_id] = process
+            try:
+                # Its own killable group, so cancelling kills the solver too
+                # rather than leaving it orphaned and still burning CPU. How a
+                # group is made is `process`'s business, not this module's.
+                child = process.spawn(
+                    [sys.executable, "-m", "calliope_studio.runs.worker", str(run_dir)],
+                    log_file=log_file,
+                )
+            except OSError as problem:
+                # The run directory stays, with its `request.json` and snapshot:
+                # the user asked for this and the history should say it was
+                # refused. What it must not do is sit in the list reporting
+                # "running" for ever, which is what an unraised spawn failure
+                # would produce — `_is_alive` finds no process and no pid file.
+                raise WorkerStartError(
+                    f"Could not start the run worker: {problem}"
+                ) from problem
+        self._processes[run_id] = child
         # Recorded on disk as well as in memory, so that a server restarted
         # mid-solve can still tell this run is alive, and still cancel it.
-        protocol.write_pid(run_dir, process.pid)
+        protocol.write_pid(run_dir, child.pid)
         return self.get(run_id)
 
     def _created_at(self, run_dir: Path, request: protocol.RunRequest | None) -> str:
@@ -285,16 +359,16 @@ class RunManager:
 
     def _is_alive(self, run_id: str, run_dir: Path) -> bool:
         """Whether the run's worker is still running."""
-        process = self._processes.get(run_id)
-        if process is not None:
-            return process.poll() is None
+        child = self._processes.get(run_id)
+        if child is not None:
+            return child.poll() is None
         # No tracked child, but the worker is started with `start_new_session`
         # and outlives the server, so the recorded pid is the only remaining
         # evidence. Pid reuse could in principle make this a false positive; on
         # a local desktop between one restart and the next, that is not a risk
         # worth a second mechanism.
         pid = protocol.read_pid(run_dir)
-        return pid is not None and _pid_alive(pid)
+        return pid is not None and _pid_alive(pid, run_id)
 
     def get(self, run_id: str, *, with_size: bool = True) -> RunRecord:
         """Derives a run's state from its directory, markers and any live process.
@@ -362,9 +436,15 @@ class RunManager:
         # No outcome file, no cancellation marker and no live process: the worker
         # died hard. Reporting "failed" is honest; claiming "running" would hang
         # the UI forever.
+        #
+        # `run.log` is the only place such a death is recorded — the worker never
+        # reached the point of appending an event — so it is quoted here rather
+        # than left on disk for nobody. Without it every one of these failures
+        # looks identical and says nothing about its cause.
         return RunRecord(
             status="failed",
             error="Run did not complete; the process is no longer present.",
+            traceback=_log_tail(run_dir),
             **common,
         )
 
@@ -380,35 +460,38 @@ class RunManager:
         # still leaves the run correctly recorded as cancelled.
         protocol.mark_cancelled(run_dir)
 
-        process = self._processes.get(run_id)
-        if process is not None:
-            if process.poll() is not None:
+        group = protocol.group_name(run_id)
+        child = self._processes.get(run_id)
+        if child is not None:
+            if child.poll() is not None:
                 return
-            pid = process.pid
+            pid = child.pid
         else:
             # Orphaned by a restart. Reading the pid from disk is what makes
             # such a run cancellable at all; previously it was not.
             pid = protocol.read_pid(run_dir)
-            if pid is None or not _pid_alive(pid):
+            if pid is None or not _pid_alive(pid, run_id):
                 return
 
         def gone() -> bool:
-            if process is not None:
-                return process.poll() is not None
-            return not _pid_alive(pid)
+            if child is not None:
+                return child.poll() is not None
+            return not _pid_alive(pid, run_id)
 
-        try:
-            os.killpg(os.getpgid(pid), signal.SIGTERM)
-        except OSError:
+        # The escalation policy stays here — how a group is signalled is
+        # `process`'s business, how long it is given is this module's. On
+        # Windows there is no graceful tier and both calls are the same
+        # unconditional kill; the worker's own cancellation poll is what gives
+        # it a chance to flush there.
+        if not process.terminate_group(pid, group):
             return
-        for _ in range(20):  # up to ~5s for a graceful exit
+        deadline = process.GRACE_SECONDS
+        while deadline > 0:
             await asyncio.sleep(0.25)
             if gone():
                 return
-        try:
-            os.killpg(os.getpgid(pid), signal.SIGKILL)
-        except OSError:
-            pass
+            deadline -= 0.25
+        process.kill_group(pid, group)
 
     # -- streaming --------------------------------------------------------
 

@@ -32,7 +32,9 @@ from calliope_studio.runs.manager import (
     RunManager,
     RunRecord,
     RunStillActive,
+    WorkerStartError,
 )
+from calliope_studio.runs.solvers import available_solvers
 from calliope_studio.server.deps import (
     get_results,
     get_runs,
@@ -152,6 +154,24 @@ def list_scenarios(workspace: Workspace = Depends(get_workspace)) -> dict:
     return scenario_catalog(workspace.path)
 
 
+@router.get("/versions/{id}/solvers/")
+def list_solvers(workspace: Workspace = Depends(get_workspace)) -> dict:
+    """Solver names Pyomo reports as usable for this model's runs.
+
+    Beside `list_scenarios` for the same reason it is: the domain of one field
+    of the run, answered from where the run will happen. Workspace-agnostic
+    today — every run uses the interpreter serving this request — but the
+    workspace is in the URL because it is what the answer will depend on as soon
+    as a run can be pointed at another Calliope, and a global route would have to
+    break to say so.
+
+    Suggestions for `config.solve.solver`, which stays free text: Calliope
+    accepts any name with a Pyomo interface, and a model is often written
+    somewhere other than where it will be solved.
+    """
+    return {"solvers": available_solvers()}
+
+
 @router.post("/versions/{id}/runs/", status_code=status.HTTP_201_CREATED)
 def create_run(
     body: RunOptions | None = None,
@@ -194,18 +214,28 @@ def create_run(
     if workspace.run_retention is not None:
         storage.prune_runs(workspace, keep=workspace.run_retention)
 
-    record = runs.start(
-        storage.runs_dir(workspace, create=True),
-        protocol.RunRequest(
-            workspace=str(workspace.path),
-            model_file=model_yaml.name,
-            scenario=options.scenario,
-            override_dict=options.override_dict,
-            build_only=options.build_only,
-            label=(options.label or "").strip() or None,
-        ),
-        prepare=_freeze(workspace.path),
-    )
+    try:
+        record = runs.start(
+            storage.runs_dir(workspace, create=True),
+            protocol.RunRequest(
+                workspace=str(workspace.path),
+                model_file=model_yaml.name,
+                scenario=options.scenario,
+                override_dict=options.override_dict,
+                build_only=options.build_only,
+                label=(options.label or "").strip() or None,
+            ),
+            prepare=_freeze(workspace.path),
+        )
+    except WorkerStartError as problem:
+        # The interpreter is this server's own, so a failure here is a broken
+        # installation rather than a bad request — 500, with the operating
+        # system's own complaint, which is the only thing that says what is
+        # actually wrong.
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(problem)
+        ) from problem
+
     return record.as_dict()
 
 
@@ -263,6 +293,15 @@ def delete_run(run_id: str, runs: RunManager = Depends(get_runs)) -> None:
             status_code=status.HTTP_409_CONFLICT,
             detail="This run has not finished. Cancel it first.",
         ) from None
+    except OSError as problem:
+        # A 204 that deleted nothing is worse than an error: the row disappears
+        # from the history, the bytes stay on disk, and a refresh brings it back.
+        # Reachable on Windows, where anything still holding a file inside the
+        # directory refuses the removal outright.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"The run's files could not be removed: {problem}",
+        ) from problem
 
 
 # -- the frozen model definition -----------------------------------------------

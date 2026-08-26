@@ -23,6 +23,7 @@ from typing import Iterable, Iterator
 
 import platformdirs
 
+from calliope_studio.results import store as results_store
 from calliope_studio.runs import protocol
 
 #: Directory created inside a workspace to hold run outputs.
@@ -266,16 +267,10 @@ class LocalStorage:
         return raw if isinstance(raw, list) else []
 
     def _write_registry(self, entries: list[dict]) -> None:
-        self.registry_path.parent.mkdir(parents=True, exist_ok=True)
-        # Atomic replace, so an interrupted write cannot truncate the registry.
-        fd, tmp = tempfile.mkstemp(dir=self.registry_path.parent, suffix=".tmp")
-        try:
-            with os.fdopen(fd, "w") as fh:
-                json.dump(entries, fh, indent=2)
-            os.replace(tmp, self.registry_path)
-        except BaseException:
-            Path(tmp).unlink(missing_ok=True)
-            raise
+        # Shared with the run files rather than copied: an interrupted or refused
+        # write here loses every model the user has ever opened, so this must not
+        # be the copy that misses a fix. See `protocol.write_json_atomic`.
+        protocol.write_json_atomic(self.registry_path, entries)
 
     # -- public interface -------------------------------------------------
 
@@ -550,8 +545,19 @@ class LocalStorage:
         finished.sort(key=lambda directory: directory.stat().st_mtime, reverse=True)
         removed = []
         for directory in finished[keep:]:
+            # The results cache may still hold this run's `.nc` open — a run tab
+            # left open on an older run is exactly the case. Releasing first is
+            # what lets the directory actually go on Windows, where an open
+            # handle makes the removal fail outright.
+            results_store.release(directory / protocol.RESULTS_FILE)
+            # `ignore_errors` stays here, unlike the user-initiated delete:
+            # pruning is a background tidy-up on someone else's action, and
+            # failing a run because an old one would not vacate is the wrong
+            # trade. What is not acceptable is failing *silently* every time,
+            # which is what it did before the release above.
             shutil.rmtree(directory, ignore_errors=True)
-            removed.append(directory.name)
+            if not directory.exists():
+                removed.append(directory.name)
         return removed
 
     def run_roots(self) -> Iterator[Path]:

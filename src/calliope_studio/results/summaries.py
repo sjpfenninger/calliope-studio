@@ -26,6 +26,19 @@ def _jsonable(value: Any) -> Any:
     return str(value)
 
 
+def _field(source, name: str):
+    """One named value from a mapping or an object, whichever it is.
+
+    `runtime` and `config` are plain dicts now that the reader parses them out of
+    the file rather than letting Calliope build its schema objects. A bare
+    `getattr` finds nothing at all in a dict — silently, returning the default —
+    so every fact on the summary panel would have read as blank.
+    """
+    if isinstance(source, dict):
+        return source.get(name)
+    return getattr(source, name, None)
+
+
 def model_summary(handle) -> dict:
     """Headline facts about a solved model."""
     model = handle.model
@@ -38,10 +51,10 @@ def model_summary(handle) -> dict:
     return _jsonable(
         {
             "name": handle.name,
-            "scenario": getattr(runtime, "scenario", None),
-            "applied_overrides": getattr(runtime, "applied_overrides", None),
-            "calliope_version": getattr(runtime, "calliope_version_initialised", None),
-            "termination_condition": getattr(runtime, "termination_condition", None),
+            "scenario": _field(runtime, "scenario"),
+            "applied_overrides": _field(runtime, "applied_overrides"),
+            "calliope_version": _field(runtime, "calliope_version_initialised"),
+            "termination_condition": _field(runtime, "termination_condition"),
             "techs": dimension("techs"),
             "nodes": dimension("nodes"),
             "carriers": dimension("carriers"),
@@ -52,7 +65,7 @@ def model_summary(handle) -> dict:
 
 def _config_section(handle, section: str) -> dict:
     config = getattr(handle.model, "config", None)
-    block = getattr(config, section, None)
+    block = _field(config, section)
     if block is None:
         return {}
     dump = block.model_dump() if hasattr(block, "model_dump") else dict(block)

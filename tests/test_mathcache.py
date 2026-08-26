@@ -225,10 +225,16 @@ class TestStore:
 
 
 class _Resolved:
-    """Stands in for the resolver, which is asked for one thing: a model.
+    """Stands in for the resolver, which is asked for two things.
 
-    Producing a fresh one is the `Resolver`'s own job and its own subprocess;
+    Producing a fresh model is the `Resolver`'s own job and its own subprocess;
     what is under test here is what the route does once it has one.
+
+    `get` answers with the reader's `LoadedModel` in production, and
+    `calliope_model` with a real `calliope.Model` — the math path needs the
+    pydantic `math` and `config` that only Calliope builds. The stub hands the
+    same object to both, because these tests are given a real model and the
+    distinction they exercise is the route's, not the reader's.
     """
 
     def __init__(self, model, source: str) -> None:
@@ -239,6 +245,13 @@ class _Resolved:
         from calliope_studio.server.resolution import Resolution
 
         return Resolution(self._source, self._model)
+
+    def calliope_model(self, workspace):
+        from calliope_studio.server.resolution import SOURCE_RESOLVED
+
+        # Only ever reached on a resolved source; a stale one is refused before
+        # this, which `test_a_stale_resolution_is_never_used_as_a_key` asserts.
+        return self._model if self._source == SOURCE_RESOLVED else None
 
 
 class TestServingAStoredRendering:

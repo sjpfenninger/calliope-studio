@@ -268,6 +268,21 @@ export async function getScenarioCatalog<T>(versionId: string): Promise<T> {
   return res.data;
 }
 
+/**
+ * Solver names Pyomo reports as usable where this model's runs will happen.
+ *
+ * Suggestions, not a whitelist: Calliope accepts any name with a Pyomo
+ * interface, so the config editor's field stays free text. Keyed by model
+ * rather than global because that is what the answer depends on once a run can
+ * be pointed at another Calliope.
+ */
+export async function getSolvers(versionId: string): Promise<string[]> {
+  const res = await client.get<{ solvers: string[] }>(
+    `/api/versions/${seg(versionId)}/solvers/`,
+  );
+  return res.data.solvers;
+}
+
 // ---------------------------------------------------------------------------
 // Settings and validation
 // ---------------------------------------------------------------------------

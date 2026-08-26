@@ -12,6 +12,7 @@ from fastapi import FastAPI, HTTPException, status
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from calliope_studio.results import store as results_store
 from calliope_studio.results.store import ResultStore
 from calliope_studio.runs import protocol
 from calliope_studio.runs.manager import RunManager
@@ -53,7 +54,13 @@ def create_app(
     # The manager is given a way to *find* a run it did not start, rather than a
     # dependency on storage: `runs` knows nothing about workspaces. Ordering
     # matters — storage has to exist before the closure is first called.
-    app.state.runs = RunManager(search_roots=lambda: app.state.storage.run_roots())
+    # `release` is the same shape of injection and a stricter necessity: a run's
+    # results file cannot be deleted while the byte budget still holds it open,
+    # and `runs` may not import `results` to say so itself.
+    app.state.runs = RunManager(
+        search_roots=lambda: app.state.storage.run_roots(),
+        release=results_store.release,
+    )
     # Likewise the store is given a way to resolve a handle it never minted, so
     # that a bookmarked results URL survives a restart.
     app.state.results = ResultStore(candidates=lambda: _results_candidates(app.state))

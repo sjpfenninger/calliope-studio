@@ -89,12 +89,16 @@ try {
   await calls.settle(() => page.getByRole("link", { name: /Runs/i }).first().click());
   await quiet(400);
 
-  // Both of these are wrapped in an InfoTip, which is what broke them.
+  // Wrapped in an InfoTip, which is what broke it.
   await popup("the retention menu", () => testId("retention").first().click());
-  await popup("a run's actions menu", async () => {
-    await testId("run-item").first().hover();
-    await testId("run-menu").first().click();
-  });
+
+  // The *other* InfoTip-wrapped menu — a run's actions — is asserted by
+  // `run-lifecycle`, which owns a run and so has a row to open one on. It used
+  // to be here too, and passed only because a developer's `example-model`
+  // accumulates runs from earlier checks: against the freshly scaffolded model
+  // CI builds there is no `run-item` at all, and the hover sat out its full
+  // thirty-second timeout. A check should not depend on state it does not
+  // create.
 
   // A tooltip is the same popper layer, and was never broken — so it is the
   // control that says a failure here is about the menu and not about floating-ui.

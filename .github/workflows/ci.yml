@@ -168,51 +168,75 @@ jobs:
           fi
 
       # The design tokens, and every renderer that reads them outside the DOM.
+      # Every check below records a marker instead of aborting the job, and the
+      # gate at the end fails if any exist. These are the only coverage of a
+      # dozen behaviours that nothing else tests, and finding them one push at a
+      # time — three minutes each — is not a reasonable way to learn what is
+      # already broken.
+      #
+      # `continue-on-error` is what keeps the step honestly marked as failed in
+      # the UI; the marker file is what the gate reads. Both, not either.
+      #
+      # They share one server and one model, and some mutate it: a check that
+      # dies before its own cleanup can make later ones fail for reasons of its
+      # making. Read the first failure as the real one.
+      - name: Collect check failures
+        run: mkdir -p .check-failed
+
       - name: Token check
-        run: pixi run -- pnpm --dir web run token-check http://127.0.0.1:8791
+        continue-on-error: true
+        run: pixi run -- pnpm --dir web run token-check http://127.0.0.1:8791 || touch .check-failed/token-check
 
       # The YAML language worker, which answered nothing at all until the
       # monaco-editor pin. This is what notices if the pin is lifted.
       - name: Monaco check
-        run: pixi run -- pnpm --dir web run monaco-check http://127.0.0.1:8791
+        continue-on-error: true
+        run: pixi run -- pnpm --dir web run monaco-check http://127.0.0.1:8791 || touch .check-failed/monaco-check
 
       # A no-op save must not change the file, across every structured section.
       - name: Faithful-save check
-        run: pixi run -- pnpm --dir web run save-check http://127.0.0.1:8791
+        continue-on-error: true
+        run: pixi run -- pnpm --dir web run save-check http://127.0.0.1:8791 || touch .check-failed/save-check
 
       # The guard between a user and their unsaved edits. A no-op guard fails
       # silently — no error, no console output, just the edits gone — so the
       # only way to know it still works is to dirty a tab and try to leave.
       - name: Unsaved-changes guard
-        run: pixi run -- pnpm --dir web run confirm-check http://127.0.0.1:8791
+        continue-on-error: true
+        run: pixi run -- pnpm --dir web run confirm-check http://127.0.0.1:8791 || touch .check-failed/confirm-check
 
       # The explorer filters. A search borrows Reka's expansion model and has to
       # give it back exactly as it was, which nothing but a rendered tree shows:
       # with the two sets confused, collapsing a branch mid-search silently does
       # nothing and clearing the field loses the expansion the user built.
       - name: Tree search
-        run: pixi run -- pnpm --dir web run tree-search http://127.0.0.1:8791
+        continue-on-error: true
+        run: pixi run -- pnpm --dir web run tree-search http://127.0.0.1:8791 || touch .check-failed/tree-search
 
       # Every popup lands where a person can see it. A popper with no anchor
       # stays at Reka's off-screen default while the DOM looks entirely healthy,
       # so presence is not the property — position is.
       - name: Popup placement
-        run: pixi run -- pnpm --dir web run menu-check http://127.0.0.1:8791
+        continue-on-error: true
+        run: pixi run -- pnpm --dir web run menu-check http://127.0.0.1:8791 || touch .check-failed/menu-check
 
       # The map as an input: it has a size at all, a node drags, a link draws.
       - name: Map editing
-        run: pixi run -- pnpm --dir web run map-edit http://127.0.0.1:8791
+        continue-on-error: true
+        run: pixi run -- pnpm --dir web run map-edit http://127.0.0.1:8791 || touch .check-failed/map-edit
 
       # Where an inherited value comes from, and that clicking it goes there. A
       # source that fails to resolve renders as plain text, which is
       # indistinguishable from a deliberate design, and a link to the wrong file
       # opens a file and says nothing — neither is visible without a browser.
       - name: Source links
-        run: pixi run -- pnpm --dir web run source-link http://127.0.0.1:8791
+        continue-on-error: true
+        run: pixi run -- pnpm --dir web run source-link http://127.0.0.1:8791 || touch .check-failed/source-link
 
       # The picker's entries are not clipped, and a model can be created.
       - name: Model picker
-        run: pixi run -- pnpm --dir web run model-picker http://127.0.0.1:8791
+        continue-on-error: true
+        run: pixi run -- pnpm --dir web run model-picker http://127.0.0.1:8791 || touch .check-failed/model-picker
 
       # Custom math, end to end: a file is declared, enabled, rendered and read.
       # Both halves are invisible without a browser — KaTeX turns an equation it
@@ -220,14 +244,16 @@ jobs:
       # one missing looks exactly like one without it; and a math file declared
       # but never enabled is read by nobody with Calliope saying nothing at all.
       - name: Custom math
-        run: pixi run -- pnpm --dir web run math-check http://127.0.0.1:8791
+        continue-on-error: true
+        run: pixi run -- pnpm --dir web run math-check http://127.0.0.1:8791 || touch .check-failed/math-check
 
       # Creating a file and a folder, and what a file that is not text shows.
       # A binary used to open in Monaco as a screenful of replacement
       # characters, which Ctrl/Cmd+S then wrote back over the original bytes —
       # so the save keystroke is asserted here, not only the message.
       - name: File actions and viewers
-        run: pixi run -- pnpm --dir web run file-actions http://127.0.0.1:8791
+        continue-on-error: true
+        run: pixi run -- pnpm --dir web run file-actions http://127.0.0.1:8791 || touch .check-failed/file-actions
 
       # Reordering tabs by dragging them. The order is applied mid-drag, so the
       # element under the pointer is re-parented while it is being held — which
@@ -236,11 +262,13 @@ jobs:
       # tab released over the editor pastes its own id into the user's file,
       # which this check does end to end because it really happened.
       - name: Tab reordering
-        run: pixi run -- pnpm --dir web run tab-drag http://127.0.0.1:8791
+        continue-on-error: true
+        run: pixi run -- pnpm --dir web run tab-drag http://127.0.0.1:8791 || touch .check-failed/tab-drag
 
       # Really solves, with CBC, and drives the run tab from log to charts.
       - name: Run lifecycle
-        run: pixi run -- pnpm --dir web run run-lifecycle http://127.0.0.1:8791
+        continue-on-error: true
+        run: pixi run -- pnpm --dir web run run-lifecycle http://127.0.0.1:8791 || touch .check-failed/run-lifecycle
 
       # Not on what `run-lifecycle` just produced: smoke-charts asserts that
       # with nothing summed *no* technology colour is painted, and whether that
@@ -248,11 +276,20 @@ jobs:
       # for urban_scale and nodes on it for national_scale, so that assertion
       # legitimately fails against a national_scale run on working code.
       - name: Results view, on the urban_scale example
+        continue-on-error: true
         run: |
           pixi run solve-examples urban_scale
           pixi run calliope-studio --no-browser --port 8792 examples/nc_files/urban_scale.nc &
           pixi run -- pnpm dlx wait-on -t 120000 http-get://127.0.0.1:8792/api/health
-          pixi run -- pnpm --dir web run smoke http://127.0.0.1:8792
+          pixi run -- pnpm --dir web run smoke http://127.0.0.1:8792 || touch .check-failed/smoke
+
+      - name: Fail if any browser check failed
+        run: |
+          if [ -n "$(ls -A .check-failed 2>/dev/null)" ]; then
+            echo "::error::browser checks failed: $(ls .check-failed | tr '\n' ' ')"
+            exit 1
+          fi
+          echo "every browser check passed"
 
       - name: Keep the screenshots when something fails
         if: failure()

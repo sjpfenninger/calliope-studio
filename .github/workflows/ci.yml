@@ -72,30 +72,42 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
-      # Deliberately not pixi. This is tier 1: it proves the parts that are
-      # *platform* code — spawning a worker into a killable group, killing it
-      # and the solver it started, capturing native stdout, and the relative
-      # paths that go into `snapshot.json` — and none of those need a solver.
-      # The selections below cancel while the worker is still in preprocess, so
-      # CBC is never invoked. Tier 2 is `pixi run test` here, which needs the
-      # solver and is the gate on *claiming* Windows support rather than on
-      # fixing it.
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+      - uses: prefix-dev/setup-pixi@a09b6247153796b190642a2b53fac4241043cf6f # v0.10.0
         with:
-          python-version: "3.12"
-      - name: Install
-        # No pixi and no solver: `pip install -e .` brings Calliope and the
-        # server, which is everything these selections touch.
-        run: pip install -e . pytest
-      - name: Process group, cancellation and paths
+          cache: true
+
+      # Windows is where this project's platform-specific code lives, and until
+      # this job existed none of it had run: the job-object process group, the
+      # native stdio capture, the `os.replace` retry, and every relative path
+      # that reaches the API or `snapshot.json`. Real solves included — pixi
+      # brings coin-or-cbc here as it does everywhere else.
+      #
+      # The exclusions below are a *deny* list on purpose. A new test file runs
+      # here by default and has to be excluded deliberately, because a forgotten
+      # exclusion costs a little CPU while a forgotten inclusion costs coverage
+      # on the platform least likely to be tried by hand. Each name below has no
+      # platform surface at all — YAML and math semantics, source scanning, log
+      # parsing, and numerics against the frozen v0.2.0 implementation. They are
+      # fully covered by the Linux job.
+      #
+      # Skipping `test_oracle.py` is also what lets this job skip
+      # `solve-examples`: it is the only selection that needs the sample `.nc`
+      # files. Reading them is pure xarray, and `test_results.py` still solves a
+      # model here and reads the result back.
+      - name: Test
         run: >
-          pytest -q
-          tests/test_process.py
-          tests/test_paths.py
-          tests/test_snapshot.py
-          tests/test_yaml_io.py
-          tests/test_storage.py
-          tests/test_runs.py::TestADeadWorkerSaysWhyItDied
+          pixi run test
+          --ignore=tests/test_entities.py
+          --ignore=tests/test_layering.py
+          --ignore=tests/test_math_render.py
+          --ignore=tests/test_mathcache.py
+          --ignore=tests/test_mathdef.py
+          --ignore=tests/test_modeldef_geo.py
+          --ignore=tests/test_oracle.py
+          --ignore=tests/test_overrides.py
+          --ignore=tests/test_resolution_parity.py
+          --ignore=tests/test_results_api.py
+          --ignore=tests/test_run_stages.py
 
   browser:
     name: Browser

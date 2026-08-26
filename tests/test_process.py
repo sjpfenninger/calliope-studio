@@ -119,3 +119,86 @@ class TestGroupNaming:
         run_id = "11111111-2222-3333-4444-555555555555"
 
         assert protocol.group_name(run_id) == protocol.group_name(run_id)
+
+
+class TestTheWindowsBindingsAreDeclared:
+    """Every kernel32 call must have argument and return types declared.
+
+    This is the one part of `runs/process.py` that cannot be exercised here, so
+    it is checked by construction instead. ctypes defaults `restype` to `c_int`,
+    and every one of these functions returns or accepts a `HANDLE` — pointer-
+    sized, so 64 bits on any Windows this runs on. An undeclared handle is
+    truncated to its low 32 bits and is *still non-zero*, so every `if not
+    handle` guard passes and each later call is made against something invalid.
+
+    The failure that produces is silent and wrong in the worst direction:
+    `TerminateJobObject` fails, cancellation falls through to `taskkill /T`,
+    which walks parent-pid links and so cannot reach the orphaned solver that
+    the job object exists to kill. A run would report itself cancelled while the
+    solver kept a core busy.
+
+    These tests run on every platform, which is the point — they are what stops
+    an undeclared call reaching a user's Windows machine unreviewed.
+    """
+
+    def _call_sites(self) -> set[str]:
+        """Every `k32.<Name>(` in the package, which is where the calls live."""
+        import re
+        from pathlib import Path
+
+        source_dir = Path(process.__file__).parent
+        found: set[str] = set()
+        for name in ("process.py", "worker.py"):
+            text = (source_dir / name).read_text()
+            found |= set(re.findall(r"\bk32\.([A-Za-z]\w+)\(", text))
+        return found
+
+    def test_every_call_site_has_a_signature(self):
+        """A call added without one is truncation waiting to happen."""
+        declared = set(process._KERNEL32_SIGNATURES())
+
+        missing = self._call_sites() - declared
+
+        assert missing == set(), (
+            f"kernel32 calls with no declared signature: {sorted(missing)}"
+        )
+
+    def test_no_signature_is_declared_for_a_call_that_is_gone(self):
+        """The table is a description of this code, not a wish list."""
+        declared = set(process._KERNEL32_SIGNATURES())
+
+        assert declared - self._call_sites() == set()
+
+    def test_no_handle_is_left_to_default_to_a_truncating_int(self):
+        """The whole defect in one assertion.
+
+        `c_int` is what ctypes uses when nothing is declared, and it is exactly
+        the wrong width for a handle. Anything returning one must say so.
+        """
+        import ctypes
+        from ctypes import wintypes
+
+        for name, (argtypes, restype) in process._KERNEL32_SIGNATURES().items():
+            assert restype is not ctypes.c_int, f"{name} returns a default c_int"
+            if restype is wintypes.HANDLE:
+                continue
+            assert restype in (wintypes.BOOL, wintypes.DWORD), (
+                f"{name} has an unexpected return type {restype}"
+            )
+
+    def test_the_worker_shares_the_declared_library(self):
+        """Two `WinDLL` objects would mean one of them undeclared.
+
+        `worker.py` built its own before this, so its `SetHandleInformation`
+        call — the one handed a real 64-bit handle by `msvcrt.get_osfhandle` —
+        would have raised `ArgumentError` into an `except Exception` and left
+        the solver's output uncaptured, silently.
+        """
+        from pathlib import Path
+
+        worker_source = (Path(process.__file__).parent / "worker.py").read_text()
+
+        # The *call*, not the word — the comment there names `WinDLL` precisely
+        # to say why building one would be wrong.
+        assert "ctypes.WinDLL(" not in worker_source
+        assert "process._kernel32()" in worker_source

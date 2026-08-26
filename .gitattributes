@@ -1,1 +1,21 @@
+# Line endings are LF in the repository and LF in the working tree, on every
+# platform. Without this, a Windows checkout with git's default `core.autocrlf`
+# hands CRLF to the YAML and CSV fixtures — and the round-trip tests assert that
+# a rewrite preserves comments and line count, while `save-check` asserts that a
+# no-op save changes nothing at all. Both would be measuring git's translation
+# rather than this project's, and the CSVs are read by pandas besides.
+#
+# `eol=lf` rather than bare `text=auto`, which normalises on commit but still
+# lets the working tree be CRLF.
+* text=auto eol=lf
+
+# Binary, so git neither translates nor tries to merge them.
+*.nc binary
+*.ico binary
+*.icns binary
+*.png binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+
 pixi.lock linguist-generated=true merge=binary

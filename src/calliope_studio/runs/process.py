@@ -194,10 +194,78 @@ _SYNCHRONIZE = 0x00100000
 _WAIT_TIMEOUT = 0x00000102
 
 
+def _KERNEL32_SIGNATURES() -> dict:
+    """`{name: (argtypes, restype)}` for every kernel32 call this package makes.
+
+    A module-level table rather than a local, so that
+    `tests/test_process.py` can assert it covers every `k32.<name>(` call site
+    in `process.py` and `worker.py`. That check runs on any platform and is the
+    only way this binding layer gets reviewed without a Windows machine: a call
+    added without a signature would otherwise be found by a user, as a truncated
+    handle that fails silently.
+    """
+    from ctypes import wintypes
+
+    return {
+        "CreateJobObjectW": ([wintypes.LPVOID, wintypes.LPCWSTR], wintypes.HANDLE),
+        "OpenJobObjectW": (
+            [wintypes.DWORD, wintypes.BOOL, wintypes.LPCWSTR],
+            wintypes.HANDLE,
+        ),
+        "AssignProcessToJobObject": ([wintypes.HANDLE, wintypes.HANDLE], wintypes.BOOL),
+        "TerminateJobObject": ([wintypes.HANDLE, wintypes.UINT], wintypes.BOOL),
+        "GetCurrentProcess": ([], wintypes.HANDLE),
+        "OpenProcess": (
+            [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD],
+            wintypes.HANDLE,
+        ),
+        "TerminateProcess": ([wintypes.HANDLE, wintypes.UINT], wintypes.BOOL),
+        "WaitForSingleObject": ([wintypes.HANDLE, wintypes.DWORD], wintypes.DWORD),
+        "CloseHandle": ([wintypes.HANDLE], wintypes.BOOL),
+        "SetHandleInformation": (
+            [wintypes.HANDLE, wintypes.DWORD, wintypes.DWORD],
+            wintypes.BOOL,
+        ),
+        "GetStdHandle": ([wintypes.DWORD], wintypes.HANDLE),
+        "SetStdHandle": ([wintypes.DWORD, wintypes.HANDLE], wintypes.BOOL),
+    }
+
+
+#: kernel32, with every signature this module uses declared. Built once.
+_K32 = None
+
+
 def _kernel32():
+    """kernel32 with argument and return types declared for every call used.
+
+    **Declared, never defaulted.** ctypes defaults `restype` to `c_int`, and
+    every function below returns or accepts a `HANDLE` — pointer-sized, so 64
+    bits on any Windows this runs on. An undeclared handle is silently truncated
+    to its low 32 bits, and the truncated value is *still non-zero*, so the
+    `if not handle` guards all pass and every subsequent call is made against
+    something invalid.
+
+    That failure is invisible in exactly the wrong way: `AssignProcessToJobObject`
+    fails and is read as "already in a job", `TerminateJobObject` fails and
+    cancellation falls through to the `taskkill` path — which is parent-pid based
+    and cannot reach an orphaned solver, the one thing the job object exists for.
+    `SetHandleInformation` is worse still, raising `ArgumentError` on a genuine
+    handle before it can truncate, which the caller's `except Exception` swallows.
+    """
+    global _K32
+    if _K32 is not None:
+        return _K32
+
     import ctypes
 
-    return ctypes.WinDLL("kernel32", use_last_error=True)
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    for name, (argtypes, restype) in _KERNEL32_SIGNATURES().items():
+        function = getattr(k32, name)
+        function.argtypes = argtypes
+        function.restype = restype
+
+    _K32 = k32
+    return k32
 
 
 def _windows_join_job(name: str) -> object | None:

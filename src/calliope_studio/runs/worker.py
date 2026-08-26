@@ -145,10 +145,15 @@ def _redirect_native_stdio(write_fd: int) -> dict | None:
     if os.name != "nt":
         return None
     try:
-        import ctypes
         import msvcrt
 
-        k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        # `process` owns the kernel32 signatures. Building a second, undeclared
+        # `WinDLL` here would reintroduce exactly the handle truncation those
+        # declarations exist to prevent — and worse: `get_osfhandle` returns a
+        # genuine 64-bit handle, which ctypes refuses to squeeze into an
+        # undeclared `c_int` argument, so `SetHandleInformation` would raise and
+        # the `except` below would quietly leave the capture unhooked.
+        k32 = process._kernel32()
         handle = msvcrt.get_osfhandle(write_fd)
         # Inheritable, or a spawned solver gets a handle it cannot use.
         # HANDLE_FLAG_INHERIT is 1, and the mask is the same value.
@@ -169,9 +174,7 @@ def _restore_native_stdio(saved: dict | None) -> None:
     if not saved:
         return
     try:
-        import ctypes
-
-        k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        k32 = process._kernel32()
         for slot, handle in saved.items():
             k32.SetStdHandle(slot, handle)
     except Exception:

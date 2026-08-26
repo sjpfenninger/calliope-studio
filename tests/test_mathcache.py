@@ -142,6 +142,19 @@ class TestFingerprint:
 
         assert mathcache.fingerprint(read_model(national_scale)) != key
 
+    def test_the_payload_version_is_part_of_the_key(self, baseline, monkeypatch):
+        """Everything else in the key describes what the *backend* reads.
+
+        None of it moves when `mathdoc.render` changes what it builds out of
+        that backend — so without this, an entry written by an older Calliope
+        Studio is served to a newer one that expects a different shape. Listing
+        deactivated components was the change that first needed it.
+        """
+        model, key = baseline
+        monkeypatch.setattr(mathcache, "PAYLOAD_VERSION", mathcache.PAYLOAD_VERSION + 1)
+
+        assert mathcache.fingerprint(model) != key
+
     def test_the_calliope_version_is_part_of_the_key(self, baseline, monkeypatch):
         """Two versions must never share an entry.
 

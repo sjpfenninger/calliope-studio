@@ -146,6 +146,18 @@ export type FieldWidth = keyof typeof FIELD_WIDTH;
 export const SECTION_HEADING =
   "text-2xs font-semibold uppercase tracking-wide text-text-faint";
 
+/**
+ * A badge that warns without shouting.
+ *
+ * The hairline is the one every other badge has — `border-warning` is the
+ * *saturated* token, meant for a fill, and using it as a 1px rule made these the
+ * loudest thing in a sidebar of otherwise neutral rows. The soft wash behind it
+ * is what the shared `Badge`'s own `destructive` variant does, so this is the
+ * existing language rather than a fifth treatment.
+ */
+export const WARNING_BADGE =
+  "shrink-0 border-border-subtle bg-warning-soft px-1 font-normal text-warning-text";
+
 /** A bordered card wrapping one section of a form. */
 export const SECTION = "flex flex-col gap-2 rounded-md border border-border p-2";
 

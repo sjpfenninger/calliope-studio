@@ -40,6 +40,16 @@ import {
 export type MathPhase = "idle" | "rendering" | "done";
 
 /**
+ * What identifies one component, which is its group and its name together.
+ *
+ * The server already spells provenance this way — `mathdoc._origins` keys on
+ * `group:name` for the same reason.
+ */
+export function componentKey(component: Pick<MathComponent, "group" | "name">): string {
+  return `${component.group}:${component.name}`;
+}
+
+/**
  * Poll timings, taken from `stores/validation.ts`.
  *
  * A flat interval is wrong in both directions: a cached render answers on the
@@ -71,7 +81,8 @@ export const useMathStore = defineStore("math", () => {
   const sourceFilter = ref<string | null>(null);
   const userOnly = ref(false);
   const query = ref("");
-  const selectedName = ref<string | null>(null);
+  /** The selected component, as a `group:name` key. */
+  const selectedKey = ref<string | null>(null);
 
   let pollTimer: ReturnType<typeof setTimeout> | null = null;
   /**
@@ -99,14 +110,50 @@ export const useMathStore = defineStore("math", () => {
     sources.value.filter((source) => !source.applied),
   );
 
-  /** Every component of the current render, flattened, by name. */
-  const componentsByName = computed(() => {
+  /**
+   * Every component, keyed by group and name.
+   *
+   * A *name* is not unique and this is what selection has to key on. A model
+   * that declares `flow_cap` as a parameter and switches the base-math variable
+   * of the same name off — the shape of every dispatch model — has two
+   * components called `flow_cap`, and a name-keyed map keeps whichever came
+   * last, so clicking the deactivated variable showed the parameter instead.
+   */
+  const componentsByKey = computed(() => {
     const found = new Map<string, MathComponent>();
     for (const group of payload.value?.groups ?? []) {
-      for (const component of group.components) found.set(component.name, component);
+      for (const component of group.components) found.set(componentKey(component), component);
     }
     return found;
   });
+
+  /**
+   * Components by bare name, for following a `Uses` reference.
+   *
+   * Those references come from the backend and so can only ever name a
+   * component that reached it — an active one. Hence the skip rather than a
+   * last-writer-wins map: with both a deactivated `flow_cap` variable and an
+   * active `flow_cap` parameter in the payload, a `Uses` chip means the
+   * parameter, and the deactivated one must not be able to shadow it.
+   */
+  const componentsByName = computed(() => {
+    const found = new Map<string, MathComponent>();
+    for (const group of payload.value?.groups ?? []) {
+      for (const component of group.components) {
+        const existing = found.get(component.name);
+        // Keep what is there unless it is deactivated and this one is not, so
+        // the answer does not depend on which group happens to come first.
+        if (existing && (!existing.deactivated || component.deactivated)) continue;
+        found.set(component.name, component);
+      }
+    }
+    return found;
+  });
+
+  /** How many components were rendered, deactivated ones included. */
+  const componentCount = computed(() =>
+    (payload.value?.groups ?? []).reduce((count, group) => count + group.components.length, 0),
+  );
 
   function stopPolling() {
     if (pollTimer !== null) {
@@ -195,8 +242,8 @@ export const useMathStore = defineStore("math", () => {
       renderedFingerprint.value = envelope.fingerprint;
       currentFingerprint.value = envelope.fingerprint;
     }
-    if (selectedName.value && !componentsByName.value.has(selectedName.value)) {
-      selectedName.value = null;
+    if (selectedKey.value && !componentsByKey.value.has(selectedKey.value)) {
+      selectedKey.value = null;
     }
   }
 
@@ -228,8 +275,19 @@ export const useMathStore = defineStore("math", () => {
     }
   }
 
-  function select(name: string | null) {
-    selectedName.value = name;
+  function select(key: string | null) {
+    selectedKey.value = key;
+  }
+
+  /**
+   * Select whatever a `Uses` reference names.
+   *
+   * The references carry a bare name, because that is all the math itself
+   * says; `componentsByName` is what turns one into the component meant.
+   */
+  function selectByName(name: string) {
+    const found = componentsByName.value.get(name);
+    selectedKey.value = found ? componentKey(found) : null;
   }
 
   /**
@@ -242,7 +300,7 @@ export const useMathStore = defineStore("math", () => {
   function focusSource(name: string | null) {
     sourceFilter.value = name;
     userOnly.value = false;
-    selectedName.value = null;
+    selectedKey.value = null;
   }
 
   /** Forgets everything, for a switch to another model. */
@@ -261,7 +319,7 @@ export const useMathStore = defineStore("math", () => {
     sourceFilter.value = null;
     userOnly.value = false;
     query.value = "";
-    selectedName.value = null;
+    selectedKey.value = null;
   }
 
   return {
@@ -275,15 +333,18 @@ export const useMathStore = defineStore("math", () => {
     taskId,
     isStale,
     unappliedSources,
+    componentsByKey,
     componentsByName,
+    componentCount,
     sourceFilter,
     userOnly,
     query,
-    selectedName,
+    selectedKey,
     loadSources,
     render,
     cancel,
     select,
+    selectByName,
     focusSource,
     reset,
   };

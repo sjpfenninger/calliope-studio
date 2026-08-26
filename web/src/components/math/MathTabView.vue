@@ -28,26 +28,21 @@ import Eyebrow from "@/components/app/Eyebrow.vue";
 import PanelHeader from "@/components/app/PanelHeader.vue";
 import StateMessage from "@/components/app/StateMessage.vue";
 import TreeSearch from "@/components/app/TreeSearch.vue";
+import MathComponentRow from "@/components/math/MathComponentRow.vue";
 import MathFilesPanel from "@/components/math/MathFilesPanel.vue";
 import { Badge } from "@/components/ui/badge";
-import { CODE_BLOCK, GHOST_BUTTON, SECONDARY_BUTTON } from "@/lib/formClasses";
+import {
+  CODE_BLOCK,
+  GHOST_BUTTON,
+  IDENTIFIER,
+  SECONDARY_BUTTON,
+  WARNING_BADGE,
+} from "@/lib/formClasses";
 import { renderMarkdown } from "@/lib/markdown";
 import { hasRenderError, renderLatex } from "@/lib/mathRender";
-import { useMathStore } from "@/stores/math";
+import { componentKey, useMathStore } from "@/stores/math";
 import { useTabsStore } from "@/stores/tabs";
 import type { MathComponent } from "@/api/versions";
-
-/**
- * A badge that warns without shouting.
- *
- * The hairline is the one every other badge has — `border-warning` is the
- * *saturated* token, meant for a fill, and using it as a 1px rule made these the
- * loudest thing in a sidebar of otherwise neutral rows. The soft wash behind it
- * is what the shared `Badge`'s own `destructive` variant does, so this is the
- * existing language rather than a fifth treatment.
- */
-const WARNING_BADGE =
-  "shrink-0 border-border-subtle bg-warning-soft px-1 font-normal text-warning-text";
 
 const props = defineProps<{ versionId: string }>();
 
@@ -70,13 +65,18 @@ const hasUserMath = computed(() =>
   math.sources.some((source) => source.kind === "user" && source.applied),
 );
 
-/** The component list, after the source filter, the user filter and the query. */
+/**
+ * The component list, after the source filter, the user filter and the query.
+ *
+ * Split into what the model formulates and what it switches off. One filter
+ * pass over one array, partitioned after: the two halves answer to exactly the
+ * same predicate, and writing it twice is how they would come to disagree.
+ */
 const groups = computed(() => {
   const needle = math.query.trim().toLowerCase();
   return (math.payload?.groups ?? [])
-    .map((group) => ({
-      ...group,
-      components: group.components.filter((component) => {
+    .map((group) => {
+      const components = group.components.filter((component) => {
         if (math.sourceFilter && component.origin !== math.sourceFilter) return false;
         if (math.userOnly && !isUserComponent(component)) return false;
         if (!needle) return true;
@@ -84,8 +84,14 @@ const groups = computed(() => {
           component.name.toLowerCase().includes(needle) ||
           component.description.toLowerCase().includes(needle)
         );
-      }),
-    }))
+      });
+      return {
+        ...group,
+        components,
+        active: components.filter((component) => !component.deactivated),
+        deactivated: components.filter((component) => component.deactivated),
+      };
+    })
     .filter((group) => group.components.length > 0);
 });
 
@@ -94,7 +100,7 @@ const total = computed(() =>
 );
 
 const selected = computed<MathComponent | null>(() =>
-  math.selectedName ? (math.componentsByName.get(math.selectedName) ?? null) : null,
+  math.selectedKey ? (math.componentsByKey.get(math.selectedKey) ?? null) : null,
 );
 
 const equation = computed(() =>
@@ -132,7 +138,7 @@ function openDeclaration() {
 const status = computed(() => {
   if (rendering.value) return "Rendering the math…";
   if (math.phase === "idle") return "Not yet rendered";
-  const count = math.componentsByName.size;
+  const count = math.componentCount;
   return `${count} component${count === 1 ? "" : "s"}`;
 });
 
@@ -279,37 +285,27 @@ watch(
             <Eyebrow class="sticky top-0 block bg-panel px-2 pt-1.5">
               {{ group.label }}
             </Eyebrow>
-            <button
-              v-for="component in group.components"
-              :key="component.name"
-              type="button"
-              class="flex w-full items-center gap-1 px-2 py-0.5 text-left text-sm"
-              :class="
-                component.name === math.selectedName
-                  ? 'bg-accent-soft text-accent-text'
-                  : 'text-foreground hover:bg-hover'
-              "
-              :data-math-component="component.name"
-              @click="math.select(component.name)"
-            >
-              <span class="truncate text-sm">{{ component.name }}</span>
-              <span class="flex-1" />
-              <Badge
-                v-if="component.overridden"
-                variant="outline"
-                :class="WARNING_BADGE"
-                data-testid="math-overridden"
-              >
-                override
-              </Badge>
-              <Badge
-                v-else-if="isUserComponent(component)"
-                variant="outline"
-                class="shrink-0 border-accent-border px-1 font-normal text-accent-text"
-              >
-                mine
-              </Badge>
-            </button>
+            <MathComponentRow
+              v-for="component in group.active"
+              :key="componentKey(component)"
+              :component="component"
+              :mine="isUserComponent(component)"
+            />
+
+            <!-- Under their own heading rather than mixed in: they are not part
+                 of the formulation, and a reader scanning the constraints of a
+                 model should not have to check a badge on every row. -->
+            <template v-if="group.deactivated.length">
+              <Eyebrow class="block px-2 pt-1.5" data-testid="math-deactivated">
+                Deactivated ({{ group.deactivated.length }})
+              </Eyebrow>
+              <MathComponentRow
+                v-for="component in group.deactivated"
+                :key="componentKey(component)"
+                :component="component"
+                :mine="isUserComponent(component)"
+              />
+            </template>
           </template>
 
           <StateMessage v-if="!total && math.payload" variant="inline">
@@ -387,6 +383,20 @@ watch(
             v-html="renderMarkdown(selected.description)"
           />
 
+          <!-- Said here as well as in the list, because the detail pane is
+               reachable without the heading above it ever being on screen, and
+               an empty notation area otherwise reads as a rendering failure. -->
+          <StateMessage
+            v-if="selected.deactivated"
+            variant="inline"
+            tone="warning"
+            data-testid="math-deactivated-note"
+          >
+            Switched off with <span :class="IDENTIFIER">active: false</span>
+            <template v-if="selected.origin"> in {{ selected.origin }}</template
+            >, so it is not part of this model's formulation.
+          </StateMessage>
+
           <div v-if="equation" class="cg-math" data-testid="math-equation" v-html="equation.html" />
           <StateMessage v-if="equation && hasRenderError(equation)" variant="inline" tone="warning">
             This equation could not be typeset.
@@ -405,7 +415,7 @@ watch(
                 class="rounded-xs px-1 text-sm text-accent-text hover:bg-hover"
                 :disabled="!math.componentsByName.has(name)"
                 :data-math-ref="name"
-                @click="math.select(name)"
+                @click="math.selectByName(name)"
               >
                 {{ name }}
               </button>
@@ -422,7 +432,7 @@ watch(
                 class="rounded-xs px-1 text-sm text-accent-text hover:bg-hover"
                 :disabled="!math.componentsByName.has(name)"
                 :data-math-ref="name"
-                @click="math.select(name)"
+                @click="math.selectByName(name)"
               >
                 {{ name }}
               </button>

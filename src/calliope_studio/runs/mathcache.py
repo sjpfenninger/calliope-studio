@@ -21,6 +21,9 @@ So the key covers everything the LaTeX backend reads:
 
 - **The Calliope version**, because the renderer changes without the math
   changing — the jinja templates, the escaping filters, the subscript format.
+- **`PAYLOAD_VERSION`**, because everything else in the key describes what the
+  backend reads, and none of it moves when `mathdoc.render` changes what it
+  builds *out* of that backend.
 - **`math.init`**, which holds every named block as loaded, built-ins included.
   That makes it the *content* hash of the math files, so a development build
   shipping different math under an unchanged version string still gets its own
@@ -53,6 +56,13 @@ from typing import Any
 #: wondering what is in it and why it is that size.
 SUFFIX = ".json"
 
+#: The shape of what `mathdoc.render` produces, which the rest of the key knows
+#: nothing about — every other entry describes what the *backend* reads, so a
+#: change to how we turn a backend into a payload would be served from entries
+#: written before it. **Bump this whenever `mathdoc.render`'s output changes.**
+#: 2: components the math deactivates are listed rather than rendered.
+PAYLOAD_VERSION = 2
+
 
 def fingerprint(model: Any) -> str:
     """What this model's math would render to, as a key.
@@ -67,6 +77,7 @@ def fingerprint(model: Any) -> str:
     import calliope
 
     material = {
+        "payload": PAYLOAD_VERSION,
         "calliope": calliope.__version__,
         "math_init": model.math.init.model_dump(mode="json"),
         "math_build": model.math.build.model_dump(mode="json"),

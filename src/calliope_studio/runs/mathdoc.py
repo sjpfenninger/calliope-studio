@@ -1,11 +1,10 @@
 """The model's math, rendered to LaTeX one component at a time.
 
-Calliope owns this entirely. `MathDocumentation` builds a `LatexBackendModel` —
-a real backend that emits notation instead of a solver problem — and every LaTeX
-string here is one it produced. Nothing in this module parses an expression, a
-`where` string or a `foreach` list, and nothing in it should ever start to; that
-is the mistake the package docstring is about, and math is the worst possible
-place to make it.
+Calliope owns this entirely. `LatexBackendModel` is a real backend that emits
+notation instead of a solver problem, and every LaTeX string here is one it
+produced. Nothing in this module parses an expression, a `where` string or a
+`foreach` list, and nothing in it should ever start to; that is the mistake the
+package docstring is about, and math is the worst possible place to make it.
 
 **Why this does not call `generate_math_doc`.** That is the public way out, and it
 returns a whole document — one string of every component in one order with the
@@ -23,7 +22,32 @@ with the two strings side by side instead of the app quietly drawing wrong
 notation — which is a failure nobody would catch by eye, since wrong math looks
 exactly like right math.
 
-**Why this needs no `model.build()`.** `MathDocumentation` reads `model.inputs`,
+**Why this does not call `MathDocumentation` either.** Its `__init__` is exactly
+the two lines `render` now writes out — construct the backend, add the
+components — and nothing else it offers was ever used. Constructing the backend
+here is what lets `_build_math` sit between the model's math and the backend,
+which it has to, because Calliope cannot render a deactivated component:
+
+`BackendModel._add_component` lets an *inactive* component whose name already
+exists in the backend dataset short-circuit before the pre-existence check, which
+is what makes a dispatch model legal — declare `flow_cap` as a parameter, switch
+the base-math variable of the same name off, and Pyomo builds it. But
+`LatexBackendModel` passes `break_early=False` on every `add_*`, so that branch
+is skipped and `_raise_error_on_preexistence` fires instead: *"Trying to add
+already existing *parameter* `flow_cap` as a backend model *variable*."* Every
+operate-mode and dispatch-style model is undocumentable as a result, upstream's
+own `generate_math_doc` included.
+
+The same line has a quieter consequence on models that *do* render. With the
+inactive branch skipped, a deactivated component is parsed and drawn as though it
+were live math — so a file switching thirteen constraints off produced a Math tab
+listing all thirteen as part of the formulation. Filtering them out here is
+therefore not only the workaround; it is the correct answer independent of the
+bug. They are still *listed*, marked `deactivated` and carrying the source that
+switched them off, because a custom-math author needs to see that their
+`active: false` was picked up — vanishing reads as the file not being read at all.
+
+**Why this needs no `model.build()`.** `LatexBackendModel` reads `model.inputs`,
 `model.math.build` and `model.config.build`, and `math.build` is populated during
 *init* (`calliope/model.py`, `model_def.update({"math.build": …})`). So a model
 from `read_yaml` — or one read back out of a `.nc` — already carries everything.
@@ -77,26 +101,37 @@ def render(model: Any) -> dict:
     Returns:
         `{mode, priority, groups: [{key, label, components: [...]}]}`.
     """
-    from calliope.postprocess import MathDocumentation
+    from calliope.backend import LatexBackendModel
 
+    build, inactive = _build_math(model)
     # "all" rather than "valid": a component whose `where` matches nothing in
     # *this* model is still part of the formulation, and hiding it would make a
     # constraint the user just wrote vanish with no explanation — which reads as
     # the file not having been picked up.
-    documentation = MathDocumentation(model, include="all")
-    backend = documentation.backend
+    #
+    # `active: false` is the opposite case and is handled by `_build_math`
+    # instead: there the user has said the component is *not* in the
+    # formulation, so drawing its notation would be reporting math the model
+    # does not contain.
+    backend = LatexBackendModel(model.inputs, build, model.config.build, "all")
+    backend.add_optimisation_components()
     origins = _origins(model)
     priority = _priority(model)
 
     groups = []
     for group in GROUPS:
         dataset = getattr(backend, group, None)
-        if dataset is None or not dataset.data_vars:
-            continue
+        data_vars = {} if dataset is None else dataset.data_vars
         components = [
             component
-            for name, array in sorted(dataset.data_vars.items())
+            for name, array in sorted(data_vars.items())
             if (component := _component(backend, group, str(name), array, origins))
+        ]
+        # After the rendered ones, since they carry no notation and the tab
+        # lists them under their own heading.
+        components += [
+            _deactivated(group, name, definition, origins)
+            for name, definition in sorted(inactive.get(group, {}).items())
         ]
         if components:
             groups.append(
@@ -132,7 +167,44 @@ def check_inputs(model: Any) -> None:
     """
     from calliope.backend import LatexBackendModel
 
-    LatexBackendModel(model.inputs, model.math.build, model.config.build, "all")
+    # The same math `render` would hand it, so the two cannot disagree about
+    # what they are checking. Constructing the backend adds no components, so
+    # today this makes no difference — which is the point of doing it anyway.
+    build, _ = _build_math(model)
+    LatexBackendModel(model.inputs, build, model.config.build, "all")
+
+
+def _build_math(model: Any) -> tuple[Any, dict[str, dict[str, Any]]]:
+    """The math the LaTeX backend can take, and the components removed from it.
+
+    Deactivated components are lifted out rather than left in, for the two
+    reasons the module docstring gives: Calliope raises on some of them, and
+    renders the rest as though they were live math.
+
+    Only the five `ORDERED_COMPONENTS_T` groups are touched. `parameters` and
+    `lookups` are deliberately left alone: `_load_inputs` indexes
+    `self.math.parameters[name]` for *every* input array, so removing a
+    deactivated parameter that the model nonetheless supplies data for would
+    turn this into a `KeyError` at the point Calliope reads its inputs.
+
+    Args:
+        model: An initialised `calliope.Model`.
+
+    Returns:
+        The filtered `math.build`, and `{group: {name: definition}}` of what was
+        taken out of it. The model's own math is untouched — this is a copy.
+    """
+    import typing
+
+    from calliope.preprocess.model_math import ORDERED_COMPONENTS_T
+
+    build = model.math.build.model_copy(deep=True)
+    inactive: dict[str, dict[str, Any]] = {}
+    for group in typing.get_args(ORDERED_COMPONENTS_T):
+        root = getattr(build, group).root
+        for name in [key for key, value in root.items() if not value.active]:
+            inactive.setdefault(group, {})[name] = root.pop(name)
+    return build, inactive
 
 
 def write(model: Any, destination: Path) -> None:
@@ -191,6 +263,54 @@ def _component(
     if attrs.get("dtype") is not None:
         component["dtype"] = str(attrs["dtype"])
     yaml_snippet = _yaml(backend, group, name)
+    if yaml_snippet:
+        component["yaml"] = yaml_snippet
+    return component
+
+
+def _deactivated(
+    group: str, name: str, definition: Any, origins: dict[str, list[str]]
+) -> dict:
+    """One component the math switches off: listed, but with no notation.
+
+    Built from the pydantic definition rather than a backend array, because
+    there is no backend array — `_build_math` took it out before the backend saw
+    it. Everything the tab needs is in the definition anyway, `title`,
+    `description` and the YAML included.
+
+    No `latex` key, deliberately. A deactivated component is not part of the
+    formulation, and an equation is the one thing that would say it is.
+
+    `origin` answers the question a reader actually has, which is *which file
+    switched this off*: `_origins` lists every source naming the component in
+    priority order, so a base component a user's file deactivates comes back as
+    `["base", "dispatch"]` and the last entry is the file that did it.
+    """
+    from calliope.io import to_yaml
+
+    sources = origins.get(f"{group}:{name}", [])
+    component: dict[str, Any] = {
+        "name": name,
+        "group": group,
+        "title": str(getattr(definition, "title", None) or ""),
+        "description": str(getattr(definition, "description", None) or ""),
+        # Constraints have no `unit` field at all, hence `getattr` rather than
+        # an attribute access that works for variables and raises for the rest.
+        "unit": str(getattr(definition, "unit", None) or ""),
+        # Nothing refers to it and it refers to nothing: the cross-references
+        # are the backend's, and it never reached the backend.
+        "uses": [],
+        "used_in": [],
+        "sources": sources,
+        "origin": sources[-1] if sources else None,
+        "overridden": len(sources) > 1,
+        "deactivated": True,
+    }
+
+    default = _plain(getattr(definition, "default", None))
+    if default is not None:
+        component["default"] = default
+    yaml_snippet = to_yaml(definition.model_dump(exclude_defaults=True))
     if yaml_snippet:
         component["yaml"] = yaml_snippet
     return component

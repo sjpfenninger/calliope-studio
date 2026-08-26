@@ -20,6 +20,8 @@ it" is answerable — and `urban_scale` is the case that matters, because its
 the override is invisible in the YAML.
 """
 
+import pathlib
+
 import pytest
 
 from calliope_studio.runs import mathdoc
@@ -182,3 +184,106 @@ class TestKatexCompatibility:
     def test_an_absent_default_is_not_reported_as_a_value(self, components):
         """Calliope's `nan` default means the math declares none."""
         assert "default" not in components["area_use_per_flow_cap"]
+
+
+@pytest.fixture(scope="module")
+def dispatch(tmp_path_factory):
+    """A model shaped like a dispatch model, which is the awkward case.
+
+    Capacities are given rather than chosen, so `flow_cap` is declared as a
+    *parameter* and the base-math *variable* of the same name is switched off —
+    what Calliope's own `operate.yaml` does, and what a real assignment model
+    doing economic dispatch in `base` mode does by hand.
+
+    Built here rather than taken from `examples/`, which is gitignored: this has
+    to run on a fresh clone.
+    """
+    import calliope
+
+    root = pathlib.Path(calliope.__file__).parent / "example_models" / "national_scale"
+    math_file = tmp_path_factory.mktemp("math") / "dispatch.yaml"
+    math_file.write_text(
+        "parameters:\n"
+        "  flow_cap:\n"
+        "    default: .inf\n"
+        "    title: Rated flow capacity.\n"
+        "    unit: power\n"
+        "variables:\n"
+        "  flow_cap.active: false\n"
+    )
+    model = calliope.read_yaml(
+        str(root / "model.yaml"),
+        override_dict={
+            "config.init.math_paths.dispatch": str(math_file),
+            "config.init.extra_math": ["dispatch"],
+            # So `flow_cap` is real input data and reaches the backend as a
+            # parameter, which is what the variable then collides with.
+            "techs.ccgt.flow_cap": 40000,
+        },
+    )
+    return {
+        f"{component['group']}:{component['name']}": component
+        for group in mathdoc.render(model)["groups"]
+        for component in group["components"]
+    }
+
+
+class TestDeactivatedComponents:
+    """`active: false`, which Calliope's LaTeX backend cannot render itself.
+
+    `BackendModel._add_component` lets an inactive component whose name is
+    already in the backend dataset short-circuit before the pre-existence check
+    — which is what makes a dispatch model buildable under Pyomo. But
+    `LatexBackendModel` passes `break_early=False` on every `add_*`, so that
+    branch never runs and the check raises instead: *"Trying to add already
+    existing *parameter* `flow_cap` as a backend model *variable*."* Rendering
+    the math of any dispatch or operate-mode model was impossible, upstream's
+    own `generate_math_doc` included.
+
+    The same line has a second consequence on models that do render: a
+    deactivated component was parsed and drawn as though it were live math, so a
+    file switching thirteen constraints off produced a tab listing all thirteen
+    as part of the formulation. Wrong math looks exactly like right math.
+    """
+
+    def test_a_parameter_may_shadow_a_deactivated_variable(self, dispatch):
+        """The crash. Without `_build_math` this fixture raises `BackendError`."""
+        assert "variables:flow_cap" in dispatch
+        assert "parameters:flow_cap" in dispatch
+
+    def test_a_deactivated_component_carries_no_notation(self, dispatch):
+        """An equation is the one thing that would say it is in the model."""
+        component = dispatch["variables:flow_cap"]
+
+        assert component["deactivated"] is True
+        assert "latex" not in component
+        # Listed rather than dropped, and with enough to be worth reading: an
+        # author needs to see that their `active: false` was picked up, and
+        # vanishing reads as the file not having been read at all.
+        assert "active: false" in component["yaml"]
+        assert component["title"]
+
+    def test_it_names_the_file_that_switched_it_off(self, dispatch):
+        """Which is the question a reader actually has, and `origin` answers it."""
+        component = dispatch["variables:flow_cap"]
+
+        assert component["sources"] == ["base", "dispatch"]
+        assert component["origin"] == "dispatch"
+
+    def test_the_parameter_of_the_same_name_still_renders(self, dispatch):
+        """The half of the pair that *is* in the formulation is untouched."""
+        component = dispatch["parameters:flow_cap"]
+
+        assert not component.get("deactivated")
+        assert component["used_in"]
+
+    def test_nothing_else_is_taken_out(self, dispatch):
+        """Only what the math deactivates, not everything sharing a name.
+
+        national_scale deactivates one component, so exactly one comes back
+        marked — a filter that removed the parameter too, or the whole `base`
+        variables block, would still satisfy every assertion above.
+        """
+        marked = [key for key, value in dispatch.items() if value.get("deactivated")]
+
+        assert marked == ["variables:flow_cap"]

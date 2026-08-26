@@ -367,6 +367,15 @@ export interface MathComponent {
   /** `.inf` crosses the wire as a string; JSON cannot carry infinity. */
   default?: number | string | boolean;
   dtype?: string;
+  /**
+   * Switched off with `active: false`: declared, but not in the formulation.
+   *
+   * Listed rather than dropped so an author can see their deactivation was
+   * picked up, and carrying no `latex`, because there is no notation for a
+   * component the model does not contain. Optional so a payload cached before
+   * this existed reads as `false`.
+   */
+  deactivated?: boolean;
 }
 
 export interface MathGroup {

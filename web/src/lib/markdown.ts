@@ -18,8 +18,7 @@
  * Not attempted: footnotes (not GFM), and resolving a relative link to another
  * file in the model, which would need the tree and a router hop.
  */
-import MarkdownIt from "markdown-it";
-import type Token from "markdown-it/lib/token.mjs";
+import MarkdownIt, { type Token } from "markdown-it";
 
 const md = new MarkdownIt({
   html: false,
@@ -85,7 +84,9 @@ const defaultLinkOpen =
     self.renderToken(tokens, idx, options));
 
 md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
-  const href = tokens[idx].attrGet("href") ?? "";
+  // markdown-it types an attribute value as `string | number`, so a link
+  // whose href parsed as a number would not be a string here.
+  const href = String(tokens[idx].attrGet("href") ?? "");
   if (/^[a-z][a-z0-9+.-]*:/i.test(href)) {
     tokens[idx].attrSet("target", "_blank");
     tokens[idx].attrSet("rel", "noopener noreferrer");

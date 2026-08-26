@@ -24,8 +24,12 @@ blockExoticSubdeps: true
 # Two, and both are load-bearing rather than incidental:
 # - `esbuild` selects and links its platform binary on install; Vite's dev
 #   server and build both go through it, so without this nothing runs.
-# - `vue-demi` is pinia's Vue 2/3 compatibility shim, and its postinstall is
-#   what rewrites its re-exports to point at the Vue actually installed.
+# - `vue-demi` is a Vue 2/3 compatibility shim whose postinstall rewrites its
+#   re-exports to point at the Vue actually installed. It arrives transitively,
+#   through `@vueuse/core` 10 and `@floating-ui/vue`, both of which reka-ui
+#   depends on. It used to arrive through pinia as well, which is what the note
+#   here said; pinia 4 dropped it, and the entry is still load-bearing for the
+#   other three.
 #
 # Add entries only from what a clean `pnpm install` reports as blocked — a
 # partial node_modules under-reports, which is how esbuild was missed here at
@@ -45,10 +49,10 @@ verifyDepsBeforeRun: install
 # Keep this list short and delete entries once the dependency ships the fix
 # itself — an override is a version pin nobody upstream is maintaining.
 overrides:
-  # GHSA-mh99-v99m-4gvg, a DoS in the glob brace parser. Reached three ways
-  # through minimatch: @vue/test-utils, js-beautify and vue-tsc's language
-  # core, all of which still ask for ^2. Build-time only, and vue-tsc and
-  # vitest both pass on 5.
+  # GHSA-mh99-v99m-4gvg, a DoS in the glob brace parser. Reached through
+  # minimatch, by one route only since vue-tsc 3 restructured its language
+  # core: @vue/test-utils → js-beautify → editorconfig and glob, both of which
+  # still ask for ^2. Build-time only, and the test suite passes on 5.
   #
   # Raised from >=5.0.8: the advisory's patched range moved to 5.0.9, so the
   # old pin resolved a version the audit still rejects. An override is a

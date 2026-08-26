@@ -32,6 +32,7 @@ import {
   type ComputedRef,
   type InjectionKey,
   type Ref,
+  type ShallowRef,
 } from "vue";
 
 import {
@@ -127,6 +128,15 @@ const SLOT: Record<ResultsFigure, { group: ResultsGroup; order: number }> = {
 };
 
 interface Options {
+  /**
+   * The two group elements, measured along the axis each one divides.
+   *
+   * Passed in rather than returned because the component has to bind them with
+   * a template `ref`, and a value that is only ever read here would look unused
+   * to the compiler at the call site.
+   */
+  mainEl: Readonly<ShallowRef<HTMLElement | null>>;
+  chartsEl: Readonly<ShallowRef<HTMLElement | null>>;
   /** Whether the model has geography, and so whether `main` exists at all. */
   hasMap: Ref<boolean>;
   /** Which layout is on screen — see `layoutId` in the sync watch below. */
@@ -176,9 +186,7 @@ export function useFigurePanels(options: Options) {
 
   // ── Measurement ───────────────────────────────────────────────────────────
 
-  /** The group elements, measured along the axis each one divides. */
-  const mainEl = ref<HTMLElement | null>(null);
-  const chartsEl = ref<HTMLElement | null>(null);
+  const { mainEl, chartsEl } = options;
 
   const mainSize = ref(0);
   const chartsSize = ref(0);
@@ -636,8 +644,6 @@ export function useFigurePanels(options: Options) {
 
   return {
     context,
-    mainEl,
-    chartsEl,
     chartsColumnBinding,
     visibleFigures,
     onLayout,

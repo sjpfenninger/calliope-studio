@@ -28,7 +28,7 @@
  * `composables/useFigurePanels` for the sizing and collapsing, and
  * `lib/resultsLayouts` for what a layout is and why each one owns its geometry.
  */
-import { computed, onMounted, provide } from "vue";
+import { computed, onMounted, provide, useTemplateRef } from "vue";
 
 import MapFigure from "@/components/results/MapFigure.vue";
 import ResultsLayoutBar from "@/components/results/ResultsLayoutBar.vue";
@@ -93,10 +93,15 @@ const direction = computed(() => findLayout(activeLayout.value).direction);
 
 const hasMap = computed(() => store.hasGeography);
 
-// Destructured because `mainEl` and `chartsEl` are template refs, and a template
-// `ref="…"` binds by matching a *top-level* name — `panels.mainEl` would bind to
-// nothing at all.
-const { context, mainEl, chartsEl, chartsColumnBinding, onLayout } = useFigurePanels({
+// `useTemplateRef` rather than a `ref()` the composable hands back: it binds by
+// the string key, so the two group elements no longer have to be top-level
+// bindings of this block for `ref="…"` to find them.
+const mainEl = useTemplateRef<HTMLElement>("mainEl");
+const chartsEl = useTemplateRef<HTMLElement>("chartsEl");
+
+const { context, chartsColumnBinding, onLayout } = useFigurePanels({
+  mainEl,
+  chartsEl,
   hasMap,
   layoutId: activeLayout,
   direction,

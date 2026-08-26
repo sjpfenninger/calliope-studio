@@ -87,6 +87,24 @@ await writeFile(join(root, DOC), README);
 
 const { browser, page, consoleErrors, testId, until } = await open();
 
+/**
+ * Waits for a name to appear in the file tree, and answers whether it did.
+ *
+ * **Scoped to the tree, and evaluated once.** A page-wide `text=` match is
+ * satisfied by the dialog that was just used to type the name — `NewFileDialog`
+ * renders the full path into `new-entry-target` — and later by the tab as well.
+ * Measured: with the dialog open, page-wide finds 1 and the tree finds 0, so a
+ * page-wide wait returns immediately having seen nothing of the tree, and a
+ * second query taken after the dialog unmounts finds nothing at all.
+ *
+ * That is why this assertion and the tab one traded places between CI runs:
+ * whichever of dialog, row or tab happened to be mounted when the assertion
+ * re-queried decided the result. Returning `until`'s own answer is the other
+ * half — one observation, not two.
+ */
+const inTree = (name) =>
+  until(async () => (await testId("file-tree").locator(`text=${name}`).count()) > 0);
+
 /** Clicks a file in the tree and waits for the tab to be the front one. */
 async function openFile(name) {
   await testId("file-search").fill(name);
@@ -133,8 +151,7 @@ try {
   await until(async () => await exists(NEW_FILE));
 
   check("the new file is on disk", await exists(NEW_FILE));
-  await until(async () => (await page.locator(`text=${NEW_FILE}`).count()) > 0);
-  check("the new file is in the tree", (await page.locator(`text=${NEW_FILE}`).count()) > 0);
+  check("the new file is in the tree", await inTree(NEW_FILE));
   // Polled, like the two above it. `afterCreate` awaits the file-tree reload
   // before it calls `openFile`, so the tree and the tab land in different ticks
   // with a render between them — close enough to simultaneous on a developer's
@@ -173,11 +190,9 @@ try {
     "an empty folder is listed as a directory",
     listed.some((entry) => entry.path === NEW_FOLDER && entry.type === "directory"),
   );
-  await until(async () => (await page.locator(`text=${NEW_FOLDER}`).count()) > 0);
-  check(
-    "the empty folder is in the tree",
-    (await page.locator(`text=${NEW_FOLDER}`).count()) > 0,
-  );
+  // Same defect as the file above, and it has only been passing on luck: a
+  // folder opens no tab, so it had one decoy fewer to be rescued by.
+  check("the empty folder is in the tree", await inTree(NEW_FOLDER));
 
   // ── a binary file ────────────────────────────────────────────────────────
   await openFile(BINARY);

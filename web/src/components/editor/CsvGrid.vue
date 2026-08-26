@@ -12,11 +12,22 @@
  * modules twice is harmless, but two themes are not — see `lib/agTheme.ts`.
  */
 import { AgGridVue } from "ag-grid-vue3";
-import { AllCommunityModule, ModuleRegistry, type ColDef } from "ag-grid-community";
+import {
+  AllCommunityModule,
+  enableDevValidations,
+  ModuleRegistry,
+  type ColDef,
+} from "ag-grid-community";
 
 import { gridTheme } from "@/lib/agTheme";
 
 ModuleRegistry.registerModules([AllCommunityModule]);
+
+// AG Grid 36 stopped bundling its validations in `AllCommunityModule`, so
+// without this the grid says nothing at all when it is misconfigured —
+// including error #239, which is the one `lib/agTheme.ts` is written around.
+// Dev only, because the diagnostics are for whoever is editing this.
+if (import.meta.env.DEV) enableDevValidations();
 
 withDefaults(
   defineProps<{

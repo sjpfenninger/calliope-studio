@@ -273,11 +273,13 @@ const exportsBox = page.locator(
 /**
  * Value cells only.
  *
- * The index column is pinned, so it lives outside the centre container — which
- * is what keeps a timestamp from being read as a number that failed to round.
+ * The index column is pinned, so it lives outside the scrolling container —
+ * which is what keeps a timestamp from being read as a number that failed to
+ * round. AG Grid 36 collapsed the nine containers into one, so this is
+ * `.ag-grid-scrolling-cells` where it used to be `.ag-center-cols-container`.
  */
 const cells = page.locator(
-  '[data-testid="run-table"] .ag-center-cols-container .ag-cell',
+  '[data-testid="run-table"] .ag-grid-scrolling-cells .ag-cell',
 );
 const isValue = (text) => text.trim() !== "" && Number.isFinite(Number(text));
 const shown = await cells.allInnerTexts();

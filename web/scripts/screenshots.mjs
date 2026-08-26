@@ -138,7 +138,7 @@ async function results(theme) {
   await mapReady().catch(() => false);
   await framesIdle();
 
-  await colourTheMap(page, testId, framesIdle);
+  await compose(page, testId, framesIdle);
 
   // The layout is applied twice, a frame apart — every constraint is a
   // percentage of a measured box, and mid-switch the measurements are one frame
@@ -151,16 +151,57 @@ async function results(theme) {
 }
 
 /**
- * Turns on the map's colour channel, which is off by default.
+ * Turns the view's defaults into a picture worth publishing.
  *
- * Size alone is one blue circle per node; size *and* colour is the encoding the
- * map exists for, and it costs one query. The rest of the defaults are left
- * alone on purpose — an earlier version forced the time series to its
- * unresampled resolution, which is right for a two-day model and wrong for the
- * year-long one CI actually solves, where the default daily series is already
- * 365 dense bars. A screenshot script that overrides a considered default is
- * photographing a state no user is ever in.
+ * Two changes, both because the defaults are tuned for answering "did this
+ * work" rather than for being looked at:
+ *
+ * - **The map's colour channel**, which is off. Size alone is one blue circle
+ *   per node; size *and* colour is the encoding the map exists for.
+ * - **The time series' resolution.** The chart opens on the coarsest the model
+ *   allows, which is the cheapest query and the right default. But the model
+ *   this photographs is Calliope's stock `national_scale`, and that is five
+ *   days — so the default daily series is *five bars*, with an x-axis reading
+ *   "2 3 4 5". Unresampled it is 120 hourly points and looks like a chart.
+ *
+ * Both are verified rather than clicked and hoped for. An earlier version of
+ * this selected the resolution by `role="radio"`, which these buttons are not,
+ * so it matched nothing, returned quietly, and published the five bars — the
+ * whole failure being that nothing anywhere said it had not worked.
  */
+async function compose(page, testId, framesIdle) {
+  await pickResolution(page, testId, framesIdle);
+  await colourTheMap(page, testId, framesIdle);
+
+  // A select that has just closed leaves a popper animating, and it photographs
+  // as a grey smear over whatever is under it.
+  await until(
+    async () => (await page.locator("[data-radix-popper-content-wrapper]").count()) === 0,
+    { timeout: 5000 },
+  );
+}
+
+/** The unresampled series, if this model offers one. */
+async function pickResolution(page, testId, framesIdle) {
+  // `ToggleGroupItem` renders a button carrying `data-state`, not a radio.
+  const original = testId("resolution").getByRole("button", {
+    name: "Original",
+    exact: true,
+  });
+  if (!(await original.count())) {
+    problems.push("the time series offers no unresampled resolution");
+    return;
+  }
+
+  await original.click();
+  await framesIdle();
+
+  if ((await original.getAttribute("data-state")) !== "on") {
+    problems.push("the unresampled resolution did not take");
+  }
+}
+
+/** Colours the map by whatever it is already sizing itself with. */
 async function colourTheMap(page, testId, framesIdle) {
   const colour = testId("map-color-variable");
   if (!(await colour.count())) {
@@ -171,20 +212,17 @@ async function colourTheMap(page, testId, framesIdle) {
   const label = (await testId("map-size-variable").innerText()).trim();
   await colour.click();
   const option = page.getByRole("option", { name: label, exact: true });
-  if (await option.count()) {
-    await option.click();
-    await framesIdle();
-  } else {
+  if (!(await option.count())) {
     problems.push(`no "${label}" to colour by`);
     await page.keyboard.press("Escape");
+    return;
   }
 
-  // A select that has just closed leaves a popper animating, and it photographs
-  // as a grey smear over whatever is under it.
-  await until(
-    async () => (await page.locator("[data-radix-popper-content-wrapper]").count()) === 0,
-    { timeout: 5000 },
-  );
+  await option.click();
+  await framesIdle();
+  if ((await colour.innerText()).trim() !== label) {
+    problems.push("the map's colour channel did not take");
+  }
 }
 
 /**

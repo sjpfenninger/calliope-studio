@@ -73,11 +73,14 @@ jobs:
       # The results shot first, because it is the one that solves — the editor
       # shot then runs against a model that has a finished run in it, and the
       # second theme of each reuses what the first did.
+      # An absolute output path, because `pnpm --dir web` runs the script with its
+      # working directory in `web/` — a relative `site` lands in `web/site`, which
+      # every later step then fails to find.
       - name: Photograph the results view
-        run: pixi run -- pnpm --dir web run screenshots http://127.0.0.1:8791 results site
+        run: pixi run -- pnpm --dir web run screenshots http://127.0.0.1:8791 results "$GITHUB_WORKSPACE/site"
 
       - name: Photograph the editor
-        run: pixi run -- pnpm --dir web run screenshots http://127.0.0.1:8791 editor site
+        run: pixi run -- pnpm --dir web run screenshots http://127.0.0.1:8791 editor "$GITHUB_WORKSPACE/site"
 
       # A 2× shot of a 1440×960 viewport is over a megabyte of PNG, and this is
       # the first thing a README loads. Lossy, because the alternative at this
@@ -85,17 +88,26 @@ jobs:
       # failing a release over.
       - name: Make them smaller
         run: |
+          shopt -s nullglob
+          shots=("$GITHUB_WORKSPACE"/site/*.png)
+          if [ ${#shots[@]} -eq 0 ]; then
+            echo "::error::no screenshots were written"
+            exit 1
+          fi
+
           sudo apt-get install -y pngquant || true
-          for shot in site/*.png; do
+          for shot in "${shots[@]}"; do
+            # 98 is "the result would be larger", which is an answer rather than a
+            # failure — and a missing binary must not fail a release either.
             pngquant --quality 70-95 --force --skip-if-larger --output "$shot" "$shot" || true
           done
-          ls -la site/
+          ls -la "$GITHUB_WORKSPACE/site"
 
       # Pages serves a 404 at the root otherwise, which is a confusing thing for
       # a URL in a README to be next door to.
       - name: Write an index
         run: |
-          cat > site/index.html <<'HTML'
+          cat > "$GITHUB_WORKSPACE/site/index.html" <<'HTML'
           <!doctype html>
           <meta charset="utf-8">
           <title>Calliope Studio — screenshots</title>
@@ -112,6 +124,16 @@ jobs:
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
           path: site
+
+      # The Pages artifact is a tarball that only Pages can unpack, so on a run
+      # that never reaches deployment there is no way to see what was taken.
+      - name: Keep them where they can be looked at
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: screenshots
+          path: site/*.png
+          if-no-files-found: ignore
 
   deploy:
     name: Publish to Pages

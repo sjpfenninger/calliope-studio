@@ -135,9 +135,16 @@ try {
   check("the new file is on disk", await exists(NEW_FILE));
   await until(async () => (await page.locator(`text=${NEW_FILE}`).count()) > 0);
   check("the new file is in the tree", (await page.locator(`text=${NEW_FILE}`).count()) > 0);
+  // Polled, like the two above it. `afterCreate` awaits the file-tree reload
+  // before it calls `openFile`, so the tree and the tab land in different ticks
+  // with a render between them — close enough to simultaneous on a developer's
+  // machine, not on a CI runner. `until` returns a boolean rather than throwing,
+  // so a real regression still fails here instead of hanging.
   check(
     "the new file opened in a tab",
-    (await testId("tab-file").filter({ hasText: NEW_FILE }).count()) > 0,
+    await until(
+      async () => (await testId("tab-file").filter({ hasText: NEW_FILE }).count()) > 0,
+    ),
   );
 
   // ── a name that is already taken ─────────────────────────────────────────

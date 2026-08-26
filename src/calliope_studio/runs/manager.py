@@ -21,6 +21,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -34,6 +35,11 @@ from calliope_studio.runs import process, protocol
 POLL_INTERVAL = 0.25
 
 TERMINAL_STATUSES = frozenset({"success", "infeasible", "failed", "cancelled"})
+
+#: How long to let a finished run's worker finish exiting before removing its
+#: directory. Generous for what it is — the process has already written its
+#: outcome, so this covers interpreter shutdown and nothing else.
+EXIT_GRACE_SECONDS = 10.0
 
 #: A run id is a UUID, and it is about to be joined to a filesystem path. Any
 #: other shape is a probe: without this, `GET /api/runs/..%2f..%2fetc/` would
@@ -237,6 +243,18 @@ class RunManager:
         run_dir = self.run_dir(run_id)
         if self.get(run_id).status not in TERMINAL_STATUSES:
             raise RunStillActive(run_id)
+        # A terminal outcome and a departed process are different facts, and
+        # removal needs the second. The worker writes `outcome.json`, *then*
+        # appends the `done` event, returns through `main`, and only then goes
+        # through interpreter shutdown — closing netCDF handles, flushing,
+        # collecting. The check above is satisfied at the first of those, so
+        # without this a delete issued promptly races a worker that still holds
+        # the `run.log` it inherited.
+        #
+        # POSIX unlinks open files happily, which is why this was invisible
+        # until Windows refused. Someone clicking delete the moment a run
+        # finishes is the ordinary case, not a contrived one.
+        self._await_exit(run_id, run_dir)
         # Before the delete, not after: the results cache may still hold this
         # file open, and an open handle is what makes the removal fail. The
         # resolver has done it this way around `_discard` all along.
@@ -265,6 +283,34 @@ class RunManager:
                 f"{', '.join(survivors) or 'the directory itself'}"
             )
         self.forget(run_id)
+
+    def _await_exit(self, run_id: str, run_dir: Path) -> None:
+        """Waits briefly for a finished run's worker to actually be gone.
+
+        Bounded and forgiving: the run has already reported a terminal outcome,
+        so a worker still present is a process on its way out, not one doing
+        work. If it somehow outlasts the budget the delete proceeds anyway and
+        `rmtree` reports what it could not remove — refusing to delete because a
+        process is slow to exit would be the worse failure.
+        """
+        deadline = time.monotonic() + EXIT_GRACE_SECONDS
+        child = self._processes.get(run_id)
+        if child is not None:
+            try:
+                child.wait(timeout=EXIT_GRACE_SECONDS)
+            except subprocess.TimeoutExpired:
+                pass
+            return
+
+        # Orphaned by a restart: no `Popen` to wait on, so poll the recorded pid
+        # the same way `_is_alive` does.
+        pid = protocol.read_pid(run_dir)
+        if pid is None:
+            return
+        while time.monotonic() < deadline:
+            if not _pid_alive(pid, run_id):
+                return
+            time.sleep(0.05)
 
     def discover(self, runs_root: Path) -> list[RunRecord]:
         """Finds runs already on disk, newest first, so history survives a restart.

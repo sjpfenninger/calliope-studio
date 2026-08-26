@@ -135,21 +135,21 @@ jobs:
       - name: Scaffold a model to drive
         run: pixi run example
 
-      # The server's output is captured rather than discarded. This step has
-      # never passed: it prints the URL — which happens *before* uvicorn starts,
-      # so it proves only that the socket bound — and then `/api/health` never
-      # answers. With `pixi run … &` and no redirection, anything the server said
-      # afterwards went nowhere, so three CI runs produced no evidence at all.
+      # `http-get://`, not `http://`. wait-on's `http://` scheme issues a
+      # **HEAD**, and `/api/health` answers GET only: Starlette's `Route` adds
+      # HEAD wherever GET is present, and FastAPI's `APIRoute` does not. So the
+      # endpoint returned 405 to every probe and wait-on burned its full 120s,
+      # which is why this step had never passed in any recorded run.
       #
-      # Nothing here is a *fix*, deliberately. The failure does not reproduce
-      # locally, and a speculative change would make the next run's evidence
-      # harder to read rather than easier.
+      # The server was never at fault, which took capturing its output to
+      # establish — it had been discarded. That capture stays: a `wait-on`
+      # timeout with no other evidence is exactly what cost three runs.
       - name: Start the server on it
         run: |
           pixi run calliope-studio --no-browser --port 8791 example-model \
             > server.log 2>&1 &
           echo $! > server.pid
-          if ! pixi run -- pnpm dlx wait-on -t 120000 http://127.0.0.1:8791/api/health
+          if ! pixi run -- pnpm dlx wait-on -t 120000 http-get://127.0.0.1:8791/api/health
           then
             echo "::group::server.log"
             cat server.log || echo "(no server.log)"
@@ -251,7 +251,7 @@ jobs:
         run: |
           pixi run solve-examples urban_scale
           pixi run calliope-studio --no-browser --port 8792 examples/nc_files/urban_scale.nc &
-          pixi run -- pnpm dlx wait-on -t 120000 http://127.0.0.1:8792/api/health
+          pixi run -- pnpm dlx wait-on -t 120000 http-get://127.0.0.1:8792/api/health
           pixi run -- pnpm --dir web run smoke http://127.0.0.1:8792
 
       - name: Keep the screenshots when something fails

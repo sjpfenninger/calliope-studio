@@ -706,11 +706,46 @@ class TestRenamingAndDeleting:
         assert client.get(f"/api/runs/{finished}/").json()["label"] == "persisted"
 
     def test_a_run_can_be_deleted(self, client, ws, finished, national_scale):
-        assert client.delete(f"/api/runs/{finished}/").status_code == 204
+        response = client.delete(f"/api/runs/{finished}/")
+
+        # The body, not just the code. A 409 here names the files that could not
+        # be removed, and asserting on `status_code` alone threw that away — the
+        # answer was in the response and a whole CI round trip went by without
+        # anyone seeing it.
+        assert response.status_code == 204, response.text
 
         assert not (national_scale / "calliope-studio" / "runs" / finished).exists()
         assert client.get(f"/api/runs/{finished}/").status_code == 404
         assert client.get(f"/api/versions/{ws}/runs/").json() == []
+
+    def test_deleting_the_instant_the_outcome_lands_still_works(self, client, ws):
+        """The race, pinned on the platform that does not notice it.
+
+        `outcome.json` is written before the worker returns, let alone exits, so
+        a delete issued the moment the record turns terminal races a process
+        still holding the `run.log` it inherited. POSIX unlinks open files
+        without complaint; Windows refuses, and that asymmetry meant only one
+        platform could ever fail this.
+
+        Waiting on the *record* rather than a fixed delay is the point — it
+        reproduces the tightest timing a user can actually produce by clicking.
+        """
+        run_id = client.post(f"/api/versions/{ws}/runs/").json()["id"]
+
+        # Deliberately not `wait_for_terminal`, whose poll interval would hide
+        # the window this is about.
+        run_dir = client.app.state.runs.run_dir(run_id)
+        deadline = time.time() + 300
+        while time.time() < deadline:
+            if (run_dir / protocol.OUTCOME_FILE).is_file():
+                break
+            time.sleep(0.01)
+        assert (run_dir / protocol.OUTCOME_FILE).is_file(), "the run never finished"
+
+        response = client.delete(f"/api/runs/{run_id}/")
+
+        assert response.status_code == 204, response.text
+        assert not run_dir.exists()
 
     def test_a_running_run_cannot_be_deleted(self, client, ws):
         """Deleting under a live worker would leave it writing into nothing."""

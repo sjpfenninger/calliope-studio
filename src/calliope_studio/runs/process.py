@@ -38,6 +38,19 @@ Two things about the Windows side are load-bearing and easy to get wrong:
   every running solve when the server exits, which is the exact inverse of the
   invariant the run protocol is built on — a run outlives its server. `pixi run
   serve` uses `--reload`, so it would fire on every code edit.
+
+**The two platforms are not symmetric about who creates the group, and callers
+have to know it.** On POSIX `spawn` makes the group itself, through
+`start_new_session`, so any child is killable as a group whatever it does. On
+Windows the job exists **only if the child joins one** — `spawn` cannot do it,
+for the handle-lifetime reason above. So a process started by `spawn` and not
+calling `join_group` is killable *alone* on Windows and *as a group* on POSIX,
+and `terminate_group` will quietly do the weaker thing.
+
+`worker.main` joins before importing Calliope and `manager.cancel` passes the
+name, so the run path is fine. It is anything else spawned through this module
+that has to opt in — which nothing said until a test asserted the POSIX
+behaviour and CI on Windows disagreed.
 """
 
 import os

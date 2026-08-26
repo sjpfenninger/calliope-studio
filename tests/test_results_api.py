@@ -325,6 +325,32 @@ class TestSource:
 class TestBrowse:
     """The folder browser behind the Open-model dialog."""
 
+    def test_an_unreadable_directory_does_not_break_the_listing(self, client, tmp_path):
+        """One folder you cannot read must not take the whole picker down.
+
+        `find_model_yaml` probes every child with `is_file()`, and pathlib
+        swallows ENOENT, ENOTDIR, EBADF and ELOOP but **not EACCES** — so an
+        unreadable directory raised out of what is only a question. Anyone with
+        one in their home directory could not open the model picker, and on a
+        Linux CI runner browsing `/` hit root-only `/lost+found` every time.
+        """
+        import os
+
+        (tmp_path / "readable").mkdir()
+        locked = tmp_path / "locked"
+        locked.mkdir()
+        os.chmod(locked, 0o000)
+        try:
+            response = client.get("/api/browse/", params={"path": str(tmp_path)})
+
+            assert response.status_code == 200
+            entries = {e["name"]: e for e in response.json()["entries"]}
+            # Listed, not hidden: it exists, we simply cannot say what is in it.
+            assert {"readable", "locked"} <= set(entries)
+            assert entries["locked"]["is_model"] is False
+        finally:
+            os.chmod(locked, 0o755)
+
     def test_it_lists_directories_and_marks_models(self, client, national_scale):
         body = client.get(
             "/api/browse/", params={"path": str(national_scale.parent)}

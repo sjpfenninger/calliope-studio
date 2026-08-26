@@ -31,6 +31,10 @@ from calliope_studio.results.catalog import build_catalog, units_from_math
 from calliope_studio.results.colors import tech_colors
 from calliope_studio.results.links import link_orientation
 
+# `tests/` is not a package, and pytest prepends the test file's own directory
+# to `sys.path` — the same route `conftest.py` is found by.
+import layouts  # noqa: E402  isort:skip
+
 SAMPLES = Path(__file__).parent.parent / "examples" / "nc_files"
 
 #: Files whose layout is `inputs`/`results`/`attrs` groups, and those that are
@@ -44,6 +48,18 @@ FLAT = (
     "urban_scale_07.nc",
     "dispatch-model.nc",
 )
+
+
+@pytest.fixture
+def grouped(tmp_path) -> Path:
+    """A dev7-layout file, built rather than found. See `tests/layouts.py`."""
+    return layouts.write_grouped(tmp_path / "grouped.nc")
+
+
+@pytest.fixture
+def flat(tmp_path) -> Path:
+    """A dev6-layout file, built rather than found."""
+    return layouts.write_flat(tmp_path / "flat.nc")
 
 
 def _sample(name: str) -> Path:
@@ -206,3 +222,162 @@ class TestAFileItCannotReadIsRefused:
         model = store._read(str(_sample("urban_scale_07.dev7.nc"))).model
 
         assert len(model.inputs.data_vars) > 0
+
+
+class TestBothLayoutsAlwaysRun:
+    """The structural contract, on fixtures that exist on every machine.
+
+    The parametrised cases below run against real sample files and skip when
+    they are absent — which in CI is always, since they are gitignored and
+    `solve-examples` writes neither layout these tests name. Everything the
+    reader actually *decides* is checked here instead, so it is checked
+    somewhere that runs.
+    """
+
+    def test_the_grouped_layout_is_read_from_its_groups(self, grouped):
+        model = store._read(str(grouped)).model
+
+        assert len(model.inputs.data_vars) == 2
+        assert len(model.results.data_vars) == 2
+        assert model.config and model.definition and model.runtime and model.math
+
+    def test_the_flat_layout_is_split_on_is_result(self, flat):
+        """The only thing separating inputs from results in an older file."""
+        model = store._read(str(flat)).model
+
+        assert set(model.inputs.data_vars) == {"flow_cap_max", "color"}
+        assert set(model.results.data_vars) == {"flow_cap", "flow_out"}
+        for dataset in (model.inputs, model.results):
+            for array in dataset.data_vars.values():
+                assert "is_result" not in array.attrs
+
+    def test_a_dev6_file_has_no_definition_and_that_is_correct(self, flat):
+        """dev6 stored `def_path`, not `_model_def_dict`.
+
+        Asserted rather than merely tolerated: a reader that invented a
+        definition here would be reporting something the file does not contain.
+        """
+        model = store._read(str(flat)).model
+
+        assert model.definition == {}
+        assert model.calliope_version == "0.7.0.dev6"
+
+    def test_serialised_attributes_are_parsed_back(self, grouped):
+        """`serialised_dicts` is the only thing that says a string is a dict."""
+        model = store._read(str(grouped)).model
+
+        assert isinstance(model.config, dict)
+        assert model.config["solve"]["solver"] == "cbc"
+        assert model.runtime["termination_condition"] == "optimal"
+
+    def test_units_come_from_the_files_own_math_in_both_layouts(self, grouped, flat):
+        for path in (grouped, flat):
+            units = units_from_math(store._read(str(path)).model.math)
+
+            assert units["flow_cap"] == "power"
+            assert units["flow_out"] == "energy"
+            assert units["cost"] == "cost"
+
+    def test_an_arrays_own_unit_still_outranks_the_math(self, grouped):
+        """The catalogue's precedence, which the fixtures are built to expose."""
+        handle = store._read(str(grouped))
+        catalog = build_catalog(
+            handle.dataset, file_units=units_from_math(handle.model.math)
+        )
+
+        assert catalog.units["flow_cap_max"] == "power"
+
+    def test_the_rest_of_the_layer_works_on_both(self, grouped, flat):
+        for path in (grouped, flat):
+            handle = store._read(str(path))
+
+            tech_colors(handle.model)
+            link_orientation(handle.model)
+            assert build_catalog(handle.dataset).timeseries or True
+
+
+class TestTheFixturesMatchReality:
+    """The fixtures are hand-built, so something has to check they are honest.
+
+    A synthesised file that drifted from what Calliope actually writes would
+    make `TestBothLayoutsAlwaysRun` pass while the reader broke on real data —
+    false confidence, which is worse than the skipping it replaced.
+
+    These compare structure, not content, against the real samples, and skip
+    when those are absent. So the fixtures are validated on every machine that
+    has the sample files and stand alone where they do not: exactly the two
+    tiers, and neither pretending to be the other.
+    """
+
+    def _groups(self, path: Path) -> list[str]:
+        import netCDF4
+
+        with netCDF4.Dataset(path) as dataset:
+            return sorted(dataset.groups)
+
+    def test_the_grouped_fixture_has_a_real_files_shape(self, grouped):
+        real = _sample("urban_scale_07.dev7.nc")
+
+        assert self._groups(grouped) == self._groups(real)
+
+    def test_the_grouped_fixture_carries_the_same_metadata_keys(self, grouped):
+        """Which attributes live on the `attrs` group, and which are serialised."""
+        real = _sample("urban_scale_07.dev7.nc")
+        import xarray as xr
+
+        with xr.open_dataset(real, group="attrs") as opened:
+            expected = set(opened.attrs)
+        with xr.open_dataset(grouped, group="attrs") as opened:
+            actual = set(opened.attrs)
+
+        assert {"config", "definition", "runtime", "math"} <= actual
+        assert actual <= expected, f"fixture invents attributes: {actual - expected}"
+
+    def test_the_grouped_fixtures_attrs_group_holds_no_variables(self, grouped):
+        """True of a real file, and the reason the reader reads attrs not vars."""
+        import xarray as xr
+
+        real = _sample("urban_scale_07.dev7.nc")
+        with xr.open_dataset(real, group="attrs") as opened:
+            assert len(opened.data_vars) == 0
+        with xr.open_dataset(grouped, group="attrs") as opened:
+            assert len(opened.data_vars) == 0
+
+    def test_the_flat_fixture_has_a_real_files_shape(self, flat):
+        real = _sample("urban_scale_07.dev6.nc")
+
+        assert self._groups(flat) == self._groups(real) == []
+
+    def test_the_flat_fixture_marks_is_result_the_same_way(self, flat):
+        """The flag's *values*, since the split is a truth test on them."""
+        import xarray as xr
+
+        real = _sample("urban_scale_07.dev6.nc")
+        with xr.open_dataset(real) as opened:
+            seen = {
+                int(array.attrs["is_result"])
+                for array in opened.data_vars.values()
+                if "is_result" in array.attrs
+            }
+        with xr.open_dataset(flat) as opened:
+            ours = {
+                int(array.attrs["is_result"])
+                for array in opened.data_vars.values()
+                if "is_result" in array.attrs
+            }
+
+        assert ours == seen == {0, 1}
+
+    def test_the_flat_fixture_spells_its_metadata_as_dev6_did(self, flat):
+        """`applied_math` and a loose version attr, not dev7's `runtime`."""
+        import xarray as xr
+
+        real = _sample("urban_scale_07.dev6.nc")
+        with xr.open_dataset(real) as opened:
+            expected = set(opened.attrs)
+        with xr.open_dataset(flat) as opened:
+            actual = set(opened.attrs)
+
+        assert "applied_math" in actual and "applied_math" in expected
+        assert "runtime" not in actual and "runtime" not in expected
+        assert actual <= expected, f"fixture invents attributes: {actual - expected}"

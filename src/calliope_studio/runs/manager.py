@@ -244,7 +244,26 @@ class RunManager:
         self._release(run_dir / protocol.RESOLVED_FILE)
         # No `ignore_errors`: the user asked for this and a 204 that deleted
         # nothing is a lie. `OSError` reaches the route, which reports it.
-        shutil.rmtree(run_dir)
+        #
+        # Remove what can be removed, then report by *inspection* rather than by
+        # catching. On Windows the release above is necessary and has proved not
+        # to be sufficient, and "could not remove the run" is not a diagnosis —
+        # which of `run.log`, `events.jsonl` and `results.nc` is still held is
+        # the whole question, and a traceback saying `rmtree` cannot answer it.
+        #
+        # Inspecting the leftovers rather than using `onexc`, which is 3.12+
+        # while this package supports 3.10, and `onerror` is deprecated in the
+        # same release. It is also the better signal: what survived is the fact,
+        # where an error callback reports only the first attempt that failed.
+        shutil.rmtree(run_dir, ignore_errors=True)
+        if run_dir.exists():
+            survivors = sorted(
+                path.name for path in run_dir.rglob("*") if path.is_file()
+            )
+            raise OSError(
+                f"could not remove {run_dir.name}; still present: "
+                f"{', '.join(survivors) or 'the directory itself'}"
+            )
         self.forget(run_id)
 
     def discover(self, runs_root: Path) -> list[RunRecord]:

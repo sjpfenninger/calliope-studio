@@ -40,8 +40,22 @@ def find_model_yaml(base: Path) -> Path | None:
     root = Path(base).resolve()
     for name in ("model.yaml", "model.yml"):
         candidate = root / name
-        if candidate.is_file():
-            return candidate
+        try:
+            if candidate.is_file():
+                return candidate
+        except OSError:
+            # `is_file()` looks like it cannot raise, and mostly cannot:
+            # pathlib swallows ENOENT, ENOTDIR, EBADF and ELOOP. It does *not*
+            # swallow EACCES, so a directory the process cannot traverse raises
+            # straight out of what is only a probe. `routes/browse.py` calls
+            # this on every child of whatever the user is looking at, so one
+            # unreadable folder in a home directory made the model picker 500 —
+            # and on a Linux CI runner, browsing `/` hits root-only
+            # `/lost+found` every time.
+            #
+            # A directory we cannot read is not a model, which is the whole
+            # question being asked.
+            return None
     return None
 
 

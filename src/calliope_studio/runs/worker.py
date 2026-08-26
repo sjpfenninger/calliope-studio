@@ -239,7 +239,12 @@ def _capture_stdio(run_dir: Path) -> Iterator[None]:
                 if emitted > MAX_STDIO_LINES:
                     text = f"[output continues in {protocol.LOG_FILE}]"
                 else:
-                    text = raw.decode(errors="replace").rstrip("\n")
+                    # `\r\n`, not just `\n`: the pipe carries whatever the writer
+                    # emitted, and on Windows that is CRLF. Stripping only the
+                    # newline left a carriage return on the end of every solver
+                    # line, which reaches the log pane, the copy button and CSV
+                    # exports alike.
+                    text = raw.decode(errors="replace").rstrip("\r\n")
                 try:
                     protocol.append_event(
                         run_dir,

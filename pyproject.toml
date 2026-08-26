@@ -143,6 +143,13 @@ pnpm = "11.*"
 
 [tool.pixi.feature.build.dependencies]
 python-build = "*"
+# The `build` task depends on `web-build` → `web-install`, which is pnpm — so
+# without this the task cannot run in this environment at all, and never could.
+# It is not only a red CI job: `release.yml` runs this same
+# `pixi run -e build build`, so the first tag would have failed here.
+# Pinned to match the `dev` feature; two pnpm versions across environments would
+# be two lockfile resolutions of the same `web/pnpm-lock.yaml`.
+pnpm = "11.*"
 # For `publish-check`. The README is the PyPI long description, and it contains
 # GitHub-flavoured `> [!IMPORTANT]` callouts that PyPI renders as plain block
 # quotes — harmless, but worth seeing before the page is public rather than

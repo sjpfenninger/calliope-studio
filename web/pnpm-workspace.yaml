@@ -47,6 +47,16 @@ verifyDepsBeforeRun: install
 overrides:
   # GHSA-mh99-v99m-4gvg, a DoS in the glob brace parser. Reached three ways
   # through minimatch: @vue/test-utils, js-beautify and vue-tsc's language
-  # core, all of which still ask for ^2. Build-time only, but it is the last
-  # high-severity finding in the tree, and vue-tsc and vitest both pass on 5.
-  brace-expansion: ">=5.0.8"
+  # core, all of which still ask for ^2. Build-time only, and vue-tsc and
+  # vitest both pass on 5.
+  #
+  # Raised from >=5.0.8: the advisory's patched range moved to 5.0.9, so the
+  # old pin resolved a version the audit still rejects. An override is a
+  # version nobody upstream is maintaining for us, which is exactly why it
+  # needs re-reading when the audit changes its mind.
+  brace-expansion: ">=5.0.9"
+  # GHSA-2v37-7h3g-55p8. 25 paths, every one of them
+  # `vue > @vue/compiler-sfc > postcss > nanoid`, so nothing here depends on it
+  # directly and there is no version of ours to bump. Delete this once postcss
+  # ships a release that asks for a patched nanoid itself.
+  nanoid: ">=3.3.18"

@@ -21,15 +21,29 @@ import pytest
 
 from calliope_studio.runs import process, protocol
 
-#: Announces its own child's pid, then outlives any reasonable test. Both halves
-#: sleep far longer than the deadline below, so anything that exits did so
-#: because it was killed.
+#: Joins the killable group, announces its own child's pid, then outlives any
+#: reasonable test. Both halves sleep far longer than the deadline below, so
+#: anything that exits did so because it was killed.
+#:
+#: **The `join_group` call is not ceremony.** On POSIX the group exists because
+#: the *parent* passed `start_new_session`, so a stand-in that ignored it would
+#: still be killed as a group and the test would pass. On Windows there is no
+#: such thing: the job object exists only if the child creates and joins one,
+#: exactly as `worker.main` does before importing Calliope. Without this the
+#: test asserted something the platform cannot deliver — which is what CI on
+#: Windows reported, and it was the test that was wrong.
 SPAWNER = textwrap.dedent("""
     import subprocess, sys, time
+    from calliope_studio.runs import process
+    handle = process.join_group(sys.argv[1])
     child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(300)"])
     print(child.pid, flush=True)
     time.sleep(300)
 """)
+
+#: The group these stand-ins join. A fixed name rather than a run id: nothing
+#: here is a run, and `protocol.group_name` is tested separately.
+GROUP = "calliope-studio-test-group"
 
 
 def _wait_until(predicate, timeout=15.0):
@@ -47,7 +61,7 @@ def spawned(tmp_path):
     """A worker stand-in with a live grandchild, cleaned up however the test ends."""
     log_path = tmp_path / "run.log"
     with open(log_path, "w") as log_file:
-        child = process.spawn([sys.executable, "-c", SPAWNER], log_file=log_file)
+        child = process.spawn([sys.executable, "-c", SPAWNER, GROUP], log_file=log_file)
 
     def grandchild_pid():
         text = log_path.read_text().strip()
@@ -60,7 +74,7 @@ def spawned(tmp_path):
     yield child, grandchild
 
     # Belt and braces: a failed assertion must not leak two sleeping processes.
-    process.kill_group(child.pid)
+    process.kill_group(child.pid, GROUP)
     child.poll()
 
 
@@ -69,7 +83,7 @@ class TestTheWholeGroupDies:
         """The solver is a grandchild, and it is the thing that must stop."""
         child, grandchild = spawned
 
-        assert process.terminate_group(child.pid)
+        assert process.terminate_group(child.pid, GROUP)
 
         assert _wait_until(lambda: child.poll() is not None), "worker survived"
         assert _wait_until(lambda: not process.is_running(grandchild)), (
@@ -80,12 +94,12 @@ class TestTheWholeGroupDies:
     def test_killing_an_already_dead_group_is_not_an_error(self, spawned):
         """Cancelling twice, or cancelling a run that just finished, is ordinary."""
         child, _ = spawned
-        process.terminate_group(child.pid)
+        process.terminate_group(child.pid, GROUP)
         assert _wait_until(lambda: child.poll() is not None)
 
         # False rather than an exception: the caller's job is to stop it, and it
         # has stopped.
-        process.kill_group(child.pid)
+        process.kill_group(child.pid, GROUP)
 
 
 class TestLiveness:
@@ -169,22 +183,47 @@ class TestTheWindowsBindingsAreDeclared:
 
         assert declared - self._call_sites() == set()
 
-    def test_no_handle_is_left_to_default_to_a_truncating_int(self):
-        """The whole defect in one assertion.
+    def test_every_return_type_is_one_of_the_windows_types(self):
+        """Nothing is left to ctypes' default, which truncates a handle.
 
-        `c_int` is what ctypes uses when nothing is declared, and it is exactly
-        the wrong width for a handle. Anything returning one must say so.
+        Stated positively, and that is not a stylistic choice. The obvious
+        phrasing — `assert restype is not ctypes.c_int` — passes here and can
+        never pass on Windows, because there `ctypes.c_int` **is**
+        `ctypes.c_long` (both 32-bit, and CPython returns the same object) while
+        `wintypes.BOOL` is `c_long`. The assertion reduced to
+        `c_long is not c_long`. It was the test that was unportable, not the
+        bindings; CI on Windows is what said so.
+
+        Naming the permitted types instead says the same thing and means it on
+        both platforms: a default `restype` is `c_int`, which is not among them
+        on any platform where the distinction matters.
         """
-        import ctypes
         from ctypes import wintypes
 
-        for name, (argtypes, restype) in process._KERNEL32_SIGNATURES().items():
-            assert restype is not ctypes.c_int, f"{name} returns a default c_int"
-            if restype is wintypes.HANDLE:
-                continue
-            assert restype in (wintypes.BOOL, wintypes.DWORD), (
-                f"{name} has an unexpected return type {restype}"
+        permitted = {wintypes.HANDLE, wintypes.BOOL, wintypes.DWORD}
+        for name, (_argtypes, restype) in process._KERNEL32_SIGNATURES().items():
+            assert restype in permitted, (
+                f"{name} returns {restype}, which is not a declared Windows type"
             )
+
+    def test_the_handle_returning_calls_say_so(self):
+        """The four whose truncation is the actual bug, named individually.
+
+        A blanket check over the table would still pass if one of these were
+        quietly declared `BOOL`, which is 32 bits and would truncate exactly as
+        the default did.
+        """
+        from ctypes import wintypes
+
+        signatures = process._KERNEL32_SIGNATURES()
+        for name in (
+            "CreateJobObjectW",
+            "OpenJobObjectW",
+            "OpenProcess",
+            "GetCurrentProcess",
+            "GetStdHandle",
+        ):
+            assert signatures[name][1] is wintypes.HANDLE, f"{name} must return HANDLE"
 
     def test_the_worker_shares_the_declared_library(self):
         """Two `WinDLL` objects would mean one of them undeclared.

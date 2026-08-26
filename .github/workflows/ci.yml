@@ -135,10 +135,37 @@ jobs:
       - name: Scaffold a model to drive
         run: pixi run example
 
+      # The server's output is captured rather than discarded. This step has
+      # never passed: it prints the URL — which happens *before* uvicorn starts,
+      # so it proves only that the socket bound — and then `/api/health` never
+      # answers. With `pixi run … &` and no redirection, anything the server said
+      # afterwards went nowhere, so three CI runs produced no evidence at all.
+      #
+      # Nothing here is a *fix*, deliberately. The failure does not reproduce
+      # locally, and a speculative change would make the next run's evidence
+      # harder to read rather than easier.
       - name: Start the server on it
         run: |
-          pixi run calliope-studio --no-browser --port 8791 example-model &
-          pixi run -- pnpm dlx wait-on -t 120000 http://127.0.0.1:8791/api/health
+          pixi run calliope-studio --no-browser --port 8791 example-model \
+            > server.log 2>&1 &
+          echo $! > server.pid
+          if ! pixi run -- pnpm dlx wait-on -t 120000 http://127.0.0.1:8791/api/health
+          then
+            echo "::group::server.log"
+            cat server.log || echo "(no server.log)"
+            echo "::endgroup::"
+            echo "::group::is the process alive?"
+            ps -p "$(cat server.pid)" -o pid,stat,etime,cmd || echo "(gone)"
+            echo "::endgroup::"
+            echo "::group::is anything listening on 8791?"
+            ss -ltnp 2>/dev/null | grep 8791 || echo "(nothing listening)"
+            echo "::endgroup::"
+            echo "::group::what does the endpoint say?"
+            curl -sv -m 10 http://127.0.0.1:8791/api/health 2>&1 | tail -30 \
+              || echo "(curl failed)"
+            echo "::endgroup::"
+            exit 1
+          fi
 
       # The design tokens, and every renderer that reads them outside the DOM.
       - name: Token check

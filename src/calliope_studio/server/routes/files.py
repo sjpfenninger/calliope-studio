@@ -147,5 +147,14 @@ def write_file(
 ) -> dict:
     path = resolve_path(workspace, file_path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(body.content)
+    # `newline=""` writes the string's bytes untouched. Without it Python
+    # translates every `\n` to `os.linesep`, which on Windows means *every save
+    # rewrites the whole file* with CRLF — while `require_text` reads through
+    # `read_bytes().decode()` and so returns exactly what is on disk. The two
+    # were asymmetric, which breaks the property the editors live by: a no-op
+    # save must not change the file.
+    #
+    # Not `newline="\n"` either. The requirement is to preserve what the user's
+    # file already had, including one that is legitimately CRLF throughout.
+    path.write_text(body.content, newline="")
     return {"ok": True}

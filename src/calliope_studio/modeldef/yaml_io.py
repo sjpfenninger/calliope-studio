@@ -181,7 +181,10 @@ def write_section(path: Path, section: str, data: Any) -> None:
     document[section] = _merge(document[section], from_plain(data))
     buffer = io.StringIO()
     yaml.dump(document, buffer)
-    path.write_text(buffer.getvalue())
+    # `newline=""`: ruamel has already produced exactly the bytes intended, and
+    # letting Python translate them would rewrite every line ending in the file
+    # on Windows — see `routes/files.py`, which does the same for the raw editor.
+    path.write_text(buffer.getvalue(), newline="")
 
 
 def syntax_errors(path: Path, relative: str) -> list[dict]:

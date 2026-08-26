@@ -224,6 +224,45 @@ class TestFiles:
         ).json() == {"ok": True}
         assert client.get(url).json()["content"].endswith("# appended\n")
 
+    def test_a_no_op_save_changes_no_byte(self, client, ws, national_scale):
+        """Reading a file and writing it straight back must not touch it.
+
+        The property every editor here lives by, and the one Windows broke:
+        `write_text` with no `newline=` translates `\n` to `os.linesep`, while
+        the read path is `read_bytes().decode()` and returns what is actually on
+        disk. On Windows that asymmetry rewrote every line ending in the user's
+        file on each save.
+        """
+        url = f"/api/versions/{ws}/files/model.yaml"
+        before = (national_scale / "model.yaml").read_bytes()
+
+        content = client.get(url).json()["content"]
+        assert client.put(url, json={"content": content}).json() == {"ok": True}
+
+        assert (national_scale / "model.yaml").read_bytes() == before
+
+    def test_a_crlf_file_stays_crlf(self, client, ws, national_scale):
+        """A file that is legitimately CRLF must survive a round trip as CRLF.
+
+        This is why the fix is `newline=""` rather than `newline="\n"`: the
+        requirement is to preserve what the user's file already had, not to
+        impose a convention on it.
+
+        Like the test above, this can only *fail* on Windows. It is here because
+        it states the harder half of the requirement: not merely "do not add
+        CRLF" but "do not touch what is there".
+        """
+        path = national_scale / "crlf.yaml"
+        original = b"config:\r\n  init:\r\n    name: crlf\r\n"
+        path.write_bytes(original)
+        url = f"/api/versions/{ws}/files/crlf.yaml"
+
+        content = client.get(url).json()["content"]
+        assert "\r\n" in content, "the read path must not strip them either"
+        assert client.put(url, json={"content": content}).json() == {"ok": True}
+
+        assert path.read_bytes() == original
+
     def test_missing_file_is_404(self, client, ws):
         assert client.get(f"/api/versions/{ws}/files/nope.yaml").status_code == 404
 

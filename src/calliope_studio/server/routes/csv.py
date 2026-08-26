@@ -29,5 +29,9 @@ def write_csv(
 ) -> dict:
     path = resolve_path(workspace, file_path)
     path.parent.mkdir(parents=True, exist_ok=True)
+    # Bytes, not text, and `serialize_csv` pins `lineterminator="\n"`. That is
+    # already the right pair and must stay one: switching this to `write_text`
+    # for consistency with the other writers would reintroduce the newline
+    # translation they had to be fixed for.
     path.write_bytes(serialize_csv(body.columns, body.rows))
     return {"ok": True}

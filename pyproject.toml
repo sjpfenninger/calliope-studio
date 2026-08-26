@@ -1,5 +1,7 @@
 [build-system]
-requires = ["setuptools>=64", "setuptools-scm>=8"]
+# 77 is the floor for PEP 639: the `license` expression and a project-level
+# `license-files` are both errors on anything older.
+requires = ["setuptools>=77", "setuptools-scm>=8"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -12,32 +14,41 @@ maintainers = [
 ]
 description = "Web UI for defining, running and analysing Calliope models."
 readme = "README.md"
-# Capped, not open-ended. `uv tool install` picks the newest interpreter on the
-# machine, and the failure on one this project has not tested is an import
-# traceback rather than a resolution error. The chain forces it anyway: pandas
-# 2.2.3 publishes cp313 wheels but no cp314, so 3.14 would fall back to building
-# pandas from source.
+# The floor tracks Calliope, which declares `requires-python = ">=3.12"`. There
+# is no reason for this project to support an interpreter the framework it wraps
+# has dropped.
+#
+# The ceiling is capped rather than open-ended, and 3.14 is not an oversight —
+# it is currently unreachable. `pandas` publishes no cp314 wheel before 2.3.3,
+# and `pandas<2.3` below is forced by calliope 0.7.0.dev7 pinning
+# `xarray<2024.4`, which pandas 2.3 and later refuse to work with. So 3.14 would
+# resolve and then build pandas from source. The cap turns that into a
+# resolution error, which says what is wrong; `uv tool install` otherwise picks
+# the newest interpreter on the machine and the user meets a compiler instead.
+# Lifting it is a consequence of a newer Calliope, not a decision to take here.
+#
+# 3.12 and 3.13 are also exactly what Calliope's own CI matrix covers, and the
+# `interpreters` job in `ci.yml` covers the same two against the built wheel.
 #
 # This is *not* the floor the run worker requires, and the two must not be
 # conflated when the environment registry lands: this bound is about the
 # interpreter running the studio and its own dependency chain, while the
 # worker's floor is a property of the worker's own source and applies to a
 # foreign interpreter the studio never installs into.
-requires-python = ">=3.10,<3.13"
+requires-python = ">=3.12,<3.14"
 keywords = ["energy systems", "visualisation", "optimisation"]
-license = { text = "AGPL-3.0-or-later" }
+license = "AGPL-3.0-or-later"
+license-files = ["LICENSE"]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Environment :: Web Environment",
   "Intended Audience :: Science/Research",
-  "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
   "Operating System :: OS Independent",
   "Programming Language :: Python",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3 :: Only",
-  "Programming Language :: Python :: 3.10",
-  "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
   "Topic :: Scientific/Engineering",
 ]
 dynamic = ["version"]
@@ -73,7 +84,8 @@ dependencies = [
 calliope-studio = "calliope_studio.cli:main"
 
 [project.urls]
-website = "https://www.callio.pe/"
+homepage = "https://github.com/sjpfenninger/calliope-studio"
+calliope = "https://www.callio.pe/"
 repository = "https://github.com/sjpfenninger/calliope-studio"
 documentation = "https://github.com/sjpfenninger/calliope-studio#readme"
 issues = "https://github.com/sjpfenninger/calliope-studio/issues"
@@ -93,9 +105,6 @@ include = ["calliope_studio*"]
 # `calliope-studio` can serve the frontend from the same process as the API.
 calliope_studio = ["server/static/**"]
 
-[tool.setuptools]
-license-files = ["LICENSE"]
-
 [tool.pixi.workspace]
 channels = ["conda-forge"]
 # Who can *develop* and what CI can run, not who can install: the wheel is
@@ -107,7 +116,7 @@ platforms = ["linux-64", "osx-64", "osx-arm64", "win-64"]
 [tool.pixi.dependencies]
 # Binary dependencies come from conda-forge; calliope (pre-release, PyPI-only)
 # and pure-Python deps are resolved by uv via the editable self-install below.
-python = ">=3.10,<3.13"
+python = ">=3.12,<3.14"
 fastapi = ">=0.115"
 uvicorn = ">=0.34"
 pyarrow = ">=17"
@@ -234,7 +243,7 @@ publish-check = { cmd = "twine check dist/*", depends-on = ["build"] }
 line-length = 88
 # Spelled out rather than inferred from `requires-python`, so that raising the
 # floor there does not silently change how code is formatted.
-target-version = "py310"
+target-version = "py312"
 # The frozen v0.2.0 sources. Their value is being byte-identical to the tag, so
 # reformatting them would quietly break the provenance claim in their README
 # without changing any behaviour. `force-exclude` because `format` and `lint`

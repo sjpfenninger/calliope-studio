@@ -12,7 +12,16 @@ a conda package serving a blank page to everyone who installed it that way —
 which, since the conda route is the one that brings a solver, is the route this
 project most wants people to take.
 
-Run by `pixi run build` after the artefacts are made.
+Given a version argument it also asserts the artefacts carry it, which is the
+release's guard against a different silent failure: setuptools-scm does not
+raise when it cannot read git, it falls back to `fallback_version`. A release
+job whose checkout lost its tags therefore builds `0.1.0.dev0`, uploads it
+happily, and burns a version number that PyPI will never accept again. Nothing
+in the build says anything is wrong, because from setuptools-scm's point of
+view nothing is.
+
+Run by `pixi run build` after the artefacts are made, and again by the release
+workflow with the tag it is publishing.
 """
 
 import sys
@@ -49,6 +58,42 @@ def _sdist_names(path: Path) -> list[str]:
     return stripped
 
 
+def _metadata_version(path: Path) -> str | None:
+    """The `Version:` field recorded inside an artefact, or None if absent.
+
+    Read out of the metadata rather than parsed off the filename. The filename
+    is *derived* from this field and normalised on the way, so the metadata is
+    the thing that actually gets published and the thing worth asserting on.
+    """
+    if path.name.endswith(".whl"):
+        with zipfile.ZipFile(path) as archive:
+            names = [n for n in archive.namelist() if n.endswith(".dist-info/METADATA")]
+            if not names:
+                return None
+            text = archive.read(names[0]).decode()
+    else:
+        with tarfile.open(path) as archive:
+            # The top-level PKG-INFO, not one belonging to a nested egg-info.
+            names = [
+                n
+                for n in archive.getnames()
+                if n.count("/") == 1 and n.endswith("/PKG-INFO")
+            ]
+            if not names:
+                return None
+            handle = archive.extractfile(names[0])
+            if handle is None:
+                return None
+            text = handle.read().decode()
+
+    for line in text.splitlines():
+        if not line.strip():
+            break  # End of the headers; the long description follows.
+        if line.startswith("Version:"):
+            return line.split(":", 1)[1].strip()
+    return None
+
+
 def check(path: Path) -> list[str]:
     """Returns the problems found in one built artefact.
 
@@ -75,7 +120,20 @@ def check(path: Path) -> list[str]:
     return problems
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    """Checks `dist/`, optionally against an expected version.
+
+    Args:
+        argv: Arguments after the program name. A single optional element, the
+            version every artefact must declare — the release workflow passes
+            the tag it is publishing, with the leading `v` stripped.
+    """
+    args = sys.argv[1:] if argv is None else argv
+    if len(args) > 1:
+        print(f"Usage: check_dist.py [expected-version]; got {args}", file=sys.stderr)
+        return 2
+    expected = args[0] if args else None
+
     dist = Path("dist")
     wheels = sorted(dist.glob("*.whl"))
     sdists = sorted(dist.glob("*.tar.gz"))
@@ -90,17 +148,37 @@ def main() -> int:
 
     artefacts = wheels + sdists
     problems = [problem for path in artefacts for problem in check(path)]
+
+    if expected is not None:
+        for path in artefacts:
+            found = _metadata_version(path)
+            if found is None:
+                problems.append(f"{path.name}: no Version in its metadata")
+            elif found != expected:
+                problems.append(
+                    f"{path.name}: declares version {found}, expected {expected}"
+                )
     if problems:
         for problem in problems:
             print(problem, file=sys.stderr)
-        print(
-            "\nBuild the frontend first: pixi run web-build, or use pixi run build.",
-            file=sys.stderr,
-        )
+        if any(
+            "interface" in problem or "bundled files" in problem for problem in problems
+        ):
+            print(
+                "\nBuild the frontend first: pixi run web-build, or use pixi run build.",
+                file=sys.stderr,
+            )
+        if any("expected" in problem for problem in problems):
+            print(
+                "\nsetuptools-scm falls back to `fallback_version` rather than "
+                "failing when it cannot read git — check the checkout has tags.",
+                file=sys.stderr,
+            )
         return 1
 
     for path in artefacts:
-        print(f"{path.name}: interface bundled")
+        suffix = f", version {expected}" if expected is not None else ""
+        print(f"{path.name}: interface bundled{suffix}")
     return 0
 
 

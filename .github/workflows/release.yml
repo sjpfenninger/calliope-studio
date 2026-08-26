@@ -36,6 +36,15 @@ jobs:
       - name: Build the wheel and sdist
         run: pixi run -e build build
 
+      # setuptools-scm does not raise when it cannot read git — it falls back to
+      # `fallback_version`. Under the `v0.1.0` tag that uploads `0.1.0.dev0`,
+      # burning a version number PyPI will never accept again, with nothing in
+      # the build saying anything was wrong. `fetch-depth: 0` above prevents the
+      # shallow-clone form of it; this asserts the outcome rather than the
+      # precondition, and covers every other way git could come back empty.
+      - name: The built version must be the tag
+        run: pixi run -e build python scripts/check_dist.py "${GITHUB_REF_NAME#v}"
+
       # The README is the PyPI long description, and a release cannot be
       # re-uploaded under the same version — so a description that fails to
       # render is permanent. Cheaper to find out here than on the live page.

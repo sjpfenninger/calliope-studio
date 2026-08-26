@@ -121,12 +121,22 @@ const EXECUTABLE =
  * Opens a page, and wires up the two things every check wants to know about:
  * console errors, and which frame requests went out.
  *
+ * `deviceScaleFactor` defaults to 1 because every check here reads geometry in
+ * CSS pixels and a check does not care how many device pixels are behind one.
+ * `screenshots.mjs` is the exception and asks for 2: a README image is looked
+ * at rather than measured, and at 1 the hairline borders this design language is
+ * mostly made of come out as grey mush.
+ *
  * @param {object} options
  * @param {{width: number, height: number}} [options.viewport]
+ * @param {number} [options.deviceScaleFactor]
  */
-export async function open({ viewport = { width: 1400, height: 1000 } } = {}) {
+export async function open({
+  viewport = { width: 1400, height: 1000 },
+  deviceScaleFactor = 1,
+} = {}) {
   const browser = await chromium.launch({ executablePath: EXECUTABLE, headless: true });
-  const page = await browser.newPage({ viewport });
+  const page = await browser.newPage({ viewport, deviceScaleFactor });
 
   const consoleErrors = [];
   page.on("console", (message) => {

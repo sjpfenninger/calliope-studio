@@ -21,6 +21,7 @@
     "preview": "vite preview",
     "run-lifecycle": "node scripts/run-lifecycle.mjs",
     "save-check": "node scripts/save-check.mjs",
+    "screenshots": "node scripts/screenshots.mjs",
     "smoke": "node scripts/smoke.mjs",
     "smoke:charts": "node scripts/smoke-charts.mjs",
     "smoke:layout": "node scripts/smoke-layout.mjs",

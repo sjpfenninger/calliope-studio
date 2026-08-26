@@ -35,9 +35,17 @@ const RESULTS_KEYS = [
  * pane is up, the map has loaded its style, and the frames the first render
  * asked for have come back. All three are observable.
  */
-export async function openResults(base, { viewport, keepStorage = false } = {}) {
-  const harness = await open({ viewport: viewport ?? { width: 1400, height: 1100 } });
+export async function openResults(
+  base,
+  { viewport, keepStorage = false, theme, deviceScaleFactor } = {},
+) {
+  const harness = await open({
+    viewport: viewport ?? { width: 1400, height: 1100 },
+    deviceScaleFactor,
+  });
   const { page, testId, framesIdle, mapReady } = harness;
+
+  if (theme) await forceTheme(page, theme);
 
   await health(base);
 
@@ -58,6 +66,25 @@ export async function openResults(base, { viewport, keepStorage = false } = {}) 
 
   return harness;
 }
+
+/**
+ * Pins the theme for every navigation this page makes.
+ *
+ * An init script rather than a `setItem`, for two reasons. It re-runs on each
+ * navigation, so it survives the key clearing `openResults` does between its two
+ * `goto`s — `calliope-studio.theme` is in `RESULTS_KEYS`, and setting it before
+ * that would simply be undone. And `index.html`'s pre-paint guard reads the key
+ * in `<head>`, before the bundle parses: anything that runs later gets a light
+ * first frame, which a screenshot can catch and a check cannot.
+ */
+export const forceTheme = (page, theme) =>
+  page.addInitScript((value) => {
+    try {
+      localStorage.setItem("calliope-studio.theme", value);
+    } catch {
+      /* a blocked localStorage is the guard's own problem */
+    }
+  }, theme);
 
 /** The base URL a check was given, or the dev default. */
 export const baseFrom = (argv) => argv[2] ?? "http://127.0.0.1:8000";

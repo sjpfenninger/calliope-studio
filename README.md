@@ -2,6 +2,12 @@
 
 `Calliope Studio` is a web-based user interface for [Calliope](https://calliope.readthedocs.io/) energy system models. It covers the whole loop — **define → validate → run → analyse** — in a browser, and runs on your own machine: you start it from a terminal, it opens a tab, and nothing leaves your computer.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://sjpfenninger.github.io/calliope-studio/results-dark.png">
+  <img alt="The results view: a map of a solved model's nodes, sized and coloured by capacity, above a year-long time series of flows and a chart of totals by node"
+       src="https://sjpfenninger.github.io/calliope-studio/results-light.png">
+</picture>
+
 ## Install
 
 You need a way to install Python packages. If you have none, take the first route; if you already use conda, mamba or pixi, take the second.
@@ -56,6 +62,12 @@ calliope-studio my-model
 ```
 
 Or press **New model** on the picker, which does the same thing without a terminal.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://sjpfenninger.github.io/calliope-studio/editor-dark.png">
+  <img alt="The nodes editor: a model's nodes and transmission links drawn on a map, with one node selected and its parameters in a form below"
+       src="https://sjpfenninger.github.io/calliope-studio/editor-light.png">
+</picture>
 
 ## Using Gurobi
 

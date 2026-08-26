@@ -273,6 +273,18 @@ jobs:
         continue-on-error: true
         run: pixi run -- pnpm --dir web run run-lifecycle http://127.0.0.1:8791 || { touch .check-failed/run-lifecycle; exit 1; }
 
+      # The README's pictures, taken but not published — publishing happens on a
+      # tag, in its own workflow, and a selector that has moved should be found
+      # here rather than in the middle of cutting a release. Nearly free: it
+      # reuses the run `run-lifecycle` has just left in the model, so it solves
+      # nothing.
+      - name: README screenshots
+        continue-on-error: true
+        run: |
+          pixi run -- pnpm --dir web run screenshots http://127.0.0.1:8791 results /tmp/shots \
+            && pixi run -- pnpm --dir web run screenshots http://127.0.0.1:8791 editor /tmp/shots \
+            || { touch .check-failed/screenshots; exit 1; }
+
       # Not on what `run-lifecycle` just produced: smoke-charts asserts that
       # with nothing summed *no* technology colour is painted, and whether that
       # holds is a property of the model. `choose_index` puts techs on the index
@@ -300,6 +312,16 @@ jobs:
         with:
           name: browser-screenshots
           path: /tmp/calliope-studio-*.png
+          if-no-files-found: ignore
+
+      # The README's, always — the only way to see what a change did to them
+      # without cutting a release to find out.
+      - name: Keep the README screenshots
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: readme-screenshots
+          path: /tmp/shots/*.png
           if-no-files-found: ignore
 
   package:

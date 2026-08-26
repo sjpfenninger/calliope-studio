@@ -1,0 +1,142 @@
+name: Screenshots
+
+# The README's pictures, taken from the application and published to Pages.
+#
+# Tag-driven like the release, so what a reader sees is the version they can
+# install — and refreshable by hand, for when the pictures go stale between
+# releases rather than the code.
+#
+# Deliberately *not* a job inside release.yml. That workflow holds the OIDC
+# identity that can publish to PyPI as us and is kept narrow on purpose; a
+# browser, a solver and a second OIDC-consuming action have no business in it.
+# Separate also means a screenshot that fails cannot fail a release.
+#
+# It publishes nothing to git. `deploy-pages` serves an artifact directly, so
+# there is no gh-pages branch and no image blob in anybody's clone — which is
+# the whole reason this exists rather than a committed PNG.
+#
+# Needs Pages turned on once, by hand: Settings → Pages → Source: GitHub Actions.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Pages allows one deployment at a time, and a queued one is worth waiting for
+# rather than cancelling: the cancelled run is the one that took the pictures.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  capture:
+    name: Take the screenshots
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+      - uses: prefix-dev/setup-pixi@a09b6247153796b190642a2b53fac4241043cf6f # v0.10.0
+        with:
+          cache: true
+
+      - name: Install the frontend and build it into the package
+        run: pixi run web-build
+
+      # Matching the installer's version to playwright-core's is what makes
+      # `chromium.executablePath()` resolve to the one it just downloaded.
+      - name: Install Chromium
+        run: |
+          version=$(pixi run -- pnpm --dir web exec node -p "require('playwright-core/package.json').version")
+          pixi run -- pnpm --dir web dlx playwright@$version install --with-deps chromium
+          echo "CHROMIUM=$(pixi run -- pnpm --dir web exec node -e "console.log(require('playwright-core').chromium.executablePath())")" >> "$GITHUB_ENV"
+
+      - name: Scaffold a model to photograph
+        run: pixi run example
+
+      # `http-get://`, not `http://`: wait-on's `http://` scheme issues a HEAD,
+      # and `/api/health` answers GET only.
+      - name: Start the server on it
+        run: |
+          pixi run calliope-studio --no-browser --port 8791 example-model \
+            > server.log 2>&1 &
+          if ! pixi run -- pnpm dlx wait-on -t 120000 http-get://127.0.0.1:8791/api/health
+          then
+            echo "::group::server.log"
+            cat server.log || echo "(no server.log)"
+            echo "::endgroup::"
+            exit 1
+          fi
+
+      # The results shot first, because it is the one that solves — the editor
+      # shot then runs against a model that has a finished run in it, and the
+      # second theme of each reuses what the first did.
+      - name: Photograph the results view
+        run: pixi run -- pnpm --dir web run screenshots http://127.0.0.1:8791 results site
+
+      - name: Photograph the editor
+        run: pixi run -- pnpm --dir web run screenshots http://127.0.0.1:8791 editor site
+
+      # A 2× shot of a 1440×960 viewport is over a megabyte of PNG, and this is
+      # the first thing a README loads. Lossy, because the alternative at this
+      # size is a reader waiting; `|| true` because a missing binary is not worth
+      # failing a release over.
+      - name: Make them smaller
+        run: |
+          sudo apt-get install -y pngquant || true
+          for shot in site/*.png; do
+            pngquant --quality 70-95 --force --skip-if-larger --output "$shot" "$shot" || true
+          done
+          ls -la site/
+
+      # Pages serves a 404 at the root otherwise, which is a confusing thing for
+      # a URL in a README to be next door to.
+      - name: Write an index
+        run: |
+          cat > site/index.html <<'HTML'
+          <!doctype html>
+          <meta charset="utf-8">
+          <title>Calliope Studio — screenshots</title>
+          <meta name="robots" content="noindex">
+          <style>body{font:13px/1.6 system-ui,sans-serif;margin:3rem auto;max-width:60rem;padding:0 1rem}img{width:100%;border:1px solid #ddd;margin-bottom:2rem}</style>
+          <h1>Calliope Studio</h1>
+          <p>Screenshots taken from the running application, for the
+             <a href="https://github.com/sjpfenninger/calliope-studio">README</a>.
+             Regenerated on each release.</p>
+          <img src="results-light.png" alt="The results view: a map of nodes above a time series and a totals chart">
+          <img src="editor-light.png" alt="The nodes editor: a model's nodes on a map, with one selected and its parameters below">
+          HTML
+
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: site
+
+  deploy:
+    name: Publish to Pages
+    needs: capture
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0
+
+      # GitHub proxies every README image through camo and caches it hard, so
+      # without this the README shows the previous release's pictures for as long
+      # as camo feels like it. The camo URL is a hash of the source URL, so it
+      # does not change when the image behind it does — which is the whole
+      # problem. Never fatal: the pictures are already published by here.
+      - name: Purge the README's image cache
+        continue-on-error: true
+        run: |
+          curl -s https://github.com/${{ github.repository }} \
+            | grep -oE 'https://camo\.githubusercontent\.com/[a-f0-9]+/[a-f0-9]+' \
+            | sort -u \
+            | tee /dev/stderr \
+            | xargs -r -n1 curl -s -o /dev/null -X PURGE

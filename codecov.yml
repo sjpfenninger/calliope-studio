@@ -1,0 +1,39 @@
+# Two uploads reach this project from one commit: the `python` job in ci.yml
+# sends coverage.xml, the `web` job sends web/coverage/lcov.info. They measure
+# unrelated suites in unrelated languages, so they are kept apart as flags and
+# read as two numbers rather than averaged into one that means nothing.
+
+coverage:
+  status:
+    # Informational on purpose. The point of measuring is the badges in the
+    # README and being able to see a drop; making a merge wait on a percentage
+    # turns every honest refactor into an argument with a robot.
+    project:
+      default:
+        informational: true
+    patch:
+      default:
+        informational: true
+
+flags:
+  python:
+    paths:
+      - src/calliope_studio/
+    # Keeps a flag's last value when its job did not report. The workflow's
+    # concurrency group cancels in-progress runs, so a missing upload is
+    # routine rather than exceptional, and without this the flag would read as
+    # a total loss of coverage every time one is superseded.
+    carryforward: true
+  web:
+    paths:
+      - web/src/
+    carryforward: true
+
+# The pull request already shows the two statuses; a comment on top of them is
+# noise on a repository with one author.
+comment: false
+
+ignore:
+  # The frozen v0.2.0 sources, vendored to be byte-identical to the tag. Ruff
+  # force-excludes them for the same reason.
+  - tests/oracle/

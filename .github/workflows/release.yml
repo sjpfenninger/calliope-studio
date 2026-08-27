@@ -4,6 +4,23 @@ name: Release
 # nothing else. setuptools-scm derives the version from the tag, which is why
 # `fetch-depth: 0` below is not optional: a shallow clone has no tags and would
 # publish a `0.1.0.dev0` built from `fallback_version`.
+#
+# **The tag's shape picks the index.** `v0.1.0` goes to PyPI; anything else
+# matching `v*` — `v0.1.0rc1`, `v0.1.0b2`, a typo, a shape nobody anticipated —
+# goes to TestPyPI instead. The default is the rehearsal on purpose: a wasted
+# TestPyPI version costs nothing, and a burnt PyPI one cannot be reclaimed.
+#
+# A rehearsal has to be a *tag* rather than a branch build because of how this
+# project is versioned. setuptools-scm gives an untagged commit
+# `0.1.0.dev112+gce245c3b1`, and that `+g…` local segment is rejected outright
+# by both indexes — so there is no artefact to upload from a branch at all. An
+# rc tag yields a clean `0.1.0rc1` and exercises this file's every other step
+# exactly as a real release does.
+#
+# Tag with no separator: `v0.1.0rc1`, not `v0.1.0-rc1`. PEP 440 normalises the
+# latter to `0.1.0rc1` while the shell strip below yields `0.1.0-rc1`, so
+# `check_dist.py` fails on the mismatch. Safe — it stops before uploading — but
+# easier to know than to discover.
 on:
   push:
     tags: ["v*"]
@@ -12,14 +29,20 @@ permissions:
   contents: read
 
 jobs:
-  publish:
-    name: Build and publish to PyPI
+  # Holds no OIDC identity, which is the point of it being its own job.
+  # `pixi run -e build build` runs pnpm and third-party install scripts, and
+  # until this split it did so inside the job that could publish to PyPI as us.
+  # Nothing here can mint a token; nothing that can mint one builds anything.
+  build:
+    name: Build and check
     runs-on: ubuntu-latest
-    environment: pypi
+    # Stated at the job rather than left to the workflow default, so that the
+    # absence of `id-token` here is a visible property of this job.
     permissions:
-      # Trusted publishing: PyPI verifies this workflow's OIDC identity, so
-      # there is no API token in secrets to leak or rotate.
-      id-token: write
+      contents: read
+    outputs:
+      version: ${{ steps.tag.outputs.version }}
+      channel: ${{ steps.tag.outputs.channel }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -28,6 +51,23 @@ jobs:
       - uses: prefix-dev/setup-pixi@f00437f565399d418b0acc85936d12c1fb668347 # v0.10.1
         with:
           cache: true
+
+      # The router. Exactly three numeric components reaches PyPI and nothing
+      # else does, so the regex is anchored at both ends and the `else` branch
+      # is the safe one. The GitHub environments below cannot do this job:
+      # their tag protections are globs, so even `v*.*.*` matches `v0.1.0rc1`.
+      - name: Which index does this tag go to?
+        id: tag
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          if [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            channel=pypi
+          else
+            channel=testpypi
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "channel=$channel" >> "$GITHUB_OUTPUT"
+          echo "::notice::$GITHUB_REF_NAME builds $version for $channel"
 
       # Builds the frontend into the package first, then checks that both the
       # wheel *and* the sdist actually contain it. The sdist matters as much:
@@ -43,7 +83,7 @@ jobs:
       # shallow-clone form of it; this asserts the outcome rather than the
       # precondition, and covers every other way git could come back empty.
       - name: The built version must be the tag
-        run: pixi run -e build python scripts/check_dist.py "${GITHUB_REF_NAME#v}"
+        run: pixi run -e build python scripts/check_dist.py "${{ steps.tag.outputs.version }}"
 
       # The README is the PyPI long description, and a release cannot be
       # re-uploaded under the same version — so a description that fails to
@@ -51,10 +91,137 @@ jobs:
       - name: Check the artefacts render
         run: pixi run -e build twine check dist/*
 
+      # Handed to the publish jobs rather than rebuilt there, so that what is
+      # uploaded is provably the artefact these checks just passed.
+      - name: Keep the artefacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: dist
+          path: dist/
+          retention-days: 1
+
+  publish-pypi:
+    name: Publish to PyPI
+    needs: build
+    if: needs.build.outputs.channel == 'pypi'
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      # Trusted publishing: PyPI verifies this workflow's OIDC identity, so
+      # there is no API token in secrets to leak or rotate.
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: dist
+          path: dist/
+
       - name: Publish
-        # Pinned by commit SHA, like every other action here: this is the one
-        # workflow holding an OIDC identity, so a retagged action would be
+        # Pinned by commit SHA, like every other action here: this is one of the
+        # two jobs holding an OIDC identity, so a retagged action would be
         # shipping new code straight into the job that can publish as us.
         uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
         with:
           attestations: true
+
+  publish-testpypi:
+    name: Publish to TestPyPI
+    needs: build
+    if: needs.build.outputs.channel == 'testpypi'
+    runs-on: ubuntu-latest
+    environment: testpypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: dist
+          path: dist/
+
+      - name: Publish
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          attestations: true
+
+  # What the rehearsal is actually for: the artefact came back off an index and
+  # still works. `ci.yml`'s `package` → `interpreters` jobs already prove the
+  # built wheel installs and runs, so the only thing left to establish is that
+  # uploading it did not change that.
+  verify-testpypi:
+    name: Install it back from TestPyPI
+    needs: [build, publish-testpypi]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      # Exactly one file comes from TestPyPI; every dependency resolves from
+      # real PyPI, the way a user's install does.
+      #
+      # Deliberately not `--extra-index-url` or uv's `unsafe-best-match`.
+      # calliope, fastapi, pyarrow and pandas are not on TestPyPI, so a resolve
+      # against it needs a second index — and every mechanism for that merges
+      # the two namespaces, making whatever anyone has uploaded to TestPyPI as
+      # `fastapi` a candidate. Naming the wheel's URL avoids the question.
+      #
+      # The retry is polling an external index, which is the one case a sleep is
+      # the right tool: TestPyPI's JSON API 404s until the upload is indexed, so
+      # this doubles as the check that it landed at all.
+      # The two failures are separated because only one of them is about time.
+      # Not indexed yet is worth waiting on; indexed with no wheel in it never
+      # becomes true however long you wait, so it fails on the first look with
+      # the file types that *were* there. TestPyPI holds real examples of the
+      # second — `calliope` 0.6.9 is sdist-only.
+      - name: Find the published wheel
+        id: wheel
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          for _ in $(seq 1 20); do
+            if curl -sf "https://test.pypi.org/pypi/calliope-studio/${VERSION}/json" -o release.json; then
+              break
+            fi
+            sleep 15
+          done
+          if [ ! -s release.json ]; then
+            echo "::error::calliope-studio $VERSION never appeared on TestPyPI"
+            exit 1
+          fi
+          # The metadata goes through a file rather than a pipe on purpose:
+          # `... | python - <<'EOF'` hands python the *heredoc* as stdin, so the
+          # program is read from there and `sys.stdin` is already at EOF by the
+          # time the script runs. The pipe never arrives.
+          url=$(python - release.json <<'EOF'
+          import json, sys
+          urls = json.load(open(sys.argv[1]))["urls"]
+          wheels = [u["url"] for u in urls if u["packagetype"] == "bdist_wheel"]
+          if not wheels:
+              found = ", ".join(sorted({u["packagetype"] for u in urls})) or "nothing"
+              sys.exit(f"published, but with no wheel in it — found {found}")
+          print(wheels[0])
+          EOF
+          )
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          echo "::notice::found $url"
+
+      - name: Install it
+        run: pip install "${{ steps.wheel.outputs.url }}"
+
+      # `--help` is an eager click option, so it prints and exits before `main`
+      # binds a socket or opens a browser. The interface check is the one
+      # `check_dist.py` makes about the *built* artefact, made again about the
+      # *installed* one — which is what would catch an upload that arrived
+      # mangled, and is the whole reason a blank-page release is possible.
+      - name: Run it, and confirm the interface survived the round trip
+        run: |
+          calliope-studio --help
+          python - <<'EOF'
+          import pathlib, sys
+          import calliope_studio, calliope_studio.server as server
+          index = pathlib.Path(server.__file__).parent / "static" / "index.html"
+          if not index.is_file():
+              sys.exit("no interface in the published wheel")
+          print("calliope-studio", calliope_studio.__version__, "installs and serves an interface")
+          EOF

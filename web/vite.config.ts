@@ -38,6 +38,19 @@ export default defineConfig({
       { find: /^monaco-editor$/, replacement: "/src/test-stubs/browserOnly.ts" },
       { find: /^.*\?worker$/, replacement: "/src/test-stubs/browserOnly.ts" },
     ],
+    coverage: {
+      provider: "v8",
+      // `lcov` is what the Codecov upload in ci.yml reads; `text` is for the
+      // person who ran it.
+      reporter: ["text", "lcov"],
+      // Everything the app ships, including the components no unit test
+      // reaches. The browser checks in `scripts/` exercise a great many of them
+      // and contribute nothing here, so this number reads low on purpose —
+      // narrowing the denominator to the layers that are unit-tested by design
+      // would be a flattering measurement of a different thing.
+      include: ["src/**/*.{ts,vue}"],
+      exclude: ["src/**/*.d.ts", "src/**/*.test.ts", "src/test-setup.ts", "src/test-stubs/**"],
+    },
   },
   server: {
     port: 5173,

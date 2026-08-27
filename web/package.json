@@ -31,6 +31,7 @@
     "source-link": "node scripts/source-link.mjs",
     "tab-drag": "node scripts/tab-drag.mjs",
     "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
     "token-check": "node scripts/token-check.mjs",
     "tree-search": "node scripts/tree-search.mjs"
   },
@@ -63,6 +64,7 @@
     "@tailwindcss/vite": "^4.3.3",
     "@types/geojson": "^7946.0.16",
     "@vitejs/plugin-vue": "^6.0.8",
+    "@vitest/coverage-v8": "^4.1.11",
     "@vue/test-utils": "^2.4.11",
     "happy-dom": "^20.11.6",
     "oxlint": "^1.79.0",

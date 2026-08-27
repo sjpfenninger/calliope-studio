@@ -38,7 +38,24 @@ jobs:
       - name: Solve the example models
         run: pixi run solve-examples
       - name: Test
-        run: pixi run test
+        run: pixi run test-cov
+
+      # `fail_ci_if_error` stays false, which is the action's own default and
+      # deliberate here: `secrets.CODECOV_TOKEN` is not readable by a
+      # Dependabot-triggered run unless the same value is also stored under the
+      # repository's *Dependabot* secrets, so a strict upload would turn every
+      # dependency PR red over something that is not a test failure. A Codecov
+      # outage should not gate a merge either.
+      - name: Upload coverage
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
+        with:
+          files: coverage.xml
+          flags: python
+          # The report names exactly one file, so searching the tree for others
+          # can only find something unintended.
+          disable_search: true
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
 
   web:
     name: Frontend
@@ -61,7 +78,24 @@ jobs:
       - name: Audit
         run: pixi run web-audit
       - name: Test
-        run: pixi run -- pnpm --dir web test
+        run: pixi run -- pnpm --dir web run test:coverage
+
+      # vitest writes lcov paths relative to `web/`, so the report says
+      # `src/App.vue` where the repository says `web/src/App.vue`. Codecov
+      # resolves that by matching the report path against its file network, and
+      # `network_filter` is what makes the match unambiguous: without it the
+      # network also holds the Python `src/`, and the two trees are one bad
+      # guess apart. See the `python` job above for `fail_ci_if_error`.
+      - name: Upload coverage
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
+        with:
+          files: web/coverage/lcov.info
+          flags: web
+          network_filter: web/
+          disable_search: true
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
+
       - name: Build
         run: pixi run web-build
 

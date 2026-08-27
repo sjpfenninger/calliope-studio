@@ -144,6 +144,9 @@ gurobi = { features = ["dev", "gurobi"] }
 [tool.pixi.feature.dev.dependencies]
 ruff = "*"
 pytest = "*"
+# Only the `test-cov` task uses it; `test` stays uninstrumented. See the note
+# on that task below for why the two are separate.
+pytest-cov = "*"
 # Pins the frontend toolchain into pixi.lock alongside everything else. The
 # conda package depends on nodejs, so this one line fixes both the package
 # manager and the Node version — which were previously pinned only inside CI,
@@ -184,11 +187,30 @@ gurobi = "*"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 
+[tool.coverage.run]
+source = ["src/calliope_studio"]
+# Paths in the report are written relative to the repository root rather than
+# absolute into the pixi environment, which is what lets Codecov attribute a
+# line to a file in the tree. Without it every path is `/home/runner/work/...`
+# and the report matches nothing.
+relative_files = true
+
+[tool.coverage.report]
+# Neither is reachable at runtime, and both otherwise read as a genuine miss.
+exclude_also = ["if TYPE_CHECKING:", "raise NotImplementedError"]
+
 [tool.pixi.tasks]
 lint = "ruff check src/ tests/"
 format = "ruff format src/ tests/"
 format-check = "ruff format --check src/ tests/"
 test = "pytest"
+# Separate from `test` rather than `--cov` in `addopts`, which would apply to
+# every invocation. The Windows CI job runs `test` with eleven `--ignore=`
+# paths, so instrumenting it there would produce a partial report that Codecov
+# would then merge into the complete one from Linux — a coverage number that
+# drops whenever a deliberately-excluded file changes. Only the Linux job
+# measures, and it measures the whole suite.
+test-cov = "pytest --cov --cov-report=xml --cov-report=term-missing"
 
 # Frontend. `web-build` compiles the Vue bundle into the Python package so that
 # a wheel serves the UI from the same process as the API.

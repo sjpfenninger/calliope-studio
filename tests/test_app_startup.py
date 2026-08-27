@@ -12,6 +12,7 @@ from urllib.parse import urlparse
 
 import click
 import pytest
+from click.testing import CliRunner
 from fastapi.testclient import TestClient
 
 import calliope_studio.cli as cli_module
@@ -215,6 +216,26 @@ class TestCli:
         )
         assert "reload_args" in recorded
         assert recorded["reload_args"]["reload"] is True
+
+    def test_version_agrees_with_what_the_running_app_reports(
+        self, national_scale, storage
+    ):
+        """`--version` and `/api/health` must not be able to drift apart.
+
+        Both are answers to the same question asked in two places, and click
+        offers its own `package_name=` lookup that would read
+        `importlib.metadata` a second time — including disagreeing about the
+        failure case, where the package returns "0.0.0" for a source tree with
+        no metadata and click raises. Asserting they are equal is what stops
+        anyone reaching for that convenience later.
+        """
+        result = CliRunner().invoke(cli_module.main, ["--version"])
+        assert result.exit_code == 0
+
+        with TestClient(create_app(national_scale, storage)) as client:
+            reported = client.get("/api/health").json()["app_version"]
+
+        assert result.output.strip() == f"calliope-studio, version {reported}"
 
 
 class TestTerminalIsQuiet:

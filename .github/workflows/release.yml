@@ -209,19 +209,38 @@ jobs:
       - name: Install it
         run: pip install "${{ steps.wheel.outputs.url }}"
 
-      # `--help` is an eager click option, so it prints and exits before `main`
-      # binds a socket or opens a browser. The interface check is the one
-      # `check_dist.py` makes about the *built* artefact, made again about the
-      # *installed* one — which is what would catch an upload that arrived
-      # mangled, and is the whole reason a blank-page release is possible.
+      # `--help` and `--version` are eager click options, so they print and exit
+      # before `main` binds a socket or opens a browser.
+      #
+      # The import list is `ci.yml`'s `interpreters` job, deliberately — that
+      # one proves the wheel *we built* imports, and this one proves the same of
+      # the artefact that came back off an index, under whatever the dependency
+      # resolution gave a user today. Importing only `calliope_studio` would
+      # miss a numpy/pandas ABI break entirely, since nothing in this package
+      # pulls the scientific stack in at import time.
+      #
+      # The interface check is the one `check_dist.py` makes about the *built*
+      # artefact, made again about the *installed* one — which is what would
+      # catch an upload that arrived mangled, and is the whole reason a
+      # blank-page release is possible.
       - name: Run it, and confirm the interface survived the round trip
         run: |
           calliope-studio --help
+          calliope-studio --version
           python - <<'EOF'
           import pathlib, sys
-          import calliope_studio, calliope_studio.server as server
+          import calliope, calliope_studio, netCDF4, numpy, pandas, pyarrow, xarray
+          import calliope_studio.server as server
+          from calliope_studio.server.app import app
+
           index = pathlib.Path(server.__file__).parent / "static" / "index.html"
           if not index.is_file():
               sys.exit("no interface in the published wheel")
-          print("calliope-studio", calliope_studio.__version__, "installs and serves an interface")
+
+          print("studio  ", calliope_studio.__version__)
+          print("calliope", calliope.__version__)
+          print("pandas  ", pandas.__version__)
+          print("numpy   ", numpy.__version__)
+          print("xarray  ", xarray.__version__)
+          print("routes  ", len(app.routes))
           EOF

@@ -89,6 +89,7 @@ calliope = "https://www.callio.pe/"
 repository = "https://github.com/sjpfenninger/calliope-studio"
 documentation = "https://github.com/sjpfenninger/calliope-studio#readme"
 issues = "https://github.com/sjpfenninger/calliope-studio/issues"
+changelog = "https://github.com/sjpfenninger/calliope-studio/blob/main/CHANGELOG.md"
 
 [tool.setuptools_scm]
 # What the version is with no tags at all, which is this repository until

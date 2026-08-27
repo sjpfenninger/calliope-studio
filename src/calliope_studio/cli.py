@@ -13,6 +13,7 @@ from pathlib import Path
 
 import click
 
+import calliope_studio
 from calliope_studio.server.app import WORKSPACE_ENV_VAR
 
 #: How far to scan upward from the requested port before giving up. Opening a
@@ -28,6 +29,13 @@ PICKER_LANDING = "/projects"
 
 
 @click.command()
+# The version comes from the package rather than from click's own
+# `package_name=` lookup, which would read `importlib.metadata` a second time.
+# `/api/health` already reports `app_version` through the same attribute, and
+# two independent lookups are two things that can disagree — including in their
+# failure mode, where `__getattr__` returns "0.0.0" for a source tree with no
+# metadata and click raises instead.
+@click.version_option(version=calliope_studio.__version__, prog_name="calliope-studio")
 @click.argument(
     "path", type=click.Path(exists=True, path_type=Path), required=False, default=None
 )

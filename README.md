@@ -38,13 +38,11 @@ calliope-studio               # no argument opens Calliope Studio with a model p
 To quit Calliope Studio, close its terminal window or press Ctrl+C inside it.
 
 > [!IMPORTANT]
-> Calliope needs a solver to actually solve models.
->
-> Without one, you can still do most of what Studio is for: write and edit a model, validate it, browse its math, and open and analyse results somebody else solved. Pressing **Run** will fail.
+> Calliope needs a solver to actually solve models. You can still use Studio to edit a model or analyse results that somebody else solved, but pressing **Run** will fail without a solver. Refer to the [Calliope documentation](https://calliope.readthedocs.io/) for solver installation.
 
 ## FAQ
 
-- **Why does "Run" fail with a solver error?** See the note above: you probably have no solver installed. Refer to the Calliope documentation in order to install the necessary solvers. The config editor's `solver` field should be pre-populated with the ones available on your machine.
+- **Why does "Run" fail with a solver error?** See the note above: you probably have no solver installed.
 - **Why is the list of models wrong or outdated?** The list of models you have opened lives in a small registry file, separate from the models themselves. Its location is reported as `registry_path` by `http://127.0.0.1:8000/api/health` while Calliope Studio is running. Deleting it resets the list without actually touching any of your models.
 - **Where are model results stored?** When running a model from inside Calliope Studio, results are saved in a `calliope-studio/` folder next to the `model.yaml` file. This folder is created automatically when running a model for the first time and comes with its own `.gitignore` file.
 
@@ -53,12 +51,30 @@ To quit Calliope Studio, close its terminal window or press Ctrl+C inside it.
 Requires [pixi](https://pixi.sh/).
 
 ```shell
-pixi run serve      # API only, on :8000, with reload
-pixi run web-dev    # Vite dev server, proxying /api to :8000
-pixi run test       # the Python suite
+pixi run serve      # API on port 8000 with auto-reload
+pixi run web-dev    # Vite dev server, proxying /api to port 8000
 ```
 
-`pixi run build` produces a wheel and an sdist with the frontend compiled in.
+`serve` opens `./example-model`, scaffolding it from Calliope's `national_scale` template on first use.
+
+Try `pixi task list` to see all the available development tasks. Some relevant ones:
+
+- `pixi run solve-examples` solves both Calliope example models into `examples/nc_files/`. The data tests and the results smoke check read these files, and skip when they are absent.
+- `pixi run test` runs the Python test suite.
+- `pixi run -e build build` produces a wheel and an sdist with the frontend compiled in (the packaging tools live in the `build` environment).
+
+The frontend tests run from `web/`:
+
+```shell
+cd web
+pnpm test
+```
+
+Pixi is configured with a `gurobi` environment to test with Gurobi (needs a license):
+
+```shell
+pixi run -e gurobi calliope-studio my-model   # Gurobi available as a solver
+```
 
 ## License
 

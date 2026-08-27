@@ -200,17 +200,17 @@ relative_files = true
 exclude_also = ["if TYPE_CHECKING:", "raise NotImplementedError"]
 
 [tool.pixi.tasks]
-lint = "ruff check src/ tests/"
-format = "ruff format src/ tests/"
-format-check = "ruff format --check src/ tests/"
-test = "pytest"
+lint = { cmd = "ruff check src/ tests/", description = "Lint the Python sources with ruff" }
+format = { cmd = "ruff format src/ tests/", description = "Format the Python sources with ruff" }
+format-check = { cmd = "ruff format --check src/ tests/", description = "Check Python formatting without writing; what CI runs" }
+test = { cmd = "pytest", description = "Run the Python test suite" }
 # Separate from `test` rather than `--cov` in `addopts`, which would apply to
 # every invocation. The Windows CI job runs `test` with eleven `--ignore=`
 # paths, so instrumenting it there would produce a partial report that Codecov
 # would then merge into the complete one from Linux — a coverage number that
 # drops whenever a deliberately-excluded file changes. Only the Linux job
 # measures, and it measures the whole suite.
-test-cov = "pytest --cov --cov-report=xml --cov-report=term-missing"
+test-cov = { cmd = "pytest --cov --cov-report=xml --cov-report=term-missing", description = "Run the Python test suite with coverage; writes coverage.xml" }
 
 # Frontend. `web-build` compiles the Vue bundle into the Python package so that
 # a wheel serves the UI from the same process as the API.
@@ -220,44 +220,44 @@ test-cov = "pytest --cov --cov-report=xml --cov-report=term-missing"
 # local build and two of three CI jobs resolved floated versions instead of the
 # committed ones — which is how the tree drifted to axios 1.13 while
 # package.json still said ^1.8. Use `web-update` to move versions deliberately.
-web-install = { cmd = "pnpm install --frozen-lockfile", cwd = "web" }
-web-update = { cmd = "pnpm update --latest", cwd = "web" }
-web-build = { cmd = "pnpm run build", cwd = "web", depends-on = ["web-install"] }
-web-dev = { cmd = "pnpm dev", cwd = "web", depends-on = ["web-install"] }
-web-typecheck = { cmd = "pnpm exec vue-tsc --noEmit", cwd = "web", depends-on = ["web-install"] }
-web-lint = { cmd = "pnpm run lint", cwd = "web", depends-on = ["web-install"] }
+web-install = { cmd = "pnpm install --frozen-lockfile", cwd = "web", description = "Install frontend dependencies from the lockfile" }
+web-update = { cmd = "pnpm update --latest", cwd = "web", description = "Update frontend dependencies to their latest versions" }
+web-build = { cmd = "pnpm run build", cwd = "web", depends-on = ["web-install"], description = "Compile the Vue bundle into the Python package" }
+web-dev = { cmd = "pnpm dev", cwd = "web", depends-on = ["web-install"], description = "Vite dev server, proxying /api to port 8000" }
+web-typecheck = { cmd = "pnpm exec vue-tsc --noEmit", cwd = "web", depends-on = ["web-install"], description = "Type-check the frontend with vue-tsc" }
+web-lint = { cmd = "pnpm run lint", cwd = "web", depends-on = ["web-install"], description = "Lint the frontend with oxlint" }
 # Blocking, so a newly disclosed advisory fails the build rather than sitting
 # unnoticed. `--audit-level=high` because moderate findings in build-only
 # dependencies would otherwise make this a gate nobody reads.
-web-audit = { cmd = "pnpm audit --audit-level=high", cwd = "web" }
+web-audit = { cmd = "pnpm audit --audit-level=high", cwd = "web", description = "Audit frontend dependencies for high-severity advisories" }
 
 # A scratch model to develop against, so `serve` opens something real rather
 # than whatever directory it happened to start in. Gitignored; delete it to get
 # a clean one.
-example = "test -d example-model || calliope new example-model --template national_scale"
+example = { cmd = "test -d example-model || calliope new example-model --template national_scale", description = "Scaffold ./example-model from Calliope's national_scale template" }
 
 # The solved models the oracle tests and the results smoke check read. Distinct
 # from `example` above, which scaffolds a model *folder* to edit: this one
 # solves Calliope's two templates into examples/nc_files/. Idempotent, and
 # gitignored output — the point is that it is reproducible rather than
 # hand-placed, which is what used to make those tests skip in silence.
-solve-examples = "python scripts/make_examples.py"
+solve-examples = { cmd = "python scripts/make_examples.py", description = "Solve both Calliope example models into examples/nc_files/" }
 
 # API only, with reload. Pair with `web-dev` (Vite proxies /api to this).
-serve = { cmd = "uvicorn calliope_studio.server.app:app --reload --port 8000", env = { CALLIOPE_STUDIO_WORKSPACE = "example-model" }, depends-on = [
+serve = { cmd = "uvicorn calliope_studio.server.app:app --reload --port 8000", env = { CALLIOPE_STUDIO_WORKSPACE = "example-model" }, description = "API on port 8000 with auto-reload, opening ./example-model", depends-on = [
   "example",
 ] }
 
 # The check is not optional: `python -m build` succeeds without the frontend and
 # produces a wheel with no interface, which nothing notices until a browser is
 # pointed at it.
-build = { cmd = "python -m build && python scripts/check_dist.py", depends-on = [
+build = { cmd = "python -m build && python scripts/check_dist.py", description = "Wheel and sdist with the frontend compiled in; run with -e build", depends-on = [
   "web-build",
 ] }
 # What the release workflow's artefacts are checked with before they go up. A
 # PyPI release cannot be re-uploaded under the same version, so a long
 # description that fails to render is permanent.
-publish-check = { cmd = "twine check dist/*", depends-on = ["build"] }
+publish-check = { cmd = "twine check dist/*", depends-on = ["build"], description = "Check the built artefacts with twine; run with -e build" }
 
 # Ruff is both the linter and the formatter; there is deliberately no second
 # formatter to keep in step with it.

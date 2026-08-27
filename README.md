@@ -1,9 +1,9 @@
-# Calliope Studio
-
 [![PyPI](https://img.shields.io/pypi/v/calliope-studio?label=pypi)](https://pypi.org/project/calliope-studio/)
 [![Tests](https://img.shields.io/github/actions/workflow/status/sjpfenninger/calliope-studio/ci.yml?branch=main&label=tests)](https://github.com/sjpfenninger/calliope-studio/actions/workflows/ci.yml)
 [![Python coverage](https://img.shields.io/codecov/c/github/sjpfenninger/calliope-studio?flag=python&label=python%20coverage)](https://app.codecov.io/gh/sjpfenninger/calliope-studio?flags%5B0%5D=python)
 [![Web coverage](https://img.shields.io/codecov/c/github/sjpfenninger/calliope-studio?flag=web&label=web%20coverage)](https://app.codecov.io/gh/sjpfenninger/calliope-studio?flags%5B0%5D=web)
+
+# Calliope Studio
 
 `Calliope Studio` is a web-based user interface for the [Calliope](https://calliope.readthedocs.io/) energy system modelling framework.
 It lets you define, edit, validate, run, and analyse Calliope models, all in a single tool.
@@ -60,6 +60,6 @@ pixi run test       # the Python suite
 
 `pixi run build` produces a wheel and an sdist with the frontend compiled in.
 
-## Licence
+## License
 
 AGPL-3.0-or-later. See [LICENSE](https://github.com/sjpfenninger/calliope-studio/blob/main/LICENSE).

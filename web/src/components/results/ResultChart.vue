@@ -61,8 +61,18 @@ const props = withDefaults(
      * setting about the run view, and this component knows nothing about it.
      */
     precision?: number | null;
+    /**
+     * Registers the ECharts instance at `window.__cgCharts[name]`.
+     *
+     * The second sanctioned testing seam, after ModelMap's `__cgMap`, and for
+     * the same reason: the chart draws to a canvas, so its dataZoom has no
+     * element `data-testid` can reach — `dispatchAction` is the only honest way
+     * for a script to zoom it, and `getOption` the only way to check the zoom
+     * took. Last mounted wins per name, exactly as `__cgMap` behaves.
+     */
+    name?: string | null;
   }>(),
-  { labels: () => ({}), indexColors: null, unit: null, precision: null },
+  { labels: () => ({}), indexColors: null, unit: null, precision: null, name: null },
 );
 
 const unit = computed(() => props.unit ?? NO_UNIT);
@@ -324,6 +334,13 @@ function mount() {
   chart.value = echarts.init(container.value, ensureTheme(ui.revision), {
     renderer: "canvas",
   });
+  // Registration lives here rather than in `onMounted` so a theme rebuild,
+  // which disposes and calls `mount()` again, points the seam at the fresh
+  // instance rather than at one that no longer draws.
+  if (props.name) {
+    const global = window as unknown as { __cgCharts?: Record<string, echarts.ECharts> };
+    (global.__cgCharts ??= {})[props.name] = chart.value;
+  }
   render();
 }
 
@@ -336,6 +353,10 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   observer?.disconnect();
+  const global = window as unknown as { __cgCharts?: Record<string, echarts.ECharts> };
+  if (props.name && global.__cgCharts?.[props.name] === chart.value) {
+    delete global.__cgCharts[props.name];
+  }
   chart.value?.dispose();
   chart.value = null;
 });

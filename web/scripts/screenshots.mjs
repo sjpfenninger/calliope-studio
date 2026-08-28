@@ -4,8 +4,17 @@
  *   pixi run calliope-studio --no-browser --port 8791 example-model
  *   pnpm run screenshots http://127.0.0.1:8791 results out/
  *   pnpm run screenshots http://127.0.0.1:8791 editor  out/
+ *   pnpm run screenshots http://127.0.0.1:8791 showcase out/ 2018-01-15
  *
- * Both modes want the same server: a workspace, with a model in it.
+ * All modes want the same server: a workspace, with a model in it. `results`
+ * and `editor` are what CI publishes, from the example model. `showcase` is
+ * local-only and stricter: it photographs a real model — one whose solve takes
+ * Gurobi minutes, so it refuses to start one — with the run tab open among the
+ * model's own tabs, the Map layout, pies of flow_cap, and the time series
+ * zoomed to the week named by the fourth argument. It drives the zoom through
+ * `window.__cgCharts`, the second sanctioned seam past `data-testid` after
+ * `__cgMap`, and for the same reason: the chart is a canvas, so the dataZoom
+ * has no element to reach.
  *
  * A browser check in every respect except that it asserts almost nothing: it
  * drives the app to a state worth photographing and writes a PNG. It is here
@@ -32,11 +41,15 @@ import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 
 import { health, open, requireMode, trackRequests, until } from "./harness.mjs";
-import { figureGeometry, forceTheme } from "./results-page.mjs";
+import { figureBox, figureGeometry, forceTheme, isCollapsedCard } from "./results-page.mjs";
 
 const BASE = process.argv[2] ?? "http://127.0.0.1:8000";
 const MODE = process.argv[3] ?? "results";
 const OUT = process.argv[4] ?? "screenshots";
+
+/** The week the showcase zooms to; any start the model's data covers works. */
+const WEEK_START = process.argv[5] ?? "2018-01-15";
+const WEEK_DAYS = 7;
 
 /**
  * Wider than it is tall, because a README renders it into a column.
@@ -101,42 +114,8 @@ async function results(theme) {
 
   const calls = trackRequests(page, (request) => request.url().includes("/api/"));
 
-  await page.goto(`${BASE}${payload.landing}`, { waitUntil: "domcontentloaded" });
-  await page.getByRole("link", { name: "Runs" }).click();
-  await testId("start-run").waitFor({ timeout: 30000 });
-
-  // The list arrives after the button does, and asking before it lands reads as
-  // "no runs" — which is how the second theme came to solve the model a second
-  // time, for three minutes, to photograph a run that was already sitting there.
-  await calls.idle();
-
-  const solved = page
-    .locator('[data-testid="run-item"]')
-    .filter({ has: page.locator('[data-status="success"]') })
-    .first();
-
-  if (await solved.count()) {
-    // The row is a `div`; the name inside it is the button that opens the run.
-    // And a run opened from the list lands on its *log* — only a live one moves
-    // itself to the charts when the handle arrives, so waiting for the charts
-    // without asking for them waits for something that will never happen.
-    await solved.locator('[data-testid="run-open"]').click();
-    const graphs = testId("run-subtab-results");
-    await graphs.waitFor({ timeout: 60000 });
-    await graphs.click();
-    await testId("run-results").waitFor({ timeout: 120000 });
-  } else {
-    // Solves for real, so it takes as long as the model does; the tab opens on
-    // the log and moves itself to the charts when the handle arrives, which is
-    // the only thing worth waiting for.
-    console.log("  no finished run to photograph; solving one");
-    await testId("start-run").click();
-    await testId("run-results").waitFor({ timeout: 600000 });
-  }
-
-  await page.locator("canvas").first().waitFor({ timeout: 60000 });
-  await mapReady().catch(() => false);
-  await framesIdle();
+  await openFinishedRun(page, testId, calls, payload, { solveIfMissing: true });
+  await chartsReady(page, mapReady, framesIdle);
 
   await compose(page, testId, framesIdle);
 
@@ -148,6 +127,71 @@ async function results(theme) {
   report(`results-${theme}`, consoleErrors);
   await shoot(page, `results-${theme}`);
   await browser.close();
+}
+
+/**
+ * Opens the Graphs view of a finished run, going in through the Runs list so
+ * the sidebar holds the list — part of the picture.
+ *
+ * `runId` narrows to one specific row; without it the first successful run
+ * wins. Only `solveIfMissing` may pay for a solve, and only `results` asks for
+ * it — the showcase photographs models whose solve takes minutes.
+ */
+async function openFinishedRun(page, testId, calls, payload, { runId = null, solveIfMissing = false } = {}) {
+  await page.goto(`${BASE}${payload.landing}`, { waitUntil: "domcontentloaded" });
+  await page.getByRole("link", { name: "Runs" }).click();
+  await testId("start-run").waitFor({ timeout: 30000 });
+
+  // The list arrives after the button does, and asking before it lands reads as
+  // "no runs" — which is how the second theme came to solve the model a second
+  // time, for three minutes, to photograph a run that was already sitting there.
+  await calls.idle();
+
+  const solved = (runId
+    ? page.locator(`[data-testid="run-item"][data-run-id="${runId}"]`)
+    : page
+        .locator('[data-testid="run-item"]')
+        .filter({ has: page.locator('[data-status="success"]') })
+  ).first();
+
+  if (await solved.count()) {
+    // The row is a `div`; the name inside it is the button that opens the run.
+    // And a run opened from the list lands on its *log* — only a live one moves
+    // itself to the charts when the handle arrives, so waiting for the charts
+    // without asking for them waits for something that will never happen.
+    await solved.locator('[data-testid="run-open"]').click();
+    const graphs = testId("run-subtab-results");
+    await graphs.waitFor({ timeout: 60000 });
+    await graphs.click();
+    await testId("run-results").waitFor({ timeout: 120000 });
+  } else if (solveIfMissing) {
+    // Solves for real, so it takes as long as the model does; the tab opens on
+    // the log and moves itself to the charts when the handle arrives, which is
+    // the only thing worth waiting for.
+    console.log("  no finished run to photograph; solving one");
+    await testId("start-run").click();
+    await testId("run-results").waitFor({ timeout: 600000 });
+  } else {
+    problems.push("the run to photograph is not in the list");
+  }
+}
+
+/** The pieces every shot of the results view waits on before composing. */
+async function chartsReady(page, mapReady, framesIdle) {
+  await page.locator("canvas").first().waitFor({ timeout: 60000 });
+  await mapReady().catch(() => false);
+  await framesIdle();
+}
+
+/**
+ * A select that has just closed leaves a popper animating, and it photographs
+ * as a grey smear over whatever is under it.
+ */
+async function closePoppers(page) {
+  await until(
+    async () => (await page.locator("[data-radix-popper-content-wrapper]").count()) === 0,
+    { timeout: 5000 },
+  );
 }
 
 /**
@@ -172,13 +216,7 @@ async function results(theme) {
 async function compose(page, testId, framesIdle) {
   await pickResolution(page, testId, framesIdle);
   await colourTheMap(page, testId, framesIdle);
-
-  // A select that has just closed leaves a popper animating, and it photographs
-  // as a grey smear over whatever is under it.
-  await until(
-    async () => (await page.locator("[data-radix-popper-content-wrapper]").count()) === 0,
-    { timeout: 5000 },
-  );
+  await closePoppers(page);
 }
 
 /** The unresampled series, if this model offers one. */
@@ -223,6 +261,276 @@ async function colourTheMap(page, testId, framesIdle) {
   if ((await colour.innerText()).trim() !== label) {
     problems.push("the map's colour channel did not take");
   }
+}
+
+/**
+ * The tab bar the showcase photographs, as the ids `stores/tabs.ts` persists.
+ *
+ * These name files inside the model being photographed — written for the NLD
+ * NUTS3 model, which is what this mode exists for — so they go stale if that
+ * model is rearranged. The tab-bar count check in `showcase` is what notices:
+ * `restore()` skips an id it cannot parse without a sound, and a thinner tab
+ * bar photographs as fine.
+ */
+const SHOWCASE_TABS = [
+  `section:techs:${encodeURIComponent("model_config/techs.yaml")}`,
+  `section:data_tables:${encodeURIComponent("model.yaml")}`,
+  `file:${encodeURIComponent("tabular-data/timeseries/demand.csv")}`,
+];
+
+/**
+ * Where the showcase points the map: the central band of the Netherlands,
+ * where the NUTS3 pies cluster. The fitted bounds frame every node, and the
+ * import nodes off Norway and Denmark stretch that to half of Europe — a wide
+ * shot of a blob. Framing the cluster crops them, which is the better trade.
+ */
+const SHOWCASE_MAP = { center: [5.15, 52.1], zoom: 7.5 };
+
+/** The demand series dwarfs the supply mix in every figure, so it sits out. */
+const SHOWCASE_HIDE = { section: "demand", tech: "demand_electricity" };
+
+/**
+ * The newest finished run, from the API rather than the DOM, before any
+ * browser opens. No run means exit 2 — the wrong-environment code, alongside
+ * `requireMode` — rather than a solve: this mode photographs models that take
+ * Gurobi minutes, and the theme loop would pay for the solve twice.
+ */
+async function newestFinishedRun(payload) {
+  const res = await fetch(`${BASE}/api/versions/${payload.workspace_id}/runs/`);
+  const runs = res.ok ? await res.json() : [];
+  const done = runs
+    .filter((run) => run.status === "success" && run.results_handle)
+    .sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
+  if (!done.length) {
+    console.error(
+      `No finished run at ${BASE} to photograph; start one by hand first — the showcase never solves.`,
+    );
+    process.exit(2);
+  }
+  return done[0].id;
+}
+
+/**
+ * The results view arranged to be looked at: Map layout, pies of flow_cap,
+ * one week of hourly flows, and a tab bar that shows a model being worked on.
+ *
+ * The tabs are seeded through the store's own persistence rather than clicked
+ * open, because opening the techs editor and a CSV grid costs seconds each and
+ * their content is never on screen — only their tabs are. No `?tab=` anywhere:
+ * the URL query beats the seeded active id.
+ */
+async function showcase(theme) {
+  const payload = requireMode(await health(BASE), "workspace", BASE);
+  const runId = await newestFinishedRun(payload);
+
+  const { browser, page, testId, stable, mapReady, framesIdle, consoleErrors } =
+    await open({ viewport: VIEWPORT, deviceScaleFactor: 2 });
+  await forceTheme(page, theme);
+
+  const runTab = `run:${encodeURIComponent(runId)}`;
+  await page.addInitScript(
+    ({ key, value }) => localStorage.setItem(key, value),
+    {
+      key: `calliope-studio.tabs.${payload.workspace_id}`,
+      value: JSON.stringify({ tabs: [...SHOWCASE_TABS, runTab], active: runTab }),
+    },
+  );
+
+  const calls = trackRequests(page, (request) => request.url().includes("/api/"));
+
+  await openFinishedRun(page, testId, calls, payload, { runId });
+  await chartsReady(page, mapReady, framesIdle);
+
+  // The counts are what notice a seeded id going stale, and one run tab is
+  // what proves the list opened the *seeded* tab rather than minting a second.
+  if ((await page.locator('[data-testid="tab-run"]').count()) !== 1) {
+    problems.push("the run tab was seeded once but is not alone in the bar");
+  }
+  if (!(await page.locator('[data-testid="tab-run"][data-active]').count())) {
+    problems.push("the run tab is not the active one");
+  }
+  if (
+    (await page.locator('[data-testid="tab-section"]').count()) !== 2 ||
+    (await page.locator('[data-testid="tab-file"]').count()) !== 1
+  ) {
+    problems.push("a seeded tab went missing — its path no longer names a file in this model");
+  }
+
+  await testId("results-layout-map").click();
+  await stable(() => figureGeometry(page));
+  if (!(await testId("results-layout-map").getAttribute("data-active"))) {
+    problems.push("the Map layout did not take");
+  }
+  const totals = await figureBox(page, "static").catch(() => null);
+  if (!totals || !isCollapsedCard(totals)) {
+    problems.push("the totals card is not folded to its title bar");
+  }
+
+  await pickResolution(page, testId, framesIdle);
+  // The unresampled frame is the largest query of the shot — a year of hourly
+  // values — so it gets a budget of its own beyond pickResolution's wait.
+  await framesIdle(60000);
+
+  // No click: "Sum nodes" is the default, and it is also the right encoding —
+  // one stacked series per technology. This only notices if that default moves.
+  const sumNodes = testId("sum-by").getByRole("button", { name: "Sum nodes", exact: true });
+  if ((await sumNodes.count()) && (await sumNodes.getAttribute("data-state")) !== "on") {
+    problems.push("the time series is no longer summing nodes away");
+  }
+
+  await hideTech(page, testId, framesIdle, SHOWCASE_HIDE);
+  await pickPie(page, testId, framesIdle, "flow_cap");
+  await closePoppers(page);
+
+  // After the last re-query: a data change can refit the camera, and a refit
+  // after this would undo it.
+  await zoomTheMap(page, SHOWCASE_MAP);
+
+  // Deliberately last: a shape-changing re-render is `notMerge` and starts
+  // from a fresh option, which forgets the zoom.
+  await zoomToWeek(page);
+
+  await stable(() => figureGeometry(page));
+
+  report(`showcase-${theme}`, consoleErrors);
+  await shoot(page, `showcase-${theme}`);
+  await browser.close();
+}
+
+/** Unticks one technology in the sidebar, taking it out of every figure. */
+async function hideTech(page, testId, framesIdle, { section, tech }) {
+  const box = testId(`filter-${section}-${tech}`);
+  if (!(await box.count())) {
+    problems.push(`no "${tech}" in the sidebar to untick`);
+    return;
+  }
+
+  await box.click();
+  await framesIdle(60000);
+  if ((await box.getAttribute("aria-checked")) !== "false") {
+    problems.push(`"${tech}" did not untick`);
+  }
+}
+
+/**
+ * Points the map at a chosen camera, through the `__cgMap` seam, and waits for
+ * MapLibre's own `idle` — tiles fetched and drawn — rather than a duration.
+ */
+async function zoomTheMap(page, { center, zoom }) {
+  const settled = await page.evaluate(
+    ([lng, lat, level]) =>
+      new Promise((resolve) => {
+        const map = window.__cgMap;
+        if (!map) return resolve(false);
+        const timer = setTimeout(() => resolve(false), 20000);
+        map.once("idle", () => {
+          clearTimeout(timer);
+          resolve(true);
+        });
+        map.jumpTo({ center: [lng, lat], zoom: level });
+      }),
+    [...center, zoom],
+  );
+  if (!settled) problems.push("the map never settled after zooming in");
+}
+
+/** Turns the map's nodes into pies of `variable`, one slice per technology. */
+async function pickPie(page, testId, framesIdle, variable) {
+  const pie = testId("map-pie-variable");
+  if (!(await pie.count())) {
+    problems.push("the map has no pie channel");
+    return;
+  }
+
+  await pie.click();
+  const option = page.getByRole("option", { name: variable, exact: true });
+  if (!(await option.count())) {
+    problems.push(`no "${variable}" to pie by`);
+    await page.keyboard.press("Escape");
+    return;
+  }
+
+  await option.click();
+  await framesIdle();
+  if ((await pie.innerText()).trim() !== variable) {
+    problems.push("the map's pie channel did not take");
+  }
+  if (!(await testId("map-color-variable").isDisabled().catch(() => false))) {
+    problems.push("a pie should retire the colour channel, and did not");
+  }
+  const drawn = await until(
+    async () => (await page.locator(".maplibregl-marker").count()) > 0,
+    { timeout: 15000 },
+  );
+  if (!drawn) problems.push("no pies appeared on the map");
+}
+
+/**
+ * Zooms the time series to one week, through the `__cgCharts` seam.
+ *
+ * The slider is drawn in the chart's canvas — no element, no testid, nothing
+ * to drag by geometry that would not be a guess — so `dispatchAction` is the
+ * one honest interface, and `getOption` the one way to check the zoom took.
+ * A start outside the data clamps to the axis, and a clamped full year looks
+ * exactly like the zoom not working, which is why the window is read back.
+ */
+async function zoomToWeek(page) {
+  const armed = await page
+    .waitForFunction(() => Boolean(window.__cgCharts?.timeseries), undefined, { timeout: 15000 })
+    .then(() => true, () => false);
+  if (!armed) {
+    problems.push("the time series never registered its chart seam");
+    return;
+  }
+
+  const start = Date.parse(`${WEEK_START}T00:00:00Z`);
+  if (Number.isNaN(start)) {
+    problems.push(`"${WEEK_START}" is not a week to zoom to`);
+    return;
+  }
+  const end = start + WEEK_DAYS * 24 * 3600 * 1000;
+
+  await page.evaluate(
+    ([startValue, endValue]) => {
+      window.__cgCharts.timeseries.dispatchAction({
+        type: "dataZoom",
+        dataZoomIndex: 0,
+        startValue,
+        endValue,
+      });
+    },
+    [start, end],
+  );
+
+  // ECharts may hand the window back as values or as percentages; accept
+  // either, asking only that a week-sized window actually narrowed the year.
+  const zoom = await page.evaluate(() => {
+    const entry = (window.__cgCharts.timeseries.getOption().dataZoom ?? [])[0] ?? {};
+    const { start, end, startValue, endValue } = entry;
+    return { start, end, startValue, endValue };
+  });
+  const hour = 3600 * 1000;
+  const byValue =
+    typeof zoom.startValue === "number" &&
+    typeof zoom.endValue === "number" &&
+    Math.abs(zoom.startValue - start) <= hour &&
+    Math.abs(zoom.endValue - end) <= hour;
+  const byPercent =
+    typeof zoom.start === "number" &&
+    typeof zoom.end === "number" &&
+    zoom.end > zoom.start &&
+    zoom.end - zoom.start <= 5;
+  if (!byValue && !byPercent) {
+    problems.push(`the zoom did not take (${JSON.stringify(zoom)})`);
+    return;
+  }
+
+  // Two real frames, not a guessed duration: past LARGE_SERIES_THRESHOLD the
+  // hourly series draw without animation, so the second frame is the zoomed
+  // chart.
+  await page.evaluate(
+    () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+  );
 }
 
 /**
@@ -303,7 +611,7 @@ async function selectANode(page, testId, geoUrl) {
   if (!shown) problems.push("clicking a node opened no form");
 }
 
-const MODES = { results, editor };
+const MODES = { results, editor, showcase };
 const capture = MODES[MODE];
 if (!capture) {
   console.error(`Unknown mode "${MODE}". Expected one of: ${Object.keys(MODES).join(", ")}`);

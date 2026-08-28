@@ -10,9 +10,9 @@ It lets you define, edit, validate, run, and analyse Calliope models, all in a s
 It runs in a browser directly on your computer.
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://sjpfenninger.github.io/calliope-studio/results-dark.png">
-  <img alt="The results view: a map of a solved model's nodes, sized and coloured by capacity, above a year-long time series of flows and a chart of totals by node"
-       src="https://sjpfenninger.github.io/calliope-studio/results-light.png">
+  <source media="(prefers-color-scheme: dark)" srcset="https://calliope-studio-shots.pages.dev/showcase-dark.png">
+  <img alt="The results view on an example model."
+       src="https://calliope-studio-shots.pages.dev/showcase-light.png">
 </picture>
 
 ## Installation

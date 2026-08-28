@@ -173,6 +173,7 @@ function chooseSumFor(next: unknown, current: SumBy, variable: string | null): S
     </template>
 
     <ResultChart
+      name="timeseries"
       :frame="props.frame"
       :index-colors="indexColors"
       :kind="store.timeseriesKind"

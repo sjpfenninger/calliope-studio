@@ -1,5 +1,12 @@
 import { createPinia, setActivePinia } from "pinia";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("../api/versions", () => ({
+  putFile: vi.fn(),
+  putCsv: vi.fn(),
+}));
+
+import { putCsv, putFile } from "../api/versions";
 
 import {
   entryTabId,
@@ -716,6 +723,27 @@ describe("useTabsStore", () => {
       const id = tabs.openFile("model.yaml");
       tabs.setEditorMode(id, "structured");
       expect(tabs.get(id)).not.toHaveProperty("editorMode");
+    });
+  });
+
+  describe("saving with no model open", () => {
+    // A resolved save reads as success to its caller, which then marks the
+    // buffer clean — so with no model open the store must reject, not skip
+    // the write.
+    it("rejects a YAML save and issues no request", async () => {
+      const tabs = useTabsStore();
+      await expect(tabs.saveYamlFile("model.yaml", "x: 1")).rejects.toThrow(
+        /nothing was saved/
+      );
+      expect(putFile).not.toHaveBeenCalled();
+    });
+
+    it("rejects a CSV save and issues no request", async () => {
+      const tabs = useTabsStore();
+      await expect(
+        tabs.saveCsvFile("t.csv", [{ name: "a", type: "text" }], [["1"]])
+      ).rejects.toThrow(/nothing was saved/);
+      expect(putCsv).not.toHaveBeenCalled();
     });
   });
 });

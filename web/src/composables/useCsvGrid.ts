@@ -37,6 +37,28 @@ function fieldFor(i: number): string {
   return `c${i}`;
 }
 
+/**
+ * The hidden per-row identity field.
+ *
+ * ag-grid-vue3 deep-clones `rowData` before handing it to the grid, so the row
+ * objects AG Grid commits edits into are not the ones `toRows()` reads. The
+ * stamp travels into those clones and is what lets a committed value find its
+ * way back to the real row, whatever order sorting displays it in.
+ *
+ * String-keyed on purpose: the wrapper's clone copies `Object.keys` only, so a
+ * Symbol would be dropped.
+ */
+const ROW_KEY = "__row";
+
+export interface CellEdit {
+  /** `params.data[ROW_KEY]` — survives the wrapper's clone. */
+  rowKey: string;
+  /** Positional `c${i}`. */
+  field: string;
+  /** May be null: a cleared cell, numericColumn included. */
+  value: unknown;
+}
+
 function describe(e: any): string {
   const status = e?.response?.status;
   const detail = e?.response?.data?.detail;
@@ -92,9 +114,10 @@ export function useCsvGrid(versionId: Ref<string | null>) {
         headerName: col.name || "(unnamed)",
         editable: true,
         type: col.type === "numeric" ? "numericColumn" : undefined,
+        valueSetter: makeValueSetter(fieldFor(i)),
       }));
-      rowData.value = (payload.rows ?? []).map((row) => {
-        const obj: Record<string, string> = {};
+      rowData.value = (payload.rows ?? []).map((row, rowIndex) => {
+        const obj: Record<string, string> = { [ROW_KEY]: String(rowIndex) };
         columns.forEach((_, i) => {
           obj[fieldFor(i)] = row[i] ?? "";
         });
@@ -119,8 +142,38 @@ export function useCsvGrid(versionId: Ref<string | null>) {
     return rowData.value.map((row) => columns.map((_, i) => row[fieldFor(i)] ?? ""));
   }
 
-  function markEdited() {
+  /** Writes a committed edit into the real rows. Returns whether it landed. */
+  function applyEdit(edit: CellEdit): boolean {
+    const row = rowData.value[Number(edit.rowKey)];
+    if (!row || !(edit.field in row)) return false;
+    // In-place on purpose: replacing `rowData.value` would fire the wrapper's
+    // prop watcher, which re-clones everything and resets the grid mid-edit.
+    row[edit.field] = edit.value == null ? "" : String(edit.value);
     isDirty.value = true;
+    return true;
+  }
+
+  /**
+   * The colDef `valueSetter` for one positional column.
+   *
+   * This is the write-back channel — chosen over the `cellValueChanged` event
+   * because AG Grid dispatches that event *asynchronously*, so a save that runs
+   * right after `stopEditing()` would still read pre-edit state. A valueSetter
+   * runs synchronously inside the commit.
+   *
+   * Structural param type, not AG Grid's `ValueSetterParams`: keeps this module
+   * grid-free and the setter callable from a unit test.
+   */
+  function makeValueSetter(field: string) {
+    return (params: { data: Record<string, string>; newValue: unknown }): boolean => {
+      const text = params.newValue == null ? "" : String(params.newValue);
+      // Enter on an untouched cell is not an edit; dirtying here would make the
+      // next save rewrite (and re-quote) a file whose content did not change.
+      if ((params.data[field] ?? "") === text) return false;
+      if (!applyEdit({ rowKey: params.data[ROW_KEY], field, value: text })) return false;
+      params.data[field] = text; // the grid's private clone — keeps the cell rendering
+      return true;
+    };
   }
 
   function markSaved() {
@@ -139,7 +192,7 @@ export function useCsvGrid(versionId: Ref<string | null>) {
     },
     load,
     toRows,
-    markEdited,
+    applyEdit,
     markSaved,
   };
 }

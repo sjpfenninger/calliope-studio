@@ -226,18 +226,26 @@ onMounted(() => {
     automaticLayout: false, // driven by ResizeObserver below
   });
 
-  // Cmd/Ctrl+S → save (file tab or virtual tab)
+  // Cmd/Ctrl+S → save (file tab or virtual tab). `addCommand` discards the
+  // returned promise, so without the catch a rejected PUT is an unhandled
+  // rejection and the user is told nothing. A raw tab has no toolbar and the
+  // app has no toast, so the console line plus the dirty dot staying on —
+  // `markClean` is only reached on success — is the honest minimum here.
   editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, async () => {
     const tab = activeMonacoTab.value;
     if (!tab) return;
-    if (tab.kind === "file") {
-      const model = models.get(tab.path);
-      if (!model) return;
-      await tabsStore.saveYamlFile(tab.path, model.getValue());
-      // Invalidate all section caches for this file — Monaco may have changed any section
-      if (props.versionId) sectionDataStore.invalidateFile(props.versionId, tab.path);
-    } else {
-      await saveVirtualTab(tab);
+    try {
+      if (tab.kind === "file") {
+        const model = models.get(tab.path);
+        if (!model) return;
+        await tabsStore.saveYamlFile(tab.path, model.getValue());
+        // Invalidate all section caches for this file — Monaco may have changed any section
+        if (props.versionId) sectionDataStore.invalidateFile(props.versionId, tab.path);
+      } else {
+        await saveVirtualTab(tab);
+      }
+    } catch (caught) {
+      console.error(`Save failed for ${tab.kind === "file" ? tab.path : tab.id}:`, caught);
     }
   });
 

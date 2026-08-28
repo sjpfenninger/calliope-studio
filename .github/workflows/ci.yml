@@ -236,6 +236,13 @@ jobs:
         continue-on-error: true
         run: pixi run -- pnpm --dir web run save-check http://127.0.0.1:8791 || { touch .check-failed/save-check; exit 1; }
 
+      # The dual: an edited CSV cell must reach the file, once. Edits are
+      # committed into AG Grid's own cloned rows, so only a real grid can say
+      # whether they come back out — a lost edit looks exactly like a clean save.
+      - name: CSV edit check
+        continue-on-error: true
+        run: pixi run -- pnpm --dir web run csv-edit-check http://127.0.0.1:8791 || { touch .check-failed/csv-edit-check; exit 1; }
+
       # The guard between a user and their unsaved edits. A no-op guard fails
       # silently — no error, no console output, just the edits gone — so the
       # only way to know it still works is to dirty a tab and try to leave.

@@ -7,11 +7,12 @@
  * toolbar. What remains here is only the part that is specific to being a file
  * tab.
  */
-import { computed, onMounted, toRef } from "vue";
+import { computed, onMounted, ref, toRef, useTemplateRef, watch } from "vue";
 import StateMessage from "@/components/app/StateMessage.vue";
 
 import CsvGrid from "./CsvGrid.vue";
 import EditorToolbar from "./EditorToolbar.vue";
+import { errorDetail } from "@/api/errors";
 import { useCsvGrid } from "@/composables/useCsvGrid";
 import { fileTabId } from "@/lib/tabId";
 import { useTabsStore } from "@/stores/tabs";
@@ -25,31 +26,49 @@ const tabsStore = useTabsStore();
 const csv = useCsvGrid(toRef(props, "versionId"));
 // Refs are only unwrapped in a template when they are top-level bindings, so the
 // ones the template reads are pulled out here rather than reached through `csv`.
-const { columnDefs, rowData, isLoading, error } = csv;
+const { columnDefs, rowData, isLoading, error, isDirty } = csv;
+
+const csvGrid = useTemplateRef<InstanceType<typeof CsvGrid>>("csvGrid");
 
 const tabId = computed(() => fileTabId(props.filePath));
 
 onMounted(() => csv.load(props.filePath));
 
-function onCellValueChanged() {
-  csv.markEdited();
-  // A file tab's id is no longer its bare path, so this has to be built. It used
-  // to be passed raw, which worked only because the two happened to be the same
-  // string — and would now silently mark nothing, leaving the dirty dot off.
-  tabsStore.markDirty(tabId.value);
+// Edits land in `useCsvGrid` through the grid's valueSetter; this watch only
+// propagates its dirtiness to the tab. The tab id is minted from the path —
+// both are strings, so passing the bare path would typecheck and silently
+// mark nothing.
+watch(isDirty, (dirty) => {
+  if (dirty) tabsStore.markDirty(tabId.value);
+});
+
+const isSaving = ref(false);
+const saveError = ref<string | null>(null);
+
+async function save(): Promise<void> {
+  // An open cell editor is an edit, not a draft: commit it before reading.
+  csvGrid.value?.commitPendingEdit();
+  // A no-op save must not rewrite the file — `serialize_csv` can change quoting
+  // on a byte-identical grid.
+  if (!isDirty.value) return;
+  isSaving.value = true;
+  saveError.value = null;
+  try {
+    await tabsStore.saveCsvFile(props.filePath, csv.columns, csv.toRows());
+    csv.markSaved();
+  } catch (caught) {
+    saveError.value = errorDetail(caught, "Failed to save CSV.");
+  } finally {
+    isSaving.value = false;
+  }
 }
 
-async function save() {
-  if (!props.versionId) return;
-  await tabsStore.saveCsvFile(props.filePath, csv.columns, csv.toRows());
-  csv.markSaved();
-}
-
-// Keyboard shortcut: Ctrl/Cmd+S
+// Keyboard shortcut: Ctrl/Cmd+S. `save` reports its own failures, so the
+// promise can be discarded.
 function onKeyDown(e: KeyboardEvent) {
   if ((e.ctrlKey || e.metaKey) && e.key === "s") {
     e.preventDefault();
-    save();
+    void save();
   }
 }
 </script>
@@ -62,12 +81,13 @@ function onKeyDown(e: KeyboardEvent) {
     <StateMessage v-else-if="error" variant="block" tone="danger">{{ error }}</StateMessage>
 
     <template v-else>
-      <EditorToolbar :file="filePath" @save="save" />
-      <CsvGrid
-        :column-defs="columnDefs"
-        :row-data="rowData"
-        @cell-value-changed="onCellValueChanged"
+      <EditorToolbar
+        :file="filePath"
+        :saving="isSaving"
+        :error="saveError"
+        @save="save"
       />
+      <CsvGrid ref="csvGrid" :column-defs="columnDefs" :row-data="rowData" />
     </template>
   </div>
 </template>

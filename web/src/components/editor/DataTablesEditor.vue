@@ -11,7 +11,7 @@
  * the CSV from the Files tree, with nothing linking them. The single-table view
  * is where they meet, so Save there writes both.
  */
-import { computed, onMounted, onUnmounted, ref, toRef, watch } from "vue";
+import { computed, onMounted, onUnmounted, ref, toRef, useTemplateRef, watch } from "vue";
 import StateMessage from "@/components/app/StateMessage.vue";
 import { Plus } from "@lucide/vue";
 
@@ -91,6 +91,8 @@ const {
   isDirty: csvDirty,
 } = csv;
 
+const csvGrid = useTemplateRef<InstanceType<typeof CsvGrid>>("csvGrid");
+
 /** Where `data:` points, workspace-relative, or null if there is nothing to open. */
 const csvPath = computed(() =>
   activeEntry.value
@@ -163,10 +165,12 @@ function reloadCsv() {
   request(next);
 }
 
-function onCellValueChanged() {
-  csv.markEdited();
-  tabsStore.markDirty(props.tabId);
-}
+// Edits land in `useCsvGrid` through the grid's valueSetter; this watch only
+// propagates its dirtiness to the tab. Only the false→true edge marks, so a
+// grid reload (which resets dirtiness) never re-dirties the tab.
+watch(csvDirty, (dirty) => {
+  if (dirty) tabsStore.markDirty(props.tabId);
+});
 
 // ---------------------------------------------------------------------------
 // Load / save
@@ -227,6 +231,9 @@ const { isLoading, isSaving, error, saveError, save, markDirty } = useSectionEdi
    * which is visible and recoverable. Cell edits are the expensive thing.
    */
   async beforeWrite() {
+    // An open cell editor is an edit, not a draft: commit it before reading
+    // dirtiness. Synchronous — the valueSetter runs inside `stopEditing`.
+    csvGrid.value?.commitPendingEdit();
     if (csvDirty.value && csv.loadedPath.value) {
       await tabsStore.saveCsvFile(csv.loadedPath.value, csv.columns, csv.toRows());
       csv.markSaved();
@@ -368,12 +375,7 @@ onUnmounted(() => clearTimeout(reloadTimer));
             <StateMessage v-else-if="csvError" variant="block" tone="danger">
               {{ csvError }}
             </StateMessage>
-            <CsvGrid
-              v-else
-              :column-defs="columnDefs"
-              :row-data="rowData"
-              @cell-value-changed="onCellValueChanged"
-            />
+            <CsvGrid v-else ref="csvGrid" :column-defs="columnDefs" :row-data="rowData" />
           </div>
         </ResizablePanel>
       </ResizablePanelGroup>

@@ -835,8 +835,13 @@ export const useTabsStore = defineStore("tabs", () => {
 
   // ── Saving ────────────────────────────────────────────────────────────────
 
+  // Both throw rather than return when no model is open: a resolved promise
+  // reads as "saved" to every caller, which then marks the buffer clean over a
+  // file that was never written. `errorDetail` passes `Error.message` through,
+  // so the editors surface this text as their save error.
+
   async function saveYamlFile(path: string, content: string): Promise<void> {
-    if (!versionId.value) return;
+    if (!versionId.value) throw new Error("No model is open — nothing was saved.");
     await putFile(versionId.value, path, content);
     markClean(fileTabId(path));
   }
@@ -846,7 +851,7 @@ export const useTabsStore = defineStore("tabs", () => {
     columns: Array<{ name: string; type: string }>,
     rows: unknown[][],
   ): Promise<void> {
-    if (!versionId.value) return;
+    if (!versionId.value) throw new Error("No model is open — nothing was saved.");
     await putCsv(versionId.value, path, columns, rows);
     markClean(fileTabId(path));
   }

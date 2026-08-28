@@ -46,6 +46,7 @@ import {
 import TabHistory from "./TabHistory.vue";
 import { fileIcon, ICON_STROKE_WIDTH_TIGHT, MathIcon, sectionIcon } from "@/lib/icons";
 import { cn } from "@/lib/utils";
+import { useConfirmStore } from "@/stores/confirm";
 import { useTabsStore, type TabEntry } from "@/stores/tabs";
 
 const tabs = useTabsStore();
@@ -187,16 +188,39 @@ function titleFor(tab: TabEntry): string {
   return tab.title;
 }
 
+/**
+ * Closing a dirty tab asks first — the same dialog the route guard uses, on
+ * the same grounds: the buffer is the only copy of the edits, so closing it
+ * discards them with the file on disk untouched.
+ *
+ * The guard lives here rather than in `closeTab` because the store is also
+ * called from non-interactive paths — preview eviction already skips dirty
+ * tabs on its own — and a store that awaits a dialog would hang them.
+ */
+async function closeGuarded(id: string) {
+  if (tabs.get(id)?.isDirty) {
+    const ok = await useConfirmStore().ask({
+      title: "Close tab with unsaved changes?",
+      message:
+        "Edits you have not saved will be lost. The file on disk is untouched.",
+      confirmLabel: "Close tab",
+      destructive: true,
+    });
+    if (!ok) return;
+  }
+  tabs.closeTab(id);
+}
+
 function close(id: string, event: Event) {
   event.stopPropagation();
-  tabs.closeTab(id);
+  void closeGuarded(id);
 }
 
 function onAuxClick(id: string, event: MouseEvent) {
   // Middle click closes, as it does in every editor and browser.
   if (event.button === 1) {
     event.preventDefault();
-    tabs.closeTab(id);
+    void closeGuarded(id);
   }
 }
 </script>

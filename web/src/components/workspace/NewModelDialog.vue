@@ -21,6 +21,7 @@ import {
 } from "@/lib/formClasses";
 import { cn } from "@/lib/utils";
 
+import { errorDetail } from "@/api/errors";
 import { createProject } from "@/api/projects";
 import { getModelTemplates } from "@/api/system";
 import FolderBrowser from "./FolderBrowser.vue";
@@ -106,9 +107,7 @@ async function create() {
     name.value = "";
     emit("opened", project.id);
   } catch (caught) {
-    const detail = (caught as { response?: { data?: { detail?: string } } }).response
-      ?.data?.detail;
-    error.value = detail ?? "That model could not be created.";
+    error.value = errorDetail(caught, "That model could not be created.");
   } finally {
     creating.value = false;
   }

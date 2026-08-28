@@ -49,6 +49,7 @@ import { useComponentTreeStore } from "@/stores/componentTree";
 import { useMathStore } from "@/stores/math";
 import { useSectionDataStore } from "@/stores/sectionData";
 import { useTabsStore } from "@/stores/tabs";
+import { useVersionStore } from "@/stores/version";
 import type { MathSource } from "@/api/versions";
 
 const props = defineProps<{ versionId: string }>();
@@ -58,6 +59,7 @@ const tabs = useTabsStore();
 const confirm = useConfirmStore();
 const sectionData = useSectionDataStore();
 const componentTree = useComponentTreeStore();
+const version = useVersionStore();
 
 const busy = ref(false);
 const error = ref<string | null>(null);
@@ -84,8 +86,8 @@ function configFile(): string {
  * merge is leaf-level, so a key removed from a nested mapping has to be absent
  * from a *whole* write to actually go away.
  */
-async function edit(change: (init: SectionData) => void): Promise<void> {
-  if (busy.value) return;
+async function edit(change: (init: SectionData) => void): Promise<boolean> {
+  if (busy.value) return false;
   busy.value = true;
   error.value = null;
   const path = configFile();
@@ -95,11 +97,15 @@ async function edit(change: (init: SectionData) => void): Promise<void> {
     change(config.init);
     await putYamlSection(props.versionId, path, "config", config);
     sectionData.invalidate(props.versionId, path, "config");
+    // A raw Monaco model of the config file is stale now too.
+    sectionData.noteFileWritten(path);
     // The config editor may be showing the previous values in another tab.
     tabs.markClean(sectionTabId("config", path));
     await Promise.all([math.loadSources(props.versionId), componentTree.refresh(props.versionId)]);
+    return true;
   } catch (err) {
     error.value = errorDetail(err, "Could not update the model's math settings.");
+    return false;
   } finally {
     busy.value = false;
   }
@@ -161,12 +167,20 @@ async function create() {
   }
   busy.value = false;
 
-  await edit((init) => {
+  // The new file has to appear in the Files tree, whichever way the config
+  // write below goes — it is on disk either way.
+  void version.loadFileTree(props.versionId).catch(() => {});
+
+  const registered = await edit((init) => {
     init.math_paths = { ...((init.math_paths as Record<string, string>) ?? {}), [name]: path };
     const applied: string[] = [...((init.extra_math as string[]) ?? [])];
     if (!applied.includes(name)) applied.push(name);
     init.extra_math = applied;
   });
+  // The form stays open on failure: closing it and moving on is the success
+  // gesture, and the model is currently in the registered-nowhere state the
+  // panel's own error line is describing.
+  if (!registered) return;
 
   adding.value = false;
   newName.value = "";

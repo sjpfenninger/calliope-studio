@@ -127,6 +127,9 @@ const { isLoading, isSaving, error, saveError, save, markDirty } = useSectionEdi
     // The merged whole becomes the new baseline, or the next save would compute
     // its merge against the section as it was two saves ago.
     if (written) originalSection.value = written as Record<string, RawTech>;
+    // A tech added, removed or renamed changes the explorer, as it does for
+    // nodes and links.
+    await componentTreeStore.refresh(props.versionId);
     // Editing a tech can change what a template means for its siblings.
     await templatesStore.refresh(props.versionId);
   },

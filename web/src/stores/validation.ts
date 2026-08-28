@@ -19,6 +19,7 @@
  */
 import { ref } from "vue";
 import { defineStore } from "pinia";
+import { errorDetail } from "../api/errors";
 import { cancelTask, getTask } from "../api/system";
 import { startValidation } from "../api/versions";
 
@@ -170,8 +171,5 @@ export const useValidationStore = defineStore("validation", () => {
 });
 
 function messageFor(err: unknown): string {
-  const detail = (err as { response?: { data?: { detail?: unknown } } })?.response?.data
-    ?.detail;
-  if (typeof detail === "string") return detail;
-  return err instanceof Error ? err.message : "Validation could not be run.";
+  return errorDetail(err, "Validation could not be run.");
 }

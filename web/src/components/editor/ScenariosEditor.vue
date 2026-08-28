@@ -86,6 +86,12 @@ const { isLoading, isSaving, error, saveError, save, markDirty } = useSectionEdi
     Object.fromEntries(
       entries.value.filter((entry) => entry.name).map((entry) => [entry.name, entry.overrides]),
     ),
+  async after() {
+    // The explorer's `scenarios` branch shows this section, and `unresolved`
+    // above reads the tree — both answer from the pre-save model until it is
+    // refreshed.
+    await componentTree.refresh(props.versionId);
+  },
 });
 
 function addEntry() {

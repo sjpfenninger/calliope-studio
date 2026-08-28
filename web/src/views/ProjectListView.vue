@@ -29,6 +29,7 @@ import {
 import { useRouter } from "vue-router";
 import { FolderOpen, FolderPlus, FolderSearch, X } from "@lucide/vue";
 
+import { errorDetail } from "@/api/errors";
 import { getHealth } from "@/api/system";
 import ModelDialogs from "@/components/workspace/ModelDialogs.vue";
 import { formatRelativeTime, formatTimestamp } from "@/lib/format";
@@ -65,6 +66,21 @@ function open(id: string) {
   // Through the resolver: a project id alone cannot address the shell, which
   // needs a version too.
   router.push({ name: "project", params: { projectId: id } });
+}
+
+/**
+ * A failed forget leaves the row in place, which — under a tooltip promising
+ * that nothing is deleted — reads as a broken button unless something says why.
+ */
+const forgetError = ref<string | null>(null);
+
+async function forget(id: string) {
+  forgetError.value = null;
+  try {
+    await projectStore.forgetModel(id);
+  } catch (caught) {
+    forgetError.value = errorDetail(caught, "Removing the model from the list failed.");
+  }
 }
 </script>
 
@@ -105,6 +121,9 @@ function open(id: string) {
       data-testid="recent-models"
       class="min-h-0 overflow-y-auto"
     >
+      <StateMessage v-if="forgetError" variant="inline" tone="danger">
+        {{ forgetError }}
+      </StateMessage>
       <div
         v-for="model in models"
         :key="model.id"
@@ -149,7 +168,7 @@ function open(id: string) {
           size="xs"
           testid="forget-model"
           class="opacity-0 group-hover:opacity-100 hover:bg-active hover:text-foreground focus-visible:opacity-100"
-          @click="projectStore.forgetModel(model.id)"
+          @click="forget(model.id)"
         />
       </div>
 

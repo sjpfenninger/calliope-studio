@@ -11,7 +11,9 @@
  */
 import { computed, ref, watch, onMounted, onUnmounted } from "vue";
 import * as monaco from "monaco-editor";
+import { TriangleAlert } from "@lucide/vue";
 import { stringify as yamlStringify, parse as yamlParse } from "yaml";
+import { errorDetail } from "../../api/errors";
 import { getFile, getYamlSection, putYamlSection } from "../../api/versions";
 import {
   applyMonacoTheme,
@@ -42,6 +44,13 @@ const tabsStore = useTabsStore();
 const sectionDataStore = useSectionDataStore();
 const ui = useUiStore();
 const containerRef = ref<HTMLElement | null>(null);
+
+/**
+ * Why the last Cmd+S on this editor failed. Raw tabs have no toolbar and the
+ * app has no toast, so this strip is the one place the failure can appear;
+ * the buffer with the unsaved edits stays exactly where it is, dirty.
+ */
+const saveError = ref<string | null>(null);
 
 let editor: monaco.editor.IStandaloneCodeEditor | null = null;
 // Map from tab key (or file path) → monaco model
@@ -100,6 +109,8 @@ function ensureFileModel(path: string): Promise<monaco.editor.ITextModel> {
     );
 
     const disposable = model.onDidChangeContent(() => {
+      // A programmatic reload from disk is not a user edit.
+      if (refreshing.has(path)) return;
       // A file tab's id is derived from its path rather than being it, so this
       // has to be built — passing the bare path used to work only by coincidence.
       tabsStore.markDirty(fileTabId(path));
@@ -109,6 +120,95 @@ function ensureFileModel(path: string): Promise<monaco.editor.ITextModel> {
     return model;
   });
 }
+
+/** Paths whose model is being reloaded from disk, so the change is not "dirty". */
+const refreshing = new Set<string>();
+
+/**
+ * Reloads a file model after something other than this editor wrote the file —
+ * a structured section save, typically. The buffer is what the next raw Cmd+S
+ * writes back, so left stale it would revert that save. A dirty buffer holds
+ * the user's own edits over the file and is left alone: the two have genuinely
+ * diverged, and neither side may silently win.
+ */
+async function refreshFileModel(path: string): Promise<void> {
+  if (!props.versionId || !models.has(path)) return;
+  if (tabsStore.get(fileTabId(path))?.isDirty) return;
+  const content = await getFile(props.versionId, path);
+  const model = models.get(path);
+  // Re-checked after the await: the user may have started typing meanwhile.
+  if (!model || model.isDisposed() || tabsStore.get(fileTabId(path))?.isDirty) return;
+  if (model.getValue() === content) return;
+  refreshing.add(path);
+  try {
+    model.setValue(content);
+  } finally {
+    refreshing.delete(path);
+  }
+}
+
+/**
+ * Drops the virtual models a section write on `path` has left behind. Disposal
+ * rather than reload: rebuilt on their next activation they fetch fresh
+ * content, and a model nobody is looking at needs nothing sooner. Two buffers
+ * are kept — the visibly active raw tab, which is the save's own origin, and a
+ * dirty one, which holds the user's edits over a file that has now changed
+ * underneath them and must stay visible rather than be silently replaced.
+ */
+function dropStaleVirtualModels(path: string): void {
+  for (const tab of tabsStore.ordered) {
+    if (!isEditableTab(tab) || tab.kind === "file") continue;
+    if (tab.filePath !== path) continue;
+    if (tab.id === activeMonacoTab.value?.id || tab.isDirty) continue;
+    const model = models.get(tab.id);
+    if (!model) continue;
+    if (editor?.getModel() === model) editor.setModel(null);
+    changeDisposables.get(tab.id)?.dispose();
+    changeDisposables.delete(tab.id);
+    model.dispose();
+    models.delete(tab.id);
+  }
+}
+
+// Structured saves announce themselves through `fileRevisions`; reload or drop
+// the affected buffers as each lands.
+const seenRevisions = new Map<string, number>();
+watch(
+  () => [...sectionDataStore.fileRevisions.entries()],
+  (entries) => {
+    for (const [path, revision] of entries) {
+      if ((seenRevisions.get(path) ?? 0) >= revision) continue;
+      seenRevisions.set(path, revision);
+      void refreshFileModel(path).catch((caught) =>
+        console.error(`Reloading ${path} after an external write failed:`, caught),
+      );
+      dropStaleVirtualModels(path);
+    }
+  },
+);
+
+// A model whose tab has closed is disposed rather than kept: the buffer holds
+// edits nobody can reach any more, and reopening the file must show the disk.
+// Closing a dirty tab passes a confirm dialog first, so by the time the tab is
+// gone the discard is the user's decision.
+watch(
+  () => tabsStore.ordered.map((tab) => tab.id).join("\n"),
+  () => {
+    const live = new Set<string>();
+    for (const tab of tabsStore.ordered) {
+      if (!isEditableTab(tab)) continue;
+      live.add(tab.kind === "file" ? tab.path : tab.id);
+    }
+    for (const [key, model] of [...models]) {
+      if (live.has(key)) continue;
+      if (editor?.getModel() === model) editor.setModel(null);
+      changeDisposables.get(key)?.dispose();
+      changeDisposables.delete(key);
+      model.dispose();
+      models.delete(key);
+    }
+  },
+);
 
 // Create or reuse a virtual model for a section/entry tab.
 //
@@ -185,6 +285,8 @@ async function saveVirtualTab(tab: SectionTab | EntryTab) {
     await putYamlSection(props.versionId!, filePath, section, parsed ?? {});
     sectionDataStore.invalidate(props.versionId!, filePath, section);
   }
+  // A section PUT rewrites the file, so a raw model of it is now stale too.
+  sectionDataStore.noteFileWritten(filePath);
   tabsStore.markClean(tab.id);
 }
 
@@ -228,12 +330,13 @@ onMounted(() => {
 
   // Cmd/Ctrl+S → save (file tab or virtual tab). `addCommand` discards the
   // returned promise, so without the catch a rejected PUT is an unhandled
-  // rejection and the user is told nothing. A raw tab has no toolbar and the
-  // app has no toast, so the console line plus the dirty dot staying on —
-  // `markClean` is only reached on success — is the honest minimum here.
+  // rejection and the user is told nothing. The failure renders in the strip
+  // above the editor — raw tabs have no toolbar to carry it — and the dirty
+  // dot stays on, since `markClean` is only reached on success.
   editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, async () => {
     const tab = activeMonacoTab.value;
     if (!tab) return;
+    saveError.value = null;
     try {
       if (tab.kind === "file") {
         const model = models.get(tab.path);
@@ -245,7 +348,7 @@ onMounted(() => {
         await saveVirtualTab(tab);
       }
     } catch (caught) {
-      console.error(`Save failed for ${tab.kind === "file" ? tab.path : tab.id}:`, caught);
+      saveError.value = errorDetail(caught, "The file could not be saved.");
     }
   });
 
@@ -258,8 +361,10 @@ onMounted(() => {
   if (activeMonacoTab.value) activateTab(activeMonacoTab.value);
 });
 
-// Swap model whenever the effective Monaco tab changes
+// Swap model whenever the effective Monaco tab changes. The save error belongs
+// to the buffer it happened in, so it does not follow the user to another tab.
 watch(activeMonacoTab, (tab) => {
+  saveError.value = null;
   if (tab) activateTab(tab);
 });
 
@@ -305,6 +410,18 @@ onUnmounted(() => {
     <PanelHeader v-if="filePath" size="md" class="bg-surface">
       <SchemaKindPicker :path="filePath" />
     </PanelHeader>
+    <!-- Appears only on failure, for file and virtual tabs alike — the latter
+         have no header to carry it. Same shape as EditorToolbar's alert, and
+         the same testid, so the failure checks find every save surface one way. -->
+    <div
+      v-if="saveError"
+      role="alert"
+      data-testid="save-error"
+      class="flex items-center gap-1 border-b border-border bg-surface px-2 py-1 text-2xs text-danger-text"
+    >
+      <TriangleAlert class="size-3 shrink-0" />
+      <span class="truncate">{{ saveError }}</span>
+    </div>
     <div ref="containerRef" class="monaco-container min-h-0 flex-1" />
   </div>
 </template>

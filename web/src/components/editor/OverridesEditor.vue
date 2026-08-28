@@ -120,6 +120,12 @@ const { isLoading, isSaving, error, saveError, save, markDirty } = useSectionEdi
           entry.settings.filter((setting) => setting.path.trim()),
         ]),
     ),
+  async after() {
+    // The explorer's `overrides` branch, and ScenariosEditor's "declared
+    // nowhere" check, both read the component tree — a new override has to
+    // reach it or the save reads as having failed.
+    await componentTree.refresh(props.versionId);
+  },
 });
 
 function addEntry() {

@@ -172,4 +172,85 @@ if (await mathFile.count()) {
   skip("a math file is checked against the math schema — no math file here");
 }
 
+// ── buffer coherence ─────────────────────────────────────────────────────────
+//
+// The raw buffer of a file is what Cmd+S writes back, so it has to follow the
+// file: a structured save lands on disk and an open, clean raw buffer must pick
+// it up, or the next raw save reverts it. And a closed tab's buffer is gone —
+// reopening the file must show the disk, not resurrect discarded edits as if
+// they were saved.
+const filesUrl = (path) => `${BASE}/api/versions/${payload.workspace_id}/files/${path}`;
+const readFile = async (path) => (await (await fetch(filesUrl(path))).json()).content;
+const scenariosOriginal = await readFile("scenarios.yaml");
+
+const buffer = async () =>
+  (await page.locator(".view-lines").first().textContent()) ?? "";
+
+try {
+  // A raw tab for the file, promoted out of the preview slot: a preview is
+  // evicted by the next tree click, and an evicted tab's buffer is disposed —
+  // which would pass the refresh check without exercising the refresh.
+  await page.getByRole("link", { name: "Files" }).click();
+  await testId("file-tree").waitFor({ timeout: 20000 });
+  await page.getByText("scenarios.yaml", { exact: true }).first().click();
+  const scenariosTab = page
+    .locator('[data-testid="tab-file"]', { hasText: "scenarios.yaml" })
+    .first();
+  await scenariosTab.dblclick();
+  await until(async () => (await buffer()).includes("cold_fusion"), { timeout: 20000 });
+
+  // Rename a scenario in the structured editor and save. `fill` rather than
+  // keystrokes: the entry list re-renders on the first name change, and a
+  // remounted input drops the keystrokes still in flight.
+  await page.getByRole("link", { name: "Model" }).click();
+  await page.getByRole("treeitem", { name: /^scenarios$/i }).first().click();
+  await testId("scenarios-editor").waitFor({ timeout: 15000 });
+  const nameField = testId("scenario").first().locator("input").first();
+  const renamed = `${await nameField.inputValue()}zz`;
+  await nameField.fill(renamed);
+  await testId("save").click();
+  await until(async () => (await readFile("scenarios.yaml")).includes(renamed), {
+    timeout: 20000,
+  });
+
+  await scenariosTab.click();
+  const refreshed = await until(async () => (await buffer()).includes(renamed), {
+    timeout: 20000,
+  });
+  check("a structured save reaches an open raw buffer", refreshed);
+
+  // Dirty the raw buffer, close its tab past the guard, reopen from the tree.
+  await page.locator(".view-lines").first().click();
+  await page.keyboard.press(END);
+  await page.keyboard.type("\n# scratch\n");
+  await testId("tab-dirty").first().waitFor({ timeout: 5000 });
+  await scenariosTab.hover();
+  await scenariosTab.getByRole("button", { name: "Close tab" }).click();
+  await testId("confirm-dialog").waitFor({ timeout: 8000 });
+  await testId("confirm-accept").click();
+
+  await page.getByRole("link", { name: "Files" }).click();
+  await testId("file-tree").waitFor({ timeout: 20000 });
+  await page.getByText("scenarios.yaml", { exact: true }).first().click();
+  await until(async () => (await buffer()).includes("cold_fusion"), { timeout: 20000 });
+  check(
+    "a reopened file shows the disk, not the closed tab's edits",
+    !(await buffer()).includes("scratch"),
+  );
+  check(
+    "and opens clean",
+    (await page
+      .locator('[data-testid^="tab-"][data-active] [data-testid="tab-dirty"]')
+      .count()) === 0,
+  );
+} finally {
+  // The CI server is shared with the checks that follow, and save-check reads
+  // this very file.
+  await fetch(filesUrl("scenarios.yaml"), {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ content: scenariosOriginal }),
+  });
+}
+
 await finish(browser);

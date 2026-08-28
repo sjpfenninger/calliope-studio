@@ -11,6 +11,7 @@
     "confirm-check": "node scripts/confirm-check.mjs",
     "csv-edit-check": "node scripts/csv-edit-check.mjs",
     "design-check": "vitest run design",
+    "failure-check": "node scripts/failure-check.mjs",
     "dev": "vite",
     "file-actions": "node scripts/file-actions.mjs",
     "lint": "oxlint",

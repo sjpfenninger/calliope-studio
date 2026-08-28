@@ -65,9 +65,9 @@ export interface SectionEditorOptions {
   shouldWrite?: () => boolean;
   /**
    * Derived state to refresh once the write has landed — the component tree, the
-   * templates, the map. These swallow their own failures by design, which is why
-   * they can sit inside the same `try` without a successful write ever being
-   * reported as a failed one.
+   * templates, the map. Runs outside the save's own try/catch: the write is on
+   * disk by the time it fires, so a refresh that throws is logged rather than
+   * reported as a failed save.
    *
    * Receives what was actually written, or null when `shouldWrite` declined.
    * The editors that share a section need it: having written the merged whole,
@@ -118,7 +118,14 @@ export function useSectionEditor(options: SectionEditorOptions) {
     tabId: toValue(options.tabId),
   });
 
+  // Guards overlapping loads: `filePath` can change again while a read is in
+  // flight, and only the newest request may apply its data or mark the tab
+  // clean — a stale one landing last would put the previous file's section
+  // into the form. Same pattern as `validation.ts` and `math.ts`.
+  let generation = 0;
+
   async function load(): Promise<void> {
+    const mine = ++generation;
     const { versionId, path, tabId } = ids();
     isLoading.value = true;
     error.value = null;
@@ -131,16 +138,21 @@ export function useSectionEditor(options: SectionEditorOptions) {
         data = await read(versionId, path);
         cache.set(versionId, path, options.section, data);
       }
+      if (mine !== generation) return;
       await options.apply(data);
     } catch (caught) {
+      if (mine !== generation) return;
       error.value = errorDetail(caught, `Failed to load ${options.label}.`);
     } finally {
-      isLoading.value = false;
-      // The dirty watchers in some of these editors are post-flush, so they fire
-      // once *after* `isLoading` goes false, with the values `apply` just wrote.
-      // Without the tick, opening a tab gave it an unsaved-changes dot.
-      await nextTick();
-      tabs.markClean(tabId);
+      if (mine === generation) {
+        isLoading.value = false;
+        // The dirty watchers in some of these editors are post-flush, so they
+        // fire once *after* `isLoading` goes false, with the values `apply`
+        // just wrote. Without the tick, opening a tab gave it an
+        // unsaved-changes dot.
+        await nextTick();
+        tabs.markClean(tabId);
+      }
     }
   }
 
@@ -148,21 +160,32 @@ export function useSectionEditor(options: SectionEditorOptions) {
     const { versionId, path, tabId } = ids();
     isSaving.value = true;
     saveError.value = null;
+    let written: SectionData | null = null;
+    let saved = false;
     try {
       await options.beforeWrite?.();
-      let written: SectionData | null = null;
       if (options.shouldWrite?.() ?? true) {
         written = options.build();
         await write(versionId, path, written);
         cache.set(versionId, path, options.section, written);
+        cache.noteFileWritten(path);
       }
       tabs.markClean(tabId);
-      await options.after?.(written);
+      saved = true;
     } catch (caught) {
       // The tab stays dirty: something did not land.
       saveError.value = errorDetail(caught, `Failed to save ${options.label}.`);
     } finally {
       isSaving.value = false;
+    }
+    if (!saved) return;
+    // Outside the try above: the write has landed and the tab is clean, so a
+    // refresh hook that throws must not be reported as a failed save. The
+    // hooks swallow their own failures today; this holds whether they do.
+    try {
+      await options.after?.(written);
+    } catch (caught) {
+      console.error(`Refresh after saving ${options.label} failed:`, caught);
     }
   }
 

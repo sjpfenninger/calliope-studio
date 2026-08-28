@@ -112,7 +112,11 @@ export const useSchemaKindsStore = defineStore("schemaKinds", () => {
     [detected, overrides],
     () => {
       persist();
-      void setSchemaAssignments(detected.value, overrides.value);
+      // Watchers hold no rejection; a failed update would otherwise vanish as
+      // an unhandled rejection with schema checking quietly wrong.
+      void setSchemaAssignments(detected.value, overrides.value).catch((caught) =>
+        console.error("Updating Monaco schema assignments failed:", caught),
+      );
     },
     { deep: true },
   );

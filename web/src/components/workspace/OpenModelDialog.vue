@@ -18,6 +18,7 @@ import {
 import { cn } from "@/lib/utils";
 import { FolderPlus } from "@lucide/vue";
 
+import { errorDetail } from "@/api/errors";
 import { openProject } from "@/api/projects";
 import FolderBrowser from "./FolderBrowser.vue";
 import type { Listing } from "./browse";
@@ -52,9 +53,7 @@ async function openHere() {
     open.value = false;
     emit("opened", project.id);
   } catch (caught) {
-    const detail = (caught as { response?: { data?: { detail?: string } } }).response
-      ?.data?.detail;
-    error.value = detail ?? "That folder could not be opened.";
+    error.value = errorDetail(caught, "That folder could not be opened.");
   } finally {
     opening.value = false;
   }

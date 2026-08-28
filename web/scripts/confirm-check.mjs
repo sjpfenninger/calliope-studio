@@ -26,6 +26,10 @@
  * navigation that vue-router never sees, and neither did `window.confirm` —
  * that is `beforeunload`, a different mechanism entirely. Every navigation here
  * goes through the app's own UI, which is the only path the guard is on.
+ *
+ * The same guard stands on a tab's own close button, which discards the same
+ * buffer without leaving the shell. Middle-click shares the code path, so the
+ * X is the one exercised here.
  */
 import { health, open, quiet, requireMode, results, trackRequests } from "./harness.mjs";
 
@@ -103,7 +107,44 @@ try {
   check("and the editor is still mounted", await testId("scenarios-editor").isVisible());
   check("and the tab is still unsaved", await testId("tab-dirty").first().isVisible());
 
-  // -- accepting really leaves ----------------------------------------------
+  // -- closing an unsaved tab asks the same question -------------------------
+  const activeTab = page.locator('[data-testid^="tab-"][data-active]').first();
+  // The X only paints while the tab is hovered, so hover first or the click
+  // waits on an element that stays display:none.
+  await activeTab.hover();
+  await activeTab.getByRole("button", { name: "Close tab" }).click();
+  await dialog.waitFor({ timeout: 8000 });
+  check("closing an unsaved tab asks first", true);
+  check(
+    "the close action is named too",
+    (await testId("confirm-accept").innerText()).trim() === "Close tab",
+  );
+
+  await testId("confirm-cancel").click();
+  await dialog.waitFor({ state: "hidden", timeout: 8000 });
+  check("cancelling keeps the tab and its edits", await testId("tab-dirty").first().isVisible());
+
+  await activeTab.hover();
+  await activeTab.getByRole("button", { name: "Close tab" }).click();
+  await dialog.waitFor({ timeout: 8000 });
+  await testId("confirm-accept").click();
+  await dialog.waitFor({ state: "hidden", timeout: 8000 });
+  check(
+    "accepting closes the tab",
+    (await page.locator('[data-testid="tab-dirty"]').count()) === 0,
+  );
+
+  // -- accepting the leave really leaves -------------------------------------
+  // The close above discarded the only dirty buffer, so dirty a fresh one.
+  await calls.settle(() =>
+    page.getByRole("treeitem", { name: /^scenarios$/i }).first().click(),
+  );
+  await testId("scenarios-editor").waitFor({ timeout: 15000 });
+  const refield = testId("scenario").first().locator("input").first();
+  await refield.click();
+  await refield.press("x");
+  await testId("tab-dirty").first().waitFor({ timeout: 5000 });
+
   await leave();
   await dialog.waitFor({ timeout: 8000 });
   await testId("confirm-accept").click();

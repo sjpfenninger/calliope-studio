@@ -243,6 +243,13 @@ jobs:
         continue-on-error: true
         run: pixi run -- pnpm --dir web run csv-edit-check http://127.0.0.1:8791 || { touch .check-failed/csv-edit-check; exit 1; }
 
+      # A failed write must say so on screen. Injects 500s at the network layer,
+      # because whether an error surface is actually wired is only observable by
+      # making a request fail — an unbound :error prop passes every other check.
+      - name: Failure surfaces
+        continue-on-error: true
+        run: pixi run -- pnpm --dir web run failure-check http://127.0.0.1:8791 || { touch .check-failed/failure-check; exit 1; }
+
       # The guard between a user and their unsaved edits. A no-op guard fails
       # silently — no error, no console output, just the edits gone — so the
       # only way to know it still works is to dirty a tab and try to leave.

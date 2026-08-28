@@ -51,6 +51,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { errorDetail } from "@/api/errors";
 import { formatBytes } from "@/lib/format";
 import { ICON_STROKE_WIDTH_TIGHT } from "@/lib/icons";
 import { openIntent } from "@/lib/openIntent";
@@ -62,6 +63,23 @@ const tabs = useTabsStore();
 
 const starting = ref(false);
 const pendingDelete = ref<RunRecord | null>(null);
+
+/**
+ * Why the last action failed, shown at the top of the list. One surface for
+ * all five actions — start, cancel, rename, delete, retention — because each
+ * otherwise fails into a rejected promise nobody holds: the button re-enables,
+ * the dialog is gone, the menu snaps back, and nothing says why.
+ */
+const actionError = ref<string | null>(null);
+
+async function attempt(label: string, action: () => Promise<unknown>): Promise<void> {
+  actionError.value = null;
+  try {
+    await action();
+  } catch (caught) {
+    actionError.value = errorDetail(caught, `${label} failed.`);
+  }
+}
 
 /**
  * The sentinel for "no scenario" — a `Select` cannot bind to null.
@@ -106,12 +124,14 @@ async function start() {
   if (!tabs.versionId || starting.value) return;
   starting.value = true;
   try {
-    // Passed from here rather than read inside `startRun`: a later "run this
-    // again" on a history item has its own scenario to send, and a store field
-    // quietly overriding an argument is hard to see from the call.
-    const record = await runs.startRun(tabs.versionId, { scenario: runs.scenario });
-    // Opens on the log, because there are no results to show yet.
-    tabs.openRun({ id: record.id, label: record.label });
+    await attempt("Starting the run", async () => {
+      // Passed from here rather than read inside `startRun`: a later "run this
+      // again" on a history item has its own scenario to send, and a store field
+      // quietly overriding an argument is hard to see from the call.
+      const record = await runs.startRun(tabs.versionId!, { scenario: runs.scenario });
+      // Opens on the log, because there are no results to show yet.
+      tabs.openRun({ id: record.id, label: record.label });
+    });
   } finally {
     starting.value = false;
   }
@@ -130,7 +150,15 @@ function open(run: RunRecord, event: MouseEvent) {
 async function confirmDelete() {
   const run = pendingDelete.value;
   pendingDelete.value = null;
-  if (run) await runs.remove(run.id);
+  if (run) await attempt("Deleting the run", () => runs.remove(run.id));
+}
+
+function rename(run: RunRecord, label: string) {
+  void attempt("Renaming the run", () => runs.rename(run.id, label));
+}
+
+function cancel(run: RunRecord) {
+  void attempt("Cancelling the run", () => runs.cancel(run.id));
 }
 
 function refresh() {
@@ -138,7 +166,8 @@ function refresh() {
 }
 
 function setRetention(keep: number | null) {
-  if (tabs.versionId) runs.setRetention(tabs.versionId, keep);
+  if (!tabs.versionId) return;
+  void attempt("Changing run retention", () => runs.setRetention(tabs.versionId!, keep));
 }
 </script>
 
@@ -237,18 +266,30 @@ function setRetention(keep: number | null) {
     </PanelHeader>
 
     <div class="min-h-0 flex-1 overflow-auto" data-testid="run-list">
+      <StateMessage
+        v-if="actionError"
+        variant="inline"
+        tone="danger"
+        data-testid="run-action-error"
+      >
+        {{ actionError }}
+      </StateMessage>
+      <StateMessage v-if="runs.error" variant="inline" tone="danger">
+        {{ runs.error }}
+      </StateMessage>
+
       <RunListItem
         v-for="run in runs.ordered"
         :key="run.id"
         :run="run"
         :active="run.id === activeRunId"
         @open="open(run, $event)"
-        @rename="runs.rename(run.id, $event)"
-        @cancel="runs.cancel(run.id)"
+        @rename="rename(run, $event)"
+        @cancel="cancel(run)"
         @remove="pendingDelete = run"
       />
 
-      <StateMessage v-if="!runs.ordered.length" variant="inline">
+      <StateMessage v-if="!runs.ordered.length && !runs.error" variant="inline">
         No runs yet. Solving writes results beside the model, in
         <code :class="IDENTIFIER">calliope-studio/runs/</code>.
       </StateMessage>

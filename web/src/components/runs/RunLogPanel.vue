@@ -19,6 +19,7 @@ import { Square } from "@lucide/vue";
 
 import RunProgress from "./RunProgress.vue";
 import RunStatusPill from "./RunStatusPill.vue";
+import { errorDetail } from "@/api/errors";
 import { cn } from "@/lib/utils";
 import { formatDuration, formatObjective, formatTimestamp } from "@/lib/format";
 import { CODE_BLOCK, FIELD_SM, IDENTIFIER } from "@/lib/formClasses";
@@ -71,6 +72,21 @@ const FILTERS: Array<{ id: LogFilter; label: string }> = [
   { id: "info", label: "No solver output" },
   { id: "errors", label: "Errors only" },
 ];
+
+/**
+ * A failed cancel leaves the run visibly still solving, which without a
+ * message reads as the button doing nothing.
+ */
+const cancelError = ref<string | null>(null);
+
+async function cancel() {
+  cancelError.value = null;
+  try {
+    await runs.cancel(props.runId);
+  } catch (caught) {
+    cancelError.value = errorDetail(caught, "Cancelling the run failed.");
+  }
+}
 
 function onScroll() {
   const element = viewport.value;
@@ -127,12 +143,16 @@ watch(
         type="button"
         data-testid="cancel-run"
         class="inline-flex h-5 items-center gap-1 rounded-xs border border-border px-1.5 text-2xs hover:bg-hover"
-        @click="runs.cancel(runId)"
+        @click="cancel"
       >
         <Square class="size-2.5" />
         Cancel
       </button>
     </PanelHeader>
+
+    <StateMessage v-if="cancelError" variant="inline" tone="danger">
+      {{ cancelError }}
+    </StateMessage>
 
     <div
       ref="viewport"

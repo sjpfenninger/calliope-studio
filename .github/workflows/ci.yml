@@ -5,8 +5,9 @@ on:
     branches: [main]
   pull_request:
 
-# Nothing in this workflow writes back to the repository, so the default
-# token scope is more than any job needs. Dependabot keeps the SHA pins below
+# Read-only by default; the one exception is `dev-release`, which elevates to
+# `contents: write` at the job level to maintain the rolling `dev` pre-release,
+# and only runs on pushes to main. Dependabot keeps the SHA pins below
 # current; pinning by tag would let a retagged action ship new code silently.
 permissions:
   contents: read
@@ -435,3 +436,45 @@ jobs:
 
       - name: Run the console script
         run: calliope-studio --help
+
+  # The artefacts `package` built and `interpreters` verified, published to a
+  # rolling `dev` pre-release so the README's development-build one-liner has
+  # something to install. A plain `pip install git+…` cannot do this job: the
+  # frontend bundle is gitignored and the build backend does not compile it, so
+  # a git install is a wheel with no interface.
+  #
+  # The `dev` tag is invisible to everything else: setuptools-scm's default
+  # describe matches `*[0-9]*` and `dev` contains no digit, so versioning never
+  # sees it, and `release.yml` triggers on `v*` only, so pushing it cannot
+  # start a publish run.
+  dev-release:
+    name: Dev release
+    # The whole of CI, so a build that fails any check is never offered for
+    # install. `interpreters` already needs `package`.
+    needs: [python, web, windows, browser, interpreters]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    # The one job that writes back to the repository — see the workflow-level
+    # comment. It downloads a finished artefact and runs nothing else, so the
+    # elevated token never coexists with pnpm or third-party install scripts.
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: dist
+          path: dist/
+      - name: Replace the rolling dev pre-release
+        # Delete-and-recreate rather than upload with `--clobber`: filenames
+        # carry the version, so clobbering would accumulate one wheel per
+        # commit, and the release's asset page doubles as the install index the
+        # README's `--find-links` points at. The workflow's `concurrency` group
+        # already serialises pushes to main.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete dev --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes || true
+          gh release create dev dist/* --repo "$GITHUB_REPOSITORY" \
+            --prerelease --latest=false --target "$GITHUB_SHA" \
+            --title "Development build" \
+            --notes "Rolling build of the latest \`main\` commit (${GITHUB_SHA}). See the README for how to install it."

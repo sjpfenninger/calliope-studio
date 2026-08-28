@@ -40,6 +40,22 @@ To quit Calliope Studio, close its terminal window or press Ctrl+C inside it.
 > [!IMPORTANT]
 > Calliope needs a solver to actually solve models. You can still use Studio to edit a model or analyse results that somebody else solved, but pressing **Run** will fail without a solver. Refer to the [Calliope documentation](https://calliope.readthedocs.io/) for solver installation.
 
+### Development builds
+
+To install a development build based on the latest `main` branch commit:
+
+```shell
+uv tool install --reinstall --prerelease allow \
+  --find-links https://github.com/sjpfenninger/calliope-studio/releases/expanded_assets/dev \
+  calliope-studio
+```
+
+The same command updates an existing install to the newest development build. To go back to the stable (released) version:
+
+```shell
+uv tool install --reinstall calliope-studio
+```
+
 ## FAQ
 
 - **Why does "Run" fail with a solver error?** See the note above: you probably have no solver installed.

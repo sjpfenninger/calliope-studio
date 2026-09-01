@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.1 (2026-09-01)
 
 - Adapted to the Calliope 0.7.0 release
 - Python 3.14 is now supported

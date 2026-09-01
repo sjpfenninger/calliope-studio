@@ -13,6 +13,15 @@
  * and neither said so: the config editor rendered no fields at all, and Monaco
  * offered no completion for the block a user edits most.
  *
+ * A *second* correction is not here, deliberately: Calliope's published schema
+ * is stricter than Calliope, because its shorthands (`dims: costs`,
+ * `index: monetary`, an empty technology) are implemented as pydantic
+ * before-validators, which a validation-mode JSON Schema does not describe.
+ * That one is applied server-side in `modeldef/schema.py`, where the payload is
+ * generated and where its test can hold it against Calliope's own example
+ * models. It is about Calliope disagreeing with Calliope; this file is about
+ * what an editor additionally needs.
+ *
  * `schemaEntries` is the second half. Calliope has four schemas and a workspace
  * has many files, and the editor used to hand Monaco a single association
  * matching `*.yaml` — so a math file was validated against the model-definition

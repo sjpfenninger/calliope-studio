@@ -141,6 +141,10 @@ httpx2 = "*"
 # Only the `test-cov` task uses it; `test` stays uninstrumented. See the note
 # on that task below for why the two are separate.
 pytest-cov = "*"
+# `tests/test_schema.py` validates Calliope's own example models against the
+# schema we serve. It resolves transitively today, which is not a reason to
+# leave it unnamed. Test-only: nothing in `src/` uses it.
+jsonschema = "*"
 # Pins the frontend toolchain into pixi.lock alongside everything else. The
 # conda package depends on nodejs, so this one line fixes both the package
 # manager and the Node version — which were previously pinned only inside CI,

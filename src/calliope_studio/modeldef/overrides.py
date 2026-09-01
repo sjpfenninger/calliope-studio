@@ -29,14 +29,16 @@ uses is the one that gets edited.
 
 from typing import Any
 
-#: Marks a mapping that *is* a value rather than a container of settings.
+#: Keys that mark a mapping as *being* a value rather than a container of
+#: settings.
 #:
-#: Calliope uses `data:` to say "this mapping describes a datum" — an inline
-#: indexed parameter (`{data: [...], index: [...], dims: techs}`) or a data table
-#: (`{data: path, rows: ...}`). Splitting those into separate rows would let a
-#: user edit `index` without `data` and produce an invalid pair, so they stay one
-#: row and are edited as a unit.
-VALUE_MARKER = "data"
+#: Calliope has two such mappings: an inline indexed parameter
+#: (`{data: [...], index: [...], dims: techs}`) and a data table
+#: (`{table: path, rows: ...}` — `data:` before 0.7.0, kept so an unmigrated
+#: file still edits sanely). Splitting either into separate rows would let a
+#: user edit `index` without `data` and produce an invalid pair, so they stay
+#: one row and are edited as a unit.
+VALUE_MARKERS = frozenset({"data", "table"})
 
 
 def is_value(candidate: Any) -> bool:
@@ -44,7 +46,7 @@ def is_value(candidate: Any) -> bool:
     if not isinstance(candidate, dict):
         return True
     # An empty mapping has no leaves, so descending would lose the setting.
-    return not candidate or VALUE_MARKER in candidate
+    return not candidate or not VALUE_MARKERS.isdisjoint(candidate)
 
 
 def flatten(mapping: Any, prefix: str = "") -> dict[str, Any]:

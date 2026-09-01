@@ -10,8 +10,9 @@ package docstring is about, and math is the worst possible place to make it.
 returns a whole document — one string of every component in one order with the
 group headings baked in. The Math tab browses: it filters by source, jumps to a
 component by name, and follows a `Uses` reference to another one. So the
-components are read back individually, from the dataset attrs Calliope stashed
-them in, and only the two KaTeX escaping filters are borrowed —
+components are read back individually — the LaTeX from the backend's own
+`math_strings` dict, the metadata from the pydantic definitions in
+`backend.math` — and only the two KaTeX escaping filters are borrowed —
 `backend._render` with a one-line template, rather than a second copy of two
 regexes whose comments in Calliope say "KaTeX requires…".
 
@@ -23,29 +24,20 @@ notation — which is a failure nobody would catch by eye, since wrong math look
 exactly like right math.
 
 **Why this does not call `MathDocumentation` either.** Its `__init__` is exactly
-the two lines `render` now writes out — construct the backend, add the
-components — and nothing else it offers was ever used. Constructing the backend
-here is what lets `_build_math` sit between the model's math and the backend,
-which it has to, because Calliope cannot render a deactivated component:
+the three lines `render` now writes out — construct the backend, add the
+components, add the postprocessed arrays — and nothing else it offers was ever
+used. Constructing the backend here is what lets `_build_math` sit between the
+model's math and the backend, which is how deactivated components stay visible:
 
-`BackendModel._add_component` lets an *inactive* component whose name already
-exists in the backend dataset short-circuit before the pre-existence check, which
-is what makes a dispatch model legal — declare `flow_cap` as a parameter, switch
-the base-math variable of the same name off, and Pyomo builds it. But
-`LatexBackendModel` passes `break_early=False` on every `add_*`, so that branch
-is skipped and `_raise_error_on_preexistence` fires instead: *"Trying to add
-already existing *parameter* `flow_cap` as a backend model *variable*."* Every
-operate-mode and dispatch-style model is undocumentable as a result, upstream's
-own `generate_math_doc` included.
-
-The same line has a quieter consequence on models that *do* render. With the
-inactive branch skipped, a deactivated component is parsed and drawn as though it
-were live math — so a file switching thirteen constraints off produced a Math tab
-listing all thirteen as part of the formulation. Filtering them out here is
-therefore not only the workaround; it is the correct answer independent of the
-bug. They are still *listed*, marked `deactivated` and carrying the source that
-switched them off, because a custom-math author needs to see that their
-`active: false` was picked up — vanishing reads as the file not being read at all.
+every `add_*` on Calliope's backend returns early for an `active: false`
+component (before 0.7.0 it raised on some — the dispatch-model case — and drew
+the rest as live math; both fixed upstream), so a deactivated component simply
+*vanishes* from anything the backend produces. For the Math tab that is the
+wrong answer: a custom-math author needs to see that their `active: false` was
+picked up, and vanishing reads as the file not being read at all. So
+`_build_math` lifts them out before the backend looks, and they are listed
+under their group anyway — marked `deactivated`, with no notation, carrying the
+source that switched them off.
 
 **Why this needs no `model.build()`.** `LatexBackendModel` reads `model.inputs`,
 `model.math.build` and `model.config.build`, and `math.build` is populated during
@@ -68,6 +60,7 @@ GROUPS = (
     "piecewise_constraints",
     "global_expressions",
     "variables",
+    "postprocessed",
     "parameters",
     "lookups",
 )
@@ -82,6 +75,7 @@ GROUP_LABELS = {
     "piecewise_constraints": "Subject to (piecewise)",
     "global_expressions": "Where",
     "variables": "Decision variables",
+    "postprocessed": "Postprocessed statistics",
     "parameters": "Parameters",
     "lookups": "Lookups",
 }
@@ -115,6 +109,12 @@ def render(model: Any) -> dict:
     # does not contain.
     backend = LatexBackendModel(model.inputs, build, model.config.build, "all")
     backend.add_optimisation_components()
+    # Post-solve expressions are formulation too — evaluated against results
+    # rather than by the solver, but declared in the same math files and
+    # documented by Calliope's own `MathDocumentation`, whose `__init__` these
+    # two lines mirror.
+    postprocessed = backend.add_postprocessed_arrays(backend._dataset)
+    backend._dataset = backend._dataset.assign(postprocessed)
     origins = _origins(model)
     priority = _priority(model)
 
@@ -177,15 +177,16 @@ def check_inputs(model: Any) -> None:
 def _build_math(model: Any) -> tuple[Any, dict[str, dict[str, Any]]]:
     """The math the LaTeX backend can take, and the components removed from it.
 
-    Deactivated components are lifted out rather than left in, for the two
-    reasons the module docstring gives: Calliope raises on some of them, and
-    renders the rest as though they were live math.
+    Deactivated components are lifted out rather than left in, for the reason
+    the module docstring gives: the backend skips them, and skipped means
+    invisible, where the Math tab owes the user a listing.
 
-    Only the five `ORDERED_COMPONENTS_T` groups are touched. `parameters` and
-    `lookups` are deliberately left alone: `_load_inputs` indexes
-    `self.math.parameters[name]` for *every* input array, so removing a
-    deactivated parameter that the model nonetheless supplies data for would
-    turn this into a `KeyError` at the point Calliope reads its inputs.
+    Only the five `ORDERED_COMPONENTS_T` groups and `postprocessed` are
+    touched. `parameters` and `lookups` are deliberately left alone:
+    `_load_inputs` indexes `self.math.parameters[name]` for *every* input
+    array, so removing a deactivated parameter that the model nonetheless
+    supplies data for would turn this into a `KeyError` at the point Calliope
+    reads its inputs.
 
     Args:
         model: An initialised `calliope.Model`.
@@ -200,7 +201,7 @@ def _build_math(model: Any) -> tuple[Any, dict[str, dict[str, Any]]]:
 
     build = model.math.build.model_copy(deep=True)
     inactive: dict[str, dict[str, Any]] = {}
-    for group in typing.get_args(ORDERED_COMPONENTS_T):
+    for group in (*typing.get_args(ORDERED_COMPONENTS_T), "postprocessed"):
         root = getattr(build, group).root
         for name in [key for key, value in root.items() if not value.active]:
             inactive.setdefault(group, {})[name] = root.pop(name)
@@ -229,21 +230,26 @@ def _component(
     so they are worth listing only when some equation refers to them. That is the
     same rule `generate_math_doc` applies, and it is what keeps the Parameters
     group from being a dump of every default Calliope declares.
+
+    The LaTeX comes from the backend's `math_strings`; everything descriptive —
+    title, unit, default — from the pydantic definition in `backend.math`, which
+    is where `generate_math_doc` reads it too. Before 0.7.0 both lived in the
+    arrays' attrs; only `references` still does.
     """
-    attrs = array.attrs
-    latex = attrs.get("math_string")
-    references = attrs.get("references") or set()
+    latex = backend.math_strings[group][name] or None
+    references = array.attrs.get("references") or set()
     if not latex and not (group in ("parameters", "lookups") and references):
         return None
 
+    definition = _definition_fields(backend, group, name)
     key = f"{group}:{name}"
     sources = origins.get(key, [])
     component: dict[str, Any] = {
         "name": name,
         "group": group,
-        "title": str(attrs.get("title") or ""),
-        "description": str(attrs.get("description") or ""),
-        "unit": str(attrs.get("unit") or ""),
+        "title": str(definition.get("title") or ""),
+        "description": str(definition.get("description") or ""),
+        "unit": str(definition.get("unit") or ""),
         "uses": sorted(_uses(backend, name)),
         "used_in": sorted(str(item) for item in references if str(item) != name),
         "sources": sources,
@@ -257,15 +263,29 @@ def _component(
 
     if latex:
         component["latex"] = backend._render(_ESCAPE, x=latex)
-    default = _plain(attrs.get("default"))
+    default = _plain(definition.get("default"))
     if default is not None:
         component["default"] = default
-    if attrs.get("dtype") is not None:
-        component["dtype"] = str(attrs["dtype"])
+    if definition.get("dtype") is not None:
+        component["dtype"] = str(definition["dtype"])
     yaml_snippet = _yaml(backend, group, name)
     if yaml_snippet:
         component["yaml"] = yaml_snippet
     return component
+
+
+def _definition_fields(backend: Any, group: str, name: str) -> dict:
+    """The component's pydantic definition, as a plain mapping.
+
+    `dtype` is a field only on lookups — on parameters it is a property, which
+    `model_dump` rightly leaves out — so reading the dump rather than attributes
+    reports a type exactly where Calliope's own documentation does.
+    """
+    try:
+        return backend.math[group][name].model_dump()
+    except (AttributeError, KeyError, TypeError):
+        # A component the backend synthesised rather than read — see `_yaml`.
+        return {}
 
 
 def _deactivated(

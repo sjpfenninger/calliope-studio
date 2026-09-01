@@ -63,6 +63,13 @@ class TestFlatten:
         }
 
     def test_a_data_table_stays_one_setting(self):
+        table = {"table": "data_tables/cluster_days.csv", "rows": "datesteps"}
+        assert flatten({"data_tables": {"cluster_days": table}}) == {
+            "data_tables.cluster_days": table
+        }
+
+    def test_a_pre_070_data_table_stays_one_setting(self):
+        """The old `data:` spelling still edits as a unit, not as split rows."""
         table = {"data": "data_tables/cluster_days.csv", "rows": "datesteps"}
         assert flatten({"data_tables": {"cluster_days": table}}) == {
             "data_tables.cluster_days": table

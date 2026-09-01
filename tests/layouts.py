@@ -1,9 +1,13 @@
-"""Builds the two netCDF layouts Calliope has written, from scratch.
+"""Builds the netCDF layouts Calliope has written, from scratch.
 
 The results reader recognises a `.nc` by its *structure*, and these are that
 structure stated explicitly: a 0.7.0.dev7-and-later file with `inputs`,
-`results` and `attrs` groups, and a 0.7.0.dev6-and-earlier file that is one flat
-dataset with an `is_result` flag per variable.
+`results` and `attrs` groups, a 0.7.0.dev6-and-earlier file that is one flat
+dataset with an `is_result` flag per variable, and a 0.7.0 file — the grouped
+layout again, with the traits the release changed: `active` in place of
+`definition_matrix` (and without its carriers dimension), no math metadata
+duplicated onto array attrs, a `postprocessed` math block, and the `__active`
+scratch array Calliope leaks into the saved inputs.
 
 **Why synthesise rather than commit a real file.** The sample `.nc` files this
 repository has are gitignored, and `pixi run solve-examples` writes only two of
@@ -118,6 +122,80 @@ def write_grouped(path) -> "object":
 
     _inputs().to_netcdf(path, group="inputs", mode="w")
     _results().to_netcdf(path, group="results", mode="a")
+    attrs.to_netcdf(path, group="attrs", mode="a")
+    return path
+
+
+def write_070(path) -> "object":
+    """A 0.7.0 file: the grouped layout, with what the release changed.
+
+    - `active` over (nodes, techs) replaces `definition_matrix` and its
+      carriers dimension — what `results/geo.py` masks links by.
+    - `__active`, the scratch array `ModelDataCleaner._drop_undefined` builds,
+      leaks into the saved inputs; the reader must drop it or it becomes a
+      chartable variable.
+    - **No unit/title attrs on any array.** 0.7.0 stopped duplicating math
+      metadata onto arrays, so the file's own stored math is the only source.
+    - The math carries a `postprocessed` block, whose units the catalogue must
+      read like any other expression's.
+    - `link_from`/`link_to` persist as input arrays.
+    """
+    inputs = xr.Dataset(
+        {
+            "flow_cap_max": (
+                ("nodes", "techs"),
+                np.array([[10.0, 20.0], [30.0, 40.0]]),
+            ),
+            "color": ("techs", np.array(["#112233", "#445566"], dtype=object)),
+            "active": (("nodes", "techs"), np.ones((2, 2), dtype=bool)),
+            "__active": (("nodes", "techs"), np.ones((2, 2))),
+            "base_tech": ("techs", np.array(["supply", "transmission"], dtype=object)),
+            "link_from": ("techs", np.array([None, "region1"], dtype=object)),
+            "link_to": ("techs", np.array([None, "region2"], dtype=object)),
+            "longitude": ("nodes", np.array([4.0, 5.0])),
+            "latitude": ("nodes", np.array([50.0, 51.0])),
+        },
+        coords={"nodes": NODES, "techs": ["ccgt", "region1_to_region2"]},
+    )
+
+    math = {
+        "build": {
+            **MATH["build"],
+            "postprocessed": {"capacity_factor": {"unit": "unitless"}},
+        }
+    }
+    attrs = xr.Dataset()
+    attrs.attrs = {
+        "config": _yaml(
+            {"init": {"name": "layout fixture"}, "solve": {"solver": "cbc"}}
+        ),
+        "definition": _yaml({"techs": {"ccgt": {"base_tech": "supply"}}}),
+        "runtime": _yaml(
+            {
+                "name": "layout fixture",
+                "calliope_version_initialised": "0.7.0",
+                "termination_condition": "optimal",
+            }
+        ),
+        "math": _yaml(math),
+        "serialised_dicts": ["config", "definition", "runtime", "math"],
+    }
+
+    results = xr.Dataset(
+        {
+            "flow_cap": (("nodes", "techs"), np.array([[1.0, 2.0], [3.0, 4.0]])),
+            "flow_out": (("nodes", "techs", "timesteps"), np.ones((2, 2, 2))),
+            "capacity_factor": (("nodes", "techs"), np.full((2, 2), 0.5)),
+        },
+        coords={
+            "nodes": NODES,
+            "techs": ["ccgt", "region1_to_region2"],
+            "timesteps": TIMESTEPS,
+        },
+    )
+
+    inputs.to_netcdf(path, group="inputs", mode="w")
+    results.to_netcdf(path, group="results", mode="a")
     attrs.to_netcdf(path, group="attrs", mode="a")
     return path
 

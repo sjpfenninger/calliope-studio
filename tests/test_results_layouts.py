@@ -62,6 +62,12 @@ def flat(tmp_path) -> Path:
     return layouts.write_flat(tmp_path / "flat.nc")
 
 
+@pytest.fixture
+def release(tmp_path) -> Path:
+    """A 0.7.0-layout file, built rather than found."""
+    return layouts.write_070(tmp_path / "release.nc")
+
+
 def _sample(name: str) -> Path:
     path = SAMPLES / name
     if not path.is_file():
@@ -294,6 +300,56 @@ class TestBothLayoutsAlwaysRun:
             tech_colors(handle.model)
             link_orientation(handle.model)
             assert build_catalog(handle.dataset).timeseries or True
+
+
+class TestThe070Layout:
+    """What the 0.7.0 release changed inside the grouped layout.
+
+    Pinned on a synthetic file for the same reason the other two layouts are:
+    the real samples are gitignored, so anything only they exercise is
+    protected on one machine and nowhere else.
+    """
+
+    def test_the_scratch_array_is_dropped(self, release):
+        """Calliope leaks `__active` into the saved inputs; its own reader
+        removes it again on load, and the structural read must match — or a
+        piece of preprocessing scaffolding turns up as a chartable variable."""
+        model = store._read(str(release)).model
+
+        assert "__active" not in model.inputs
+        assert "active" in model.inputs
+
+    def test_links_draw_from_the_active_matrix(self, release):
+        """`active` (nodes, techs) replaced `definition_matrix` (…, carriers),
+        and the transmission mask has to work from either."""
+        from calliope_studio.results.geo import links_geojson
+
+        model = store._read(str(release)).model
+        features = links_geojson(model)["features"]
+
+        assert len(features) == 1
+        coordinates = features[0]["geometry"]["coordinates"]
+        assert coordinates == [[4.0, 50.0], [5.0, 51.0]]
+
+    def test_units_answer_without_array_attrs(self, release):
+        """0.7.0 stopped duplicating math metadata onto arrays, so the file's
+        own stored math is the only source — including for the new
+        `postprocessed` block."""
+        handle = store._read(str(release))
+        units = units_from_math(handle.model.math)
+
+        assert units["capacity_factor"] == "unitless"
+        catalog = build_catalog(handle.dataset, file_units=units)
+        assert catalog.units["flow_cap_max"] == "power"
+        assert catalog.units["capacity_factor"] == "unitless"
+
+    def test_link_endpoints_come_from_the_inputs(self, release):
+        """`link_from`/`link_to` persist as input arrays from 0.7.0, and the
+        definition — which this fixture's deliberately does not mention the
+        link in — is no longer needed to orient one."""
+        model = store._read(str(release)).model
+
+        assert link_orientation(model)["region1_to_region2"] == ("region1", "region2")
 
 
 class TestTheFixturesMatchReality:

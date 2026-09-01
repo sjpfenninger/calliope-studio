@@ -15,7 +15,7 @@ describe("dirName", () => {
 describe("resolveDataPath", () => {
   it("joins against the declaring file's directory, not the model root", () => {
     // The rule that makes this a helper: model_config/tables.yaml saying
-    // `data: costs.csv` means model_config/costs.csv.
+    // `table: costs.csv` means model_config/costs.csv.
     expect(resolveDataPath("model_config/tables.yaml", "costs.csv")).toBe(
       "model_config/costs.csv"
     );

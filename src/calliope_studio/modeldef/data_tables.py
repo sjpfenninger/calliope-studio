@@ -10,7 +10,7 @@ same class the model itself is built from, so `rows`, `columns`, `select`, `drop
 hand-written reader this replaced handled the first three and silently ignored the
 rest, which was not a theoretical gap:
 
-- `add_dims: {parameters: sink_use_equals}` — how `urban_scale` and
+- `add_dims: {inputs: sink_use_equals}` — how `urban_scale` and
   `examples/model_nld-NUTS3-v1` declare their timeseries — produced *no*
   provenance at all, so the editor offered an editable field for a value the table
   overwrites. That is the exact failure this module exists to prevent.
@@ -142,7 +142,10 @@ def _fingerprint(model_yaml: Path, tables: dict[str, dict]) -> tuple:
     """Enough to know a cached reading is still current: the CSVs it read."""
     entries = [str(model_yaml)]
     for name, config in tables.items():
-        for value in _as_list(config.get("data")):
+        # `table:` from Calliope 0.7.0; `data:` is the pre-release spelling, kept
+        # so a model awaiting migration still fingerprints (and so a stale cache
+        # entry is not served when only such a table's CSV changed).
+        for value in _as_list(config.get("table", config.get("data"))):
             path = (model_yaml.parent / str(value)).resolve()
             try:
                 stat = path.stat()
@@ -175,15 +178,24 @@ def _read_tables(base: Path) -> dict[str, dict]:
         return cached
 
     from calliope.preprocess.data_tables import DataTable
+    from calliope.schemas.data_table_schema import CalliopeDataTable
 
     found: dict[str, dict] = {}
     for name, config in tables.items():
         try:
-            table = DataTable(name, config, model_definition_path=str(model_yaml))
+            # `DataTable` takes the validated pydantic form since 0.7.0. The
+            # validation is inside this guard on purpose: an entry that does not
+            # validate — including one still spelling `table:` as the pre-release
+            # `data:` — loses its provenance, nothing more.
+            table = DataTable(
+                name,
+                CalliopeDataTable.model_validate(config),
+                model_definition_path=str(model_yaml),
+            )
         except Exception:
             # A malformed or half-written table must not break the whole response;
             # the editor simply shows no provenance for it. Calliope raises here
-            # for real reasons — a missing `parameters` dimension, a protected
+            # for real reasons — a missing `inputs` dimension, a protected
             # parameter — and `validate` is what reports those.
             continue
         for parameter, array in table.dataset.data_vars.items():

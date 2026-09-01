@@ -93,8 +93,15 @@ def links_geojson(
             direction.
     """
     inputs = model.inputs
-    required = ("longitude", "latitude", "definition_matrix", "base_tech")
-    if any(name not in inputs for name in required):
+    # Which (node, tech) pairs exist: `active` from Calliope 0.7.0, its
+    # predecessor `definition_matrix` — carrying a carriers dimension the new
+    # array dropped — in files solved before it. Structural, like the layout
+    # handling in `store`: the file says which one it is.
+    matrix = next(
+        (name for name in ("active", "definition_matrix") if name in inputs), None
+    )
+    required = ("longitude", "latitude", "base_tech")
+    if matrix is None or any(name not in inputs for name in required):
         return {"type": "FeatureCollection", "features": []}
 
     if selectors:
@@ -102,11 +109,12 @@ def links_geojson(
 
     located = (
         inputs[["longitude", "latitude"]]
-        .where(inputs.definition_matrix & inputs.base_tech.isin("transmission"))
+        .where(inputs[matrix] & inputs.base_tech.isin("transmission"))
         .to_dataframe()
-        .droplevel("carriers")
-        .dropna()
     )
+    if "carriers" in located.index.names:
+        located = located.droplevel("carriers")
+    located = located.dropna()
 
     colors = colors or {}
     orientation = orientation or {}

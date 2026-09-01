@@ -568,16 +568,34 @@ def stub_model(base_techs: dict, inputs=None, definition=None):
 
 class TestLinks:
     def test_endpoints_come_from_the_definition(self, results):
-        """The path `inputs` cannot cover.
+        """The path pre-0.7.0 `inputs` cannot cover.
 
-        `national_scale` declares its links in YAML, and `_links_to_node_format`
-        consumes that during preprocessing — so `inputs.link_from` does not exist
-        and `model.definition` is the only remaining record.
+        From Calliope 0.7.0 `link_from`/`link_to` persist in `inputs`, so a
+        freshly solved file answers there. Files solved before that carry them
+        in `inputs` only when a data table supplied them — `national_scale`
+        declares its links in YAML, and `_links_to_node_format` consumed that
+        during preprocessing — leaving `model.definition` as the only record.
+        Simulated here by stripping the arrays from a fresh file, because the
+        fallback has to keep working for as long as old files stay openable.
         """
-        assert "link_from" not in results.model.inputs
-        links = transmission_links(results.model)
+        import dataclasses
+
+        stripped = dataclasses.replace(
+            results.model,
+            inputs=results.model.inputs.drop_vars(
+                ["link_from", "link_to"], errors="ignore"
+            ),
+        )
+        links = transmission_links(stripped)
         assert links, "the example model should have transmission techs"
         assert all(link.node_from and link.node_to for link in links)
+        by_tech = {link.tech: (link.node_from, link.node_to) for link in links}
+        assert by_tech["region1_to_region2"] == ("region1", "region2")
+
+    def test_endpoints_come_from_the_inputs(self, results):
+        """A 0.7.0 file carries its endpoints as input arrays, and they win."""
+        assert "link_from" in results.model.inputs
+        links = transmission_links(results.model)
         by_tech = {link.tech: (link.node_from, link.node_to) for link in links}
         assert by_tech["region1_to_region2"] == ("region1", "region2")
 

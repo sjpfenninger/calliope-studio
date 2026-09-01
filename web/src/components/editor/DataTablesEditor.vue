@@ -4,7 +4,7 @@
  *
  *   - Section tab (entryName=null): every table in the file, configuration only.
  *   - Entry tab (entryName="cost_parameters"): that table alone, with the CSV
- *     its `data:` points at in an editable grid below it.
+ *     its `table:` points at in an editable grid below it.
  *
  * A data table is a config block *and* a file, and until now the two were
  * reachable only from opposite ends of the app — the config from the Model tree,
@@ -93,30 +93,40 @@ const {
 
 const csvGrid = useTemplateRef<InstanceType<typeof CsvGrid>>("csvGrid");
 
-/** Where `data:` points, workspace-relative, or null if there is nothing to open. */
+/**
+ * The CSV reference of one entry: `table:` from Calliope 0.7.0, with the
+ * pre-release `data:` spelling read as a fallback so a model awaiting
+ * migration still opens its file — the editor has to work on a model that
+ * does not build.
+ */
+function tableRef(entry: { data: Record<string, any> }): unknown {
+  return entry.data?.table ?? entry.data?.data;
+}
+
+/** Where `table:` points, workspace-relative, or null if there is nothing to open. */
 const csvPath = computed(() =>
   activeEntry.value
-    ? resolveDataPath(props.filePath, activeEntry.value.data?.data)
+    ? resolveDataPath(props.filePath, tableRef(activeEntry.value))
     : null
 );
 
-/** Why there is no grid, when a single table is shown but `data:` gives nothing. */
+/** Why there is no grid, when a single table is shown but `table:` gives nothing. */
 const noCsvReason = computed<string | null>(() => {
   if (!activeEntry.value || csvPath.value) return null;
-  const raw = activeEntry.value.data?.data;
+  const raw = tableRef(activeEntry.value);
   if (raw === undefined || raw === null || raw === "") {
-    return "This table has no data: file.";
+    return "This table has no table: file.";
   }
   if (Array.isArray(raw)) {
-    return "data: names more than one file — Calliope expects a single path. Edit this table as raw YAML.";
+    return "table: names more than one file — Calliope expects a single path. Edit this table as raw YAML.";
   }
-  return "data: points outside the model folder.";
+  return "table: points outside the model folder.";
 });
 
 /**
  * A path change the grid has not followed yet, because it has unsaved edits.
  *
- * Reloading on a `data:` keystroke would throw away cell edits without asking,
+ * Reloading on a `table:` keystroke would throw away cell edits without asking,
  * so a dirty grid stays put and offers the reload instead.
  */
 const pendingPath = ref<string | null>(null);
@@ -132,7 +142,7 @@ let hasRequested = false;
 function request(path: string | null) {
   clearTimeout(reloadTimer);
   requested = path;
-  // `data:` is a text field and SchemaObjectEditor emits on every keystroke, so
+  // `table:` is a text field and SchemaObjectEditor emits on every keystroke, so
   // an undebounced watch is one request — and one 404 — per character typed.
   // The first load is not typing, so it does not wait.
   const delay = hasRequested ? 400 : 0;
@@ -200,7 +210,7 @@ function buildPayload(): Record<string, any> {
 /**
  * Writes the CSV first, then the YAML.
  *
- * `data:` is the pointer. If the CSV write fails after the YAML write landed,
+ * `table:` is the pointer. If the CSV write fails after the YAML write landed,
  * the model names a file whose edits were lost; the other way round leaves at
  * worst an orphan CSV at a path the user just typed, which is visible and
  * recoverable. Cell edits are the expensive thing, so they go first.
@@ -225,7 +235,7 @@ const { isLoading, isSaving, error, saveError, save, markDirty } = useSectionEdi
   },
   build: buildPayload,
   /**
-   * The CSV goes first, and `data:` is the pointer. If the CSV write fails after
+   * The CSV goes first, and `table:` is the pointer. If the CSV write fails after
    * the YAML write landed, the model names a file whose edits were lost; the
    * other way round leaves at worst an orphan CSV at a path the user just typed,
    * which is visible and recoverable. Cell edits are the expensive thing.

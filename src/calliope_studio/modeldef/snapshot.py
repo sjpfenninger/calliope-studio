@@ -16,7 +16,7 @@ Calliope names files in **three** different ways, and a snapshot missing any one
 of them is not a model that can be built:
 
 1. `import:` chains, which `imports.reachable_files` follows;
-2. `data_tables[*].data`, which `data_tables.collect_data_tables` finds,
+2. `data_tables[*].table`, which `data_tables.collect_data_tables` finds,
    including inside `overrides:`;
 3. `config.init.math_paths`, which nothing else in this package looks at —
    `urban_scale` refers to `additional_math.yaml` this way, and it is invisible
@@ -120,11 +120,12 @@ def resolve_math_path(root: Path, name: str) -> Path:
 def _data_files(config: dict) -> list[str]:
     """The CSV(s) one `data_tables:` entry points at.
 
-    Calliope's schema declares `data` as a single path, but a list is accepted
-    here rather than crashing the whole collection on one malformed entry: a
+    Calliope's schema declares `table` as a single path, but a list is accepted
+    here rather than crashing the whole collection on one malformed entry, and
+    the pre-0.7.0 `data` spelling is read as a fallback for the same reason: a
     snapshot of a broken model is still worth having.
     """
-    value = config.get("data")
+    value = config.get("table", config.get("data"))
     if not value:
         return []
     if isinstance(value, str):

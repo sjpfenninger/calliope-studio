@@ -145,7 +145,7 @@ class TestComponentTree:
         model = tmp_path / "tables"
         model.mkdir()
         (model / "model.yaml").write_text(
-            "data_tables:\n  costs:\n    data: costs.csv\n    rows: techs\n"
+            "data_tables:\n  costs:\n    table: costs.csv\n    rows: techs\n"
         )
         entries = component_tree(model)["data_tables"]["entries"]
         assert entries[0]["line"] == 2

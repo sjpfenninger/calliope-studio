@@ -414,10 +414,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Must stay equal to `requires-python` in `pyproject.toml`. 3.14 is
-        # absent because pandas ships no cp314 wheel before 2.3.3 and Calliope
-        # 0.7.0.dev7 caps pandas below that; see the comment there.
-        python-version: ["3.12", "3.13"]
+        # Must stay equal to `requires-python` in `pyproject.toml`.
+        python-version: ["3.12", "3.13", "3.14"]
     steps:
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -428,9 +426,8 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Install the wheel
-        # No `--pre`, on purpose: Calliope 0.7 is a pre-release, and this asserts
-        # that the `>=0.7.0.dev7` lower bound is enough to resolve it the way the
-        # README's install line promises.
+        # No `--pre`, on purpose: this asserts the wheel resolves from released
+        # packages alone, the way the README's install line promises.
         run: pip install dist/*.whl
 
       - name: Import the stack

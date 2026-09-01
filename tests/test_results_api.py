@@ -131,8 +131,12 @@ class TestCatalogUnits:
         body = results_client.get(
             f"/api/results/{results_client.handle}/catalog/"
         ).json()["variables"]
-        # Postprocessed, and absent from Calliope's math entirely.
-        assert "capacity_factor" not in body["units"]
+        # A coordinate: a parameter Calliope's math declares no unit for.
+        assert "latitude" not in body["units"]
+        # Postprocessed statistics declare units from Calliope 0.7.0 — before
+        # that, `capacity_factor` existed in no math at all and was the
+        # unitless example here.
+        assert body["units"]["capacity_factor"] == "unitless"
         assert "capacity_factor" in body["all"]
         assert set(body["units"]) <= set(body["dims"])
 
@@ -184,11 +188,11 @@ class TestFrame:
         assert read_arrow(response).schema.metadata[b"unit"] == b"energy"
 
     def test_a_variable_with_no_declared_unit_says_nothing(self, results_client):
-        # `capacity_factor` is postprocessed and has a unit nowhere. An absent
-        # key beats an empty string that every reader has to check for.
+        # `latitude` has a unit nowhere in Calliope's math. An absent key beats
+        # an empty string that every reader has to check for.
         response = results_client.post(
             f"/api/results/{results_client.handle}/frame/",
-            json={"variable": "capacity_factor"},
+            json={"variable": "latitude"},
         )
         assert b"unit" not in (read_arrow(response).schema.metadata or {})
 

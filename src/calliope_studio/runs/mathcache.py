@@ -61,7 +61,9 @@ SUFFIX = ".json"
 #: change to how we turn a backend into a payload would be served from entries
 #: written before it. **Bump this whenever `mathdoc.render`'s output changes.**
 #: 2: components the math deactivates are listed rather than rendered.
-PAYLOAD_VERSION = 2
+#: 3: Calliope 0.7.0 — LaTeX read from `backend.math_strings`, metadata from
+#:    the pydantic definitions, and the `postprocessed` group added.
+PAYLOAD_VERSION = 3
 
 
 def fingerprint(model: Any) -> str:

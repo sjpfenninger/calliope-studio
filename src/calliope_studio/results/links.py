@@ -76,7 +76,12 @@ def _named(value) -> str | None:
 
 
 def _from_inputs(model) -> dict[str, tuple[str, str]]:
-    """Endpoints carried as ordinary parameters on the `techs` dimension."""
+    """Endpoints carried as ordinary parameters on the `techs` dimension.
+
+    From Calliope 0.7.0 `link_from`/`link_to` persist in `inputs` always, so
+    this is the reliable path for new files; before that they survived only
+    when supplied by a data table, which is what `_from_definition` covers.
+    """
     inputs = getattr(model, "inputs", None)
     if inputs is None or "link_from" not in inputs or "link_to" not in inputs:
         return {}

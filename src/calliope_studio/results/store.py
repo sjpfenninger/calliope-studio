@@ -238,6 +238,20 @@ def _decode_variables(dataset: xr.Dataset) -> xr.Dataset:
     return dataset
 
 
+def _drop_internal(dataset: xr.Dataset) -> xr.Dataset:
+    """Removes Calliope's own scratch arrays from a dataset.
+
+    Calliope 0.7.0 leaks `__active` — the working array
+    `ModelDataCleaner._drop_undefined` creates and deletes — into the saved
+    inputs, and its own reader removes it again on load by rebuilding the
+    dataset. A structural read has to do the removing itself, or the scratch
+    array turns up in the catalogue as a variable someone can chart. A dunder
+    name is nothing a model can declare, so this can never touch user data.
+    """
+    internal = [name for name in dataset.data_vars if str(name).startswith("__")]
+    return dataset.drop_vars(internal) if internal else dataset
+
+
 def _read_grouped(path: Path) -> LoadedModel | None:
     """A 0.7.0.dev7-and-later file: `inputs`, `results` and `attrs` groups.
 
@@ -255,8 +269,10 @@ def _read_grouped(path: Path) -> LoadedModel | None:
     runtime = meta.get("runtime") or {}
     return LoadedModel(
         name=str(meta.get("name") or runtime.get("name") or path.stem),
-        inputs=_decode_variables(inputs),
-        results=_decode_variables(results if results is not None else xr.Dataset()),
+        inputs=_drop_internal(_decode_variables(inputs)),
+        results=_drop_internal(
+            _decode_variables(results if results is not None else xr.Dataset())
+        ),
         config=meta.get("config") or {},
         definition=meta.get("definition") or {},
         runtime=runtime,

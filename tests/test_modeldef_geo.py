@@ -48,9 +48,9 @@ class TestNodes:
         (model / "model.yaml").write_text(
             "data_tables:\n"
             "  nodes:\n"
-            '    data: "data/nodes.csv"\n'
+            '    table: "data/nodes.csv"\n'
             "    rows: nodes\n"
-            "    columns: [parameters]\n"
+            "    columns: [inputs]\n"
             "nodes:\n"
             "  a:\n"
             "    techs: {}\n"
@@ -75,9 +75,9 @@ class TestNodes:
         (model / "model.yaml").write_text(
             "data_tables:\n"
             "  nodes:\n"
-            '    data: "data/nodes.csv"\n'
+            '    table: "data/nodes.csv"\n'
             "    rows: nodes\n"
-            "    columns: [parameters]\n"
+            "    columns: [inputs]\n"
             "nodes:\n"
             "  a:\n"
             "    latitude: 60\n"
@@ -93,9 +93,9 @@ class TestNodes:
         (model / "model.yaml").write_text(
             "data_tables:\n"
             "  nodes:\n"
-            '    data: "data/nodes.csv"\n'
+            '    table: "data/nodes.csv"\n'
             "    rows: nodes\n"
-            "    columns: [parameters]\n"
+            "    columns: [inputs]\n"
         )
         (model / "data" / "nodes.csv").write_text("nodes,latitude,longitude\nz,50,4\n")
 

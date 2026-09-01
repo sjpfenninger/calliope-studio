@@ -18,24 +18,20 @@ readme = "README.md"
 # is no reason for this project to support an interpreter the framework it wraps
 # has dropped.
 #
-# The ceiling is capped rather than open-ended, and 3.14 is not an oversight —
-# it is currently unreachable. `pandas` publishes no cp314 wheel before 2.3.3,
-# and `pandas<2.3` below is forced by calliope 0.7.0.dev7 pinning
-# `xarray<2024.4`, which pandas 2.3 and later refuse to work with. So 3.14 would
-# resolve and then build pandas from source. The cap turns that into a
-# resolution error, which says what is wrong; `uv tool install` otherwise picks
-# the newest interpreter on the machine and the user meets a compiler instead.
-# Lifting it is a consequence of a newer Calliope, not a decision to take here.
-#
-# 3.12 and 3.13 are also exactly what Calliope's own CI matrix covers, and the
-# `interpreters` job in `ci.yml` covers the same two against the built wheel.
+# The ceiling is capped rather than open-ended: `uv tool install` otherwise
+# picks the newest interpreter on the machine, and a floor-only bound means
+# every new Python is claimed as supported before anything has run on it.
+# Lifting it is a deliberate act, taken when Calliope's own matrix moves —
+# last done for 0.7.0, whose matrix runs 3.12 and 3.13 on Linux and 3.14
+# everywhere including the release smoke test. The `interpreters` job in
+# `ci.yml` covers the same three against the built wheel.
 #
 # This is *not* the floor the run worker requires, and the two must not be
 # conflated when the environment registry lands: this bound is about the
 # interpreter running the studio and its own dependency chain, while the
 # worker's floor is a property of the worker's own source and applies to a
 # foreign interpreter the studio never installs into.
-requires-python = ">=3.12,<3.14"
+requires-python = ">=3.12,<3.15"
 keywords = ["energy systems", "visualisation", "optimisation"]
 license = "AGPL-3.0-or-later"
 license-files = ["LICENSE"]
@@ -49,11 +45,12 @@ classifiers = [
   "Programming Language :: Python :: 3 :: Only",
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
   "Topic :: Scientific/Engineering",
 ]
 dynamic = ["version"]
 dependencies = [
-  "calliope>=0.7.0.dev7,<0.8.0",
+  "calliope>=0.7.0,<0.8.0",
   "fastapi>=0.115",
   "uvicorn>=0.34",
   "pyarrow>=17",
@@ -61,17 +58,12 @@ dependencies = [
   "click>=8.2",
   "platformdirs>=4",
   # Imported directly, not merely inherited. They do arrive transitively through
-  # calliope and fastapi, so it worked — but an undeclared dependency is a
-  # manifest that is fiction, and it left the pandas bound below with nowhere to
-  # live that a user's install would ever read.
-  #
-  # calliope 0.7.0.dev7 pins xarray <2024.4, which pandas 2.3 and later refuse to
-  # work with. Without this bound `pip install calliope-studio` resolves the
-  # current pandas — 3.x — against xarray 2024.3, and the results layer fails on
-  # first use. The constraint lived only in `[tool.pixi.dependencies]`, which is
-  # the one place a user's install never reads.
-  "pandas>=2.1.3,<2.3",
-  "xarray>=2024.1,<2024.4",
+  # calliope and fastapi, so leaving them out worked — but an undeclared
+  # dependency is a manifest that is fiction. Floors only: calliope's own
+  # bounds (xarray>=2026.4, numpy>=2, pandas>=2.1.3 as of 0.7.0) govern the
+  # actual resolution.
+  "pandas>=2.1.3",
+  "xarray>=2024.1",
   "numpy>=1.26",
   "pydantic>=2.7",
   # Reading a `.nc` structurally, without constructing a `calliope.Model`, is
@@ -117,16 +109,13 @@ platforms = ["linux-64", "osx-64", "osx-arm64", "win-64"]
 [tool.pixi.dependencies]
 # Binary dependencies come from conda-forge; calliope (pre-release, PyPI-only)
 # and pure-Python deps are resolved by uv via the editable self-install below.
-python = ">=3.12,<3.14"
+python = ">=3.12,<3.15"
 fastapi = ">=0.115"
 uvicorn = ">=0.34"
 pyarrow = ">=17"
 "ruamel.yaml" = ">=0.18"
 click = ">=8.2"
 netcdf4 = "*"
-# Mirrors the bound in `[project.dependencies]`, which is the source of truth —
-# conda-forge resolves separately, so the constraint has to be stated twice.
-pandas = "<2.3"
 # Frontend toolchain, so `pixi run web-*` works without a separate Node install.
 nodejs = ">=22"
 # Solver for local runs: CBC is Calliope's default (`config.solve.solver`) and
@@ -145,6 +134,10 @@ gurobi = { features = ["dev", "gurobi"] }
 [tool.pixi.feature.dev.dependencies]
 ruff = "*"
 pytest = "*"
+# What starlette's `TestClient` speaks HTTP through. Newer starlette refuses
+# to run without it (the old `httpx` path was removed), so a fresh resolution
+# fails collection without this line. Test-only: nothing in `src/` uses it.
+httpx2 = "*"
 # Only the `test-cov` task uses it; `test` stays uninstrumented. See the note
 # on that task below for why the two are separate.
 pytest-cov = "*"

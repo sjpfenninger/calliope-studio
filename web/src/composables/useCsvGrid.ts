@@ -81,7 +81,7 @@ export function useCsvGrid(versionId: Ref<string | null>) {
   let columns: CsvColumn[] = [];
 
   // A response for a superseded path must not land. The data-tables view
-  // reloads whenever `data:` changes, so out-of-order responses are ordinary
+  // reloads whenever `table:` changes, so out-of-order responses are ordinary
   // there rather than exotic.
   let token = 0;
 

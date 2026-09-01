@@ -110,8 +110,15 @@ def _synthetic_dims(
     return tuple(seen)
 
 
-#: Math blocks whose entries declare a `unit:`.
-_UNIT_BEARING_BLOCKS = ("parameters", "variables", "global_expressions")
+#: Math blocks whose entries declare a `unit:`. `postprocessed` exists from
+#: Calliope 0.7.0 — expressions evaluated against the results after solving —
+#: and its entries declare units like any other expression's.
+_UNIT_BEARING_BLOCKS = (
+    "parameters",
+    "variables",
+    "global_expressions",
+    "postprocessed",
+)
 
 
 def units_from_math(math: Mapping | None) -> dict[str, str]:

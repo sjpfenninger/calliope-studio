@@ -15,7 +15,7 @@ guessed at again here:
 - `config.init.math_paths` names math, and is invisible to the import graph.
   `urban_scale` refers to `additional_math.yaml` this way and no other.
 
-Data tables need no kind of their own. `data_tables[*].data` points at CSVs, and
+Data tables need no kind of their own. `data_tables[*].table` points at CSVs, and
 the `data_tables:` *section* is already a property of the model-definition
 schema, so a YAML file never is one.
 

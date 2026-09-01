@@ -1,11 +1,11 @@
 /**
  * Resolving paths that a model definition names, the way the server does.
  *
- * A data table's `data:` is relative to **the YAML file that declares it**, not
+ * A data table's `table:` is relative to **the YAML file that declares it**, not
  * to the model root — `modeldef/data_tables.py` captures `directory =
  * yaml_path.parent` and joins against that, and `snapshot.py` does the same when
  * it freezes a run. A helper rather than an inline join because the containment
- * rule matters: a `data:` that escapes the workspace is something the server
+ * rule matters: a `table:` that escapes the workspace is something the server
  * refuses, so the editor must not offer to open it either.
  *
  * The check here is textual, where Python's is `Path.resolve()` +
@@ -27,10 +27,10 @@ function isAbsolute(value: string): boolean {
 }
 
 /**
- * Resolves a data table's `data:` value against its declaring YAML file.
+ * Resolves a data table's `table:` value against its declaring YAML file.
  *
  * Returns a workspace-relative POSIX path, or null when there is nothing
- * openable: `data:` absent, empty, or not a string (Calliope expects a single
+ * openable: `table:` absent, empty, or not a string (Calliope expects a single
  * path, but a list parses); absolute; naming a directory; or climbing out of the
  * workspace root.
  */

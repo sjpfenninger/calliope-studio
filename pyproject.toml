@@ -70,7 +70,7 @@ dependencies = [
   # current pandas — 3.x — against xarray 2024.3, and the results layer fails on
   # first use. The constraint lived only in `[tool.pixi.dependencies]`, which is
   # the one place a user's install never reads.
-  "pandas>=2.1.3,<2.3",
+  "pandas>=2.1.3,<3.1",
   "xarray>=2024.1,<2024.4",
   "numpy>=1.26",
   "pydantic>=2.7",

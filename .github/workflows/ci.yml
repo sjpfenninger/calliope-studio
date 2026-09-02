@@ -392,9 +392,24 @@ jobs:
       # catches a dependency change that alters attribution and was committed
       # without it. It also proves the file is machine-independent: it is
       # written here on Linux and committed from macOS, and a platform-specific
-      # package leaking into the graph would show up as a diff and nowhere else.
-      - name: Check the third-party licence notice is current
-        run: git diff --exit-code THIRD_PARTY_LICENSES.md
+      # package leaking into the graph would show up as a difference and nowhere
+      # else.
+      #
+      # `git status` rather than the `git diff --exit-code THIRD_PARTY_LICENSES.md`
+      # this replaces, and the difference is the whole reason the v0.1.2 release
+      # failed. Three packages ship CRLF licence files; the notice is committed
+      # under `* text=auto eol=lf`, so a regenerated copy carrying them differs
+      # from its blob — but git normalises the CRLF out of a *diff*, so that
+      # check passed on the very commit whose release then built a dirty tree.
+      # `git status --porcelain` is the predicate setuptools-scm itself reads to
+      # decide a build is dirty, and it is not confined to one file: anything a
+      # build starts writing into the tree fails here now.
+      - name: The build must leave the tree clean
+        run: |
+          if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+            git status --porcelain --untracked-files=no
+            exit 1
+          fi
 
       # Handed to `interpreters` below rather than rebuilt there: that job is
       # about the *artefact* installing, and a wheel built per interpreter would

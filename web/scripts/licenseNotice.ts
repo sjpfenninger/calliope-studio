@@ -128,7 +128,17 @@ export function readPackage(root: string): PackageNotice {
     // diffed — so it has to come out the same on every machine that builds it.
     .sort()
     .filter((file) => LICENSE_FILE.test(file) && statSync(join(root, file)).isFile())
-    .map((file) => ({ file, text: readFileSync(join(root, file), "utf8") }));
+    .map((file) => ({
+      file,
+      // jsonc-parser and both tslibs ship their licence files with CRLF. The
+      // notice is committed under `* text=auto eol=lf`, so passing those bytes
+      // through leaves the working tree modified in the one way nothing sees:
+      // `git diff` normalises the CRLF away and reports no change, while
+      // `git status` calls the file modified — and `git status` is what
+      // setuptools-scm reads, so the release build took the tree for dirty and
+      // stamped a dated, bumped version that could not be the tag.
+      text: readFileSync(join(root, file), "utf8").replace(/\r\n/g, "\n"),
+    }));
 
   const license = declaredLicense(manifest);
   if (!license && texts.length === 0) {

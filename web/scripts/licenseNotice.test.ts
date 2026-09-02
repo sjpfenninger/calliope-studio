@@ -128,6 +128,16 @@ describe("readPackage", () => {
     ]);
   });
 
+  it("reads a CRLF licence file as LF", () => {
+    // jsonc-parser and both tslibs ship one, and the notice is committed under
+    // `* text=auto eol=lf`. A CR that survives here is not cosmetic: the
+    // regenerated file then differs from its blob in a way `git diff` hides and
+    // `git status` reports, which is what setuptools-scm reads — so the v0.1.2
+    // release built a dirty tree and stamped a version that was not the tag.
+    const dir = fixture({ name: "crlf", license: "MIT" }, { LICENSE: "a\r\nb\r\n" });
+    expect(readPackage(dir).texts[0].text).toBe("a\nb\n");
+  });
+
   it("turns npm's owner/repo shorthand into a URL", () => {
     // `clsx`, `defu` and `markdown-it` all write it that way, and markdown
     // renders the bare form as a link to a page that does not exist.

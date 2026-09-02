@@ -19,6 +19,13 @@ rather than a bug waiting to be found.
 The models are Calliope's own two examples plus `examples/model_nld-NUTS3-v1`, which
 is the one that exercises the features the stock examples do not: coordinates from a
 data table, links from a data table, and a two-hop template.
+
+**What that costs is worth stating plainly.** `examples/` is gitignored, so the
+nld model is on one developer's disk and nowhere else — not in CI, not in a
+fresh clone. Nine of the assertions here are `@nld_only`, and they are the ones
+covering the three worst bugs this project has had. `TestSyntheticFeatures`
+below rebuilds each of those three features on top of `national_scale`, so the
+*mechanism* is checked everywhere even though the real model is not.
 """
 
 from pathlib import Path
@@ -43,13 +50,31 @@ nld_only = pytest.mark.skipif(
 )
 
 
+#: Models that must build. A skip here would take every parity assertion with it.
+#:
+#: `_resolved` used to `pytest.skip` on **any** exception, which turned the file
+#: this repository relies on to keep its two readings in step into one that goes
+#: green the moment Calliope's own examples stop building — a transient
+#: environment problem and a genuine upstream break look identical, and neither
+#: is reported. The stock examples ship with Calliope, so if they do not build,
+#: that is the finding.
+MUST_BUILD = frozenset({"national_scale", "urban_scale"})
+
+
 def _resolved(path: Path):
-    """The model as Calliope reads it, or a skip if it cannot be read."""
+    """The model as Calliope reads it.
+
+    A model outside `MUST_BUILD` — i.e. one that is not in the repository and may
+    be anything — is allowed to skip, since its absence or breakage says nothing
+    about this code.
+    """
     import calliope
 
     try:
         return calliope.read_yaml(str(path / "model.yaml"))
-    except Exception as exc:  # pragma: no cover - a broken example is worth knowing
+    except Exception as exc:
+        if path.name in MUST_BUILD:
+            raise
         pytest.skip(f"{path.name} does not build: {type(exc).__name__}: {exc}")
 
 
@@ -336,3 +361,111 @@ class TestFallbackHonesty:
         )
         assert assembled(national_scale) is None
         assert resolved_techs(national_scale)
+
+
+class TestSyntheticFeatures:
+    """The three nld-only features, rebuilt on a model everyone has.
+
+    `examples/` is gitignored, so nine assertions above run on one developer's
+    disk and nowhere else — and they are the ones guarding the three worst bugs
+    this project has had: node coordinates supplied by a data table, links
+    supplied by a data table, and a template inheriting a template. Each is a
+    *mechanism*, and a mechanism can be built out of `national_scale`.
+
+    These do not replace the nld assertions, which check the real thing at real
+    scale. They make the mechanisms fail in CI rather than silently going
+    unchecked there.
+    """
+
+    def _rewrite(self, path: Path, replace: str, with_: str) -> None:
+        text = path.read_text(encoding="utf-8")
+        assert replace in text, f"{path.name} no longer contains {replace!r}"
+        path.write_text(text.replace(replace, with_, 1), encoding="utf-8")
+
+    def test_coordinates_from_a_data_table_are_seen(self, national_scale):
+        """The bug: a model with its positions in a CSV had no geography at all.
+
+        Moving one node's coordinates out of the YAML and into a table is enough
+        to reproduce it — the structural reading has to find all five nodes, not
+        four.
+        """
+        locations = national_scale / "model_config" / "locations.yaml"
+        nodes = read_section(locations, "nodes")
+        moved, position = next(iter(nodes.items()))
+        longitude, latitude = position["longitude"], position["latitude"]
+
+        self._rewrite(
+            locations, f"    latitude: {latitude}\n    longitude: {longitude}\n", ""
+        )
+        # `_rewrite` replaces the first occurrence, and several nodes share a
+        # latitude — so check the node, not the text.
+        assert "latitude" not in read_section(locations, "nodes")[moved]
+        table = national_scale / "data_tables" / "coords.csv"
+        table.parent.mkdir(exist_ok=True)
+        table.write_text(
+            f"nodes,latitude,longitude\n{moved},{latitude},{longitude}\n",
+            encoding="utf-8",
+        )
+        self._rewrite(
+            national_scale / "model.yaml",
+            "data_tables:\n",
+            "data_tables:\n"
+            "  node_coordinates:\n"
+            "    table: data_tables/coords.csv\n"
+            "    rows: nodes\n"
+            "    columns: inputs\n",
+        )
+
+        structural = geo.node_positions(national_scale)
+        resolved = _resolved_positions(_resolved(national_scale))
+
+        assert set(structural) == set(resolved)
+        assert moved in structural
+        assert structural[moved] == pytest.approx([longitude, latitude])
+
+    def test_a_template_inheriting_a_template_is_resolved(self, national_scale):
+        """The bug: one level of resolution dropped a cost from all 41 links.
+
+        Two hops is the whole of it — a technology whose template has a template
+        must end up with what the *outer* one sets.
+        """
+        techs_file = national_scale / "model_config" / "techs.yaml"
+        self._rewrite(
+            techs_file,
+            "templates:\n",
+            "templates:\n"
+            "  interest_rate_setter:\n"
+            "    cost_interest_rate: 0.1\n"
+            "  power_lines_two_hop:\n"
+            "    template: interest_rate_setter\n"
+            "    base_tech: transmission\n"
+            "    carrier_in: power\n"
+            "    carrier_out: power\n",
+        )
+        self._rewrite(
+            techs_file,
+            "  ccgt:\n",
+            "  two_hop_line:\n"
+            "    template: power_lines_two_hop\n"
+            "    link_from: region1\n"
+            "    link_to: region2\n"
+            "  ccgt:\n",
+        )
+
+        techs = resolved_techs(national_scale)
+        assert techs["two_hop_line"]["cost_interest_rate"] == 0.1
+        # And the second hop is what makes it a link at all.
+        assert "two_hop_line" in transmission_techs(national_scale)
+
+    def test_links_from_a_data_table_are_still_oriented(self, national_scale):
+        """The one thing a resolved model cannot say: which end of a link is which.
+
+        Calliope normalises the direction away, so orientation is read from the
+        declaration — and every link the resolved model knows about has to be in
+        there or the map draws it backwards. Asserted here on the stock model so
+        the property is checked without the nld example.
+        """
+        oriented = geo.link_orientation(national_scale)
+        for tech in _resolved_links(_resolved(national_scale)):
+            assert tech in oriented, tech
+            assert len(set(oriented[tech])) == 2

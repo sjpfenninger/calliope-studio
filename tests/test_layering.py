@@ -18,8 +18,8 @@ Three rules:
   be opened at all. Reading a results file needs none of that.
 """
 
+import ast
 import pathlib
-import re
 import subprocess
 import sys
 
@@ -33,21 +33,54 @@ WEB_FRAMEWORKS = ("fastapi", "starlette", "uvicorn")
 #: Banned everywhere, including in `server`.
 PLOTTING_LIBRARIES = ("panel", "param", "plotly", "bokeh", "matplotlib", "altair")
 
-IMPORT_RE = re.compile(r"^\s*(?:import|from)\s+([a-zA-Z0-9_]+)", re.MULTILINE)
+#: The package itself, as the prefix an absolute import inside it starts with.
+PACKAGE = "calliope_studio"
 
-#: Captures the layer in `from calliope_studio.<layer> import ...`. The rule above
-#: cannot use `IMPORT_RE`, which only ever sees the leading `calliope_studio`.
-PACKAGE_IMPORT_RE = re.compile(
-    r"^\s*(?:from|import)\s+calliope_studio\.([a-zA-Z0-9_]+)", re.MULTILINE
-)
+
+def _imports(path: pathlib.Path) -> list[str]:
+    """Every module a file imports, as a dotted name.
+
+    Parsed rather than matched. Two regexes did this, and each had a hole a
+    reader would not see. One captured only the *first* module on a line, so
+    `import json, fastapi` passed every rule in this file. The other required a
+    literal `calliope_studio.`, so `from calliope_studio import modeldef` and any
+    relative import — `from ..modeldef import snapshot` — matched nothing at all,
+    and the sideways rule could be walked past with two idioms Python considers
+    ordinary. A rule stated as absolute has to be checked that way.
+
+    A relative import is resolved against the file's own package, so it comes out
+    in the same absolute form as the rest.
+    """
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    package = list(path.relative_to(SRC.parent).parts[:-1])
+    found: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            found.extend(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            if node.level:
+                base = package[: len(package) - node.level + 1]
+                prefix = ".".join([*base, *([node.module] if node.module else [])])
+            else:
+                prefix = node.module or ""
+            found.append(prefix)
+            # `from x import y` also names `x.y`, which is how a layer is reached
+            # without ever writing its name after a dot.
+            found.extend(f"{prefix}.{alias.name}" for alias in node.names if prefix)
+    return found
 
 
 def _imported_top_level_modules(path: pathlib.Path) -> set[str]:
-    return set(IMPORT_RE.findall(path.read_text()))
+    return {name.split(".")[0] for name in _imports(path)}
 
 
 def _imported_layers(path: pathlib.Path) -> set[str]:
-    return set(PACKAGE_IMPORT_RE.findall(path.read_text()))
+    """The `calliope_studio.<layer>` names a file reaches, however it spells them."""
+    return {
+        name.split(".")[1]
+        for name in _imports(path)
+        if name.split(".")[0] == PACKAGE and name.count(".") >= 1
+    }
 
 
 def _python_files(*relative_dirs: str):

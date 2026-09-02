@@ -16,6 +16,7 @@ from calliope_studio.results.catalog import (
     build_catalog,
     get_array,
     tech_base_techs,
+    unit_for,
 )
 from calliope_studio.results.colors import DEFAULT_PALETTE, tech_colors
 from calliope_studio.results.links import Link, link_orientation, transmission_links
@@ -673,3 +674,65 @@ class TestSummaries:
         payload = summaries.summaries(results)
         assert payload["solve_config"]["solver"]
         assert "build_config" in payload
+
+
+class TestUnitFor:
+    """Which of the three sources names a variable's generalised quantity.
+
+    Calliope declares a `unit:` for every parameter, variable and global
+    expression, and every one is generalised — `energy`, `power`, `cost` — never
+    a real unit, because nothing in a model says whether its flows are kWh or
+    GWh. Three sources answer for it and they overlap only partly, in a way that
+    *reverses* between files: `urban_scale_07.dev7.nc` carries units on 23 of 34
+    inputs and none of its 24 results, while the older flat files carry them on
+    the results and almost nothing else. Attrs alone would leave every chart
+    unlabelled; the installed Calliope's math alone could not answer for math a
+    user wrote themselves.
+
+    The precedence was documented at length and asserted nowhere, and getting it
+    wrong is a wrong unit printed beside a right number.
+    """
+
+    @pytest.fixture
+    def dataset(self):
+        return xr.Dataset(
+            {
+                "flow_cap": xr.DataArray([1.0], dims="techs", attrs={"unit": "power"}),
+                "bare": xr.DataArray([1.0], dims="techs"),
+            },
+            coords={"techs": ["ccgt"]},
+        )
+
+    def test_the_arrays_own_attrs_win(self, dataset):
+        """The model speaking, and the only source that can answer for user math."""
+        assert (
+            unit_for(dataset, "flow_cap", {"flow_cap": "energy"}, {"flow_cap": "cost"})
+            == "power"
+        )
+
+    def test_the_files_own_math_comes_next(self, dataset):
+        """Written by the Calliope that built this file, so it cannot disagree."""
+        assert unit_for(dataset, "bare", {"bare": "energy"}, {"bare": "cost"}) == "cost"
+
+    def test_the_installed_declarations_are_the_last_resort(self, dataset):
+        """All there is for a file too old to carry its own math."""
+        assert unit_for(dataset, "bare", {"bare": "energy"}, {}) == "energy"
+
+    def test_an_unknown_variable_has_no_unit_rather_than_a_guess(self, dataset):
+        """An unlabelled chart is honest; a wrong label is not."""
+        assert unit_for(dataset, "nothing_like_this", {}, {}) == ""
+
+    def test_a_synthetic_variable_carries_its_own(self, dataset):
+        """`flow*` is ours, so no source but `SYNTHETIC_VARIABLES` can answer."""
+        name, synthetic = next(iter(SYNTHETIC_VARIABLES.items()))
+        assert unit_for(dataset, name, {name: "wrong"}, {name: "wrong"}) == (
+            synthetic.unit
+        )
+
+    def test_an_empty_attr_falls_through_rather_than_winning(self):
+        """An empty string is the absence of an answer, not an answer of ''."""
+        dataset = xr.Dataset(
+            {"x": xr.DataArray([1.0], dims="techs", attrs={"unit": ""})},
+            coords={"techs": ["ccgt"]},
+        )
+        assert unit_for(dataset, "x", {"x": "energy"}, {}) == "energy"

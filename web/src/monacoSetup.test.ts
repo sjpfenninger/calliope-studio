@@ -6,11 +6,19 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // Hoisted, because `vi.mock` factories are lifted above every declaration in
 // the file — a plain `const` here would be in its temporal dead zone by the
 // time the factory runs.
-const { configureMonacoYaml, update } = vi.hoisted(() => {
+const { configureMonacoYaml, update, getCalliopeSchema } = vi.hoisted(() => {
   const update = vi.fn();
-  return { update, configureMonacoYaml: vi.fn(() => ({ update, dispose: vi.fn() })) };
+  return {
+    update,
+    configureMonacoYaml: vi.fn(() => ({ update, dispose: vi.fn() })),
+    getCalliopeSchema: vi.fn(),
+  };
 });
 vi.mock("monaco-yaml", () => ({ configureMonacoYaml }));
+// The schema arrives through `api/`, like every other request in the app — so
+// that is what is stubbed. It used to be a raw `fetch`, and stubbing the global
+// was how this file said so.
+vi.mock("./api/system", () => ({ getCalliopeSchema }));
 
 /** The payload shape the two consumers read; the contents do not matter here. */
 const PAYLOAD = {
@@ -46,10 +54,8 @@ describe("initMonacoYaml", () => {
   beforeEach(() => {
     configureMonacoYaml.mockClear();
     update.mockClear();
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => ({ ok: true, json: async () => PAYLOAD })),
-    );
+    getCalliopeSchema.mockReset();
+    getCalliopeSchema.mockResolvedValue(PAYLOAD);
   });
 
   it("configures monaco-yaml once, however many times the shell mounts", async () => {
@@ -71,7 +77,7 @@ describe("initMonacoYaml", () => {
     await Promise.all([initMonacoYaml(), initMonacoYaml()]);
 
     expect(configureMonacoYaml).toHaveBeenCalledTimes(1);
-    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(getCalliopeSchema).toHaveBeenCalledTimes(1);
   });
 
   it("restates changed associations in place rather than reconfiguring", async () => {

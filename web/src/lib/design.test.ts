@@ -67,6 +67,21 @@ function blankComments(text: string): string {
   );
 }
 
+/**
+ * Every line of a file that is not a comment, joined back together.
+ *
+ * `offenders` already skips comment lines, and the orphan rule below has to as
+ * well: a component nothing imports, mentioned only in a note about it, is
+ * exactly the case that rule exists to catch. Line-based rather than a proper
+ * parse, which is all the rules here need and all any of them do.
+ */
+function withoutComments(text: string): string {
+  return text
+    .split("\n")
+    .filter((line) => !/^\s*(\/?\*|\/\/|<!--)/.test(line))
+    .join("\n");
+}
+
 const FILES = walk(SRC).map((path) => {
   const rel = relative(SRC, path).split(sep).join("/");
   const text = readFileSync(path, "utf8");
@@ -275,8 +290,68 @@ describe("design language", () => {
   });
 
   it("uses only the four control heights", () => {
-    // 36, 40 and 44px are shadcn's scale leaking through; this app is 20/24/28/32.
-    expect(offenders("height", /\bh-(9|10|11)\b/, isApp)).toEqual([]);
+    // A **closed** set, which the name always claimed and the rule never was: it
+    // denied exactly `h-9`, `h-10` and `h-11` — shadcn's 36/40/44 leaking
+    // through — and let `h-12`, `h-14` and `h-16` past without a word.
+    //
+    // `h-0` to `h-4` and the fractional steps are not control heights at all:
+    // they are icons, hairlines and zero-height boxes, and sizing an icon is not
+    // what this rule is about. Anything taller than the 32px chrome strip is,
+    // and needs a pragma to say why.
+    const controlHeights = /\bh-(\d+)(?![\d.])/g;
+    const allowed = new Set([0, 1, 2, 3, 4, 5, 6, 7, 8]);
+    const tall = LINES.filter(
+      (line) =>
+        isApp(line.file) &&
+        !/^\s*(\/?\*|\/\/|<!--)/.test(line.text) &&
+        !line.text.includes("design-check: allow height") &&
+        !line.before.includes("design-check: allow height") &&
+        [...line.text.matchAll(controlHeights)].some(
+          (match) => !allowed.has(Number(match[1])),
+        ),
+    ).map((line) => `${line.file}:${line.no}  ${line.text.trim().slice(0, 110)}`);
+    expect(tall).toEqual([]);
+  });
+
+  it("takes its radius from the four named steps", () => {
+    // The contract is radius **by element size**: 2px on anything 20px or under,
+    // 3px on a control, 4px on a container, 6px on a dialog. `style.css` maps
+    // Tailwind's five names onto those four `--cg-radius-*` values, so writing a
+    // named step is writing the contract — and anything outside the set is a
+    // radius the token file has no opinion about.
+    //
+    // There was no rule here at all, despite this file being described as the
+    // single source for the contract and radius being one of its clauses.
+    // `rounded-full` and `rounded-none` stay in: a pill and a square corner are
+    // both statements about shape rather than about the scale.
+    const mapped = declared(STYLE_CSS, "radius");
+    const allowed = new Set([...mapped, "full", "none", ""]);
+    const bad = LINES.filter(
+      (line) =>
+        isApp(line.file) &&
+        !/^\s*(\/?\*|\/\/|<!--)/.test(line.text) &&
+        !line.text.includes("design-check: allow radius") &&
+        !line.before.includes("design-check: allow radius"),
+    ).flatMap((line) =>
+      [...line.text.matchAll(/\brounded(?:-[trbl][trbl]?)?(?:-([a-z0-9]+))?\b/g)]
+        .filter((match) => !allowed.has(match[1] ?? ""))
+        .map((match) => `${line.file}:${line.no}  ${match[0]}`),
+    );
+    expect(bad).toEqual([]);
+  });
+
+  it("writes every request URL in api/, and nowhere else", () => {
+    // "Every request goes through `api/`, and a URL is written once" — stated as
+    // fact, enforced by nothing, and one survivor was still there:
+    // `monacoSetup.ts` called `fetch("/api/schema/calliope/")` directly, writing
+    // the same URL `api/system.ts::getCalliopeSchema` already wrote, and reading
+    // its failure with a bare `catch {}` rather than `errorDetail`. Before the
+    // rule was adopted there were forty such literals and six idioms for "what
+    // went wrong"; this keeps it at zero.
+    const outside = (file: string) =>
+      !file.startsWith("api/") && !file.endsWith(".test.ts");
+    expect(offenders("api-url", /["'`]\/api\//, outside)).toEqual([]);
+    expect(offenders("api-url", /\bfetch\(|from ["']axios["']/, outside)).toEqual([]);
   });
 
   it("has no arbitrary geometry in a component", () => {
@@ -417,11 +492,18 @@ describe("design language", () => {
         (rel.startsWith("components/app/") || rel.startsWith("components/editor/")) &&
         rel.endsWith(".vue"),
     );
+    // Matched against *code*, not against prose. Matching the raw text meant a
+    // component with no call sites left passed on the strength of a comment
+    // about it — which is verbatim the case above: deleting `ProgressHairline`'s
+    // one use in `FigurePanel.vue` still passed, because `ResultChart.vue`
+    // documents its behaviour in a comment. `SidebarSection`, `PanelDisclosure`
+    // and `ConfirmDialog` all had the same margin.
     const orphans = composition
       .filter(({ rel }) => {
         const name = rel.split("/").pop()!.replace(".vue", "");
+        const used = new RegExp(`\\b${name}\\b`);
         return !FILES.some(
-          (other) => other.rel !== rel && new RegExp(`\\b${name}\\b`).test(other.text),
+          (other) => other.rel !== rel && used.test(withoutComments(other.text)),
         );
       })
       .map(({ rel }) => rel);

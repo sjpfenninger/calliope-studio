@@ -15,6 +15,8 @@
  * `npm run monaco-check` decide whether it does.
  */
 import * as monaco from "monaco-editor";
+
+import { getCalliopeSchema } from "./api/system";
 import { configureMonacoYaml, type MonacoYaml, type SchemasSettings } from "monaco-yaml";
 
 import {
@@ -97,8 +99,11 @@ export function initMonacoYaml(): Promise<void> {
 async function start(): Promise<void> {
   ignoreMonacoCancellations();
   try {
-    const res = await fetch("/api/schema/calliope/");
-    if (res.ok) payload = await res.json();
+    // Through `api/`, like everything else. This was the last raw `fetch` and
+    // the last `/api` literal outside that directory — writing the same URL
+    // `getCalliopeSchema` already writes, and reading its failure without
+    // `errorDetail`.
+    payload = await getCalliopeSchema();
   } catch {
     // Monaco works fine without a schema — just no autocompletion.
   }

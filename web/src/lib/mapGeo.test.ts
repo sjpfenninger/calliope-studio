@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 import {
@@ -185,5 +188,72 @@ describe("missingCoordinates", () => {
 
   it("is empty for a fully placed model", () => {
     expect(missingCoordinates(NODES)).toEqual([]);
+  });
+});
+
+/**
+ * This module against `src/calliope_studio/modeldef/geo.py`, on real models.
+ *
+ * The two are twins by design — the server can only draw what was last saved,
+ * and the point of an editing map is the unsaved state — and until now nothing
+ * held them together. Keeping two implementations aligned by eye is the exact
+ * failure the "structure and meaning" doctrine is an argument against, and this
+ * pair had no `test_resolution_parity` of its own.
+ *
+ * `tests/fixtures/map_geo.json` is the seam. `tests/test_map_geo_parity.py`
+ * writes it from the Python reading of Calliope's two example models and
+ * asserts it is current; this reads it back, feeds the node and link records
+ * into the builders here, and requires byte-equal geometry out.
+ */
+describe("parity with modeldef/geo.py", () => {
+  const fixture = JSON.parse(
+    readFileSync(
+      join(import.meta.dirname, "../../../tests/fixtures/map_geo.json"),
+      "utf8",
+    ),
+  ) as Record<
+    string,
+    {
+      nodes: GeoJSON.FeatureCollection;
+      links: GeoJSON.FeatureCollection;
+      bounds: [[number, number], [number, number]] | null;
+    }
+  >;
+
+  /**
+   * `editable` is this side's alone: it says whether a node may be dragged,
+   * which is a question about the *editor* and one the server has no view on.
+   * Everything else has to match exactly.
+   */
+  function withoutEditable(collection: GeoJSON.FeatureCollection) {
+    return {
+      ...collection,
+      features: collection.features.map((feature) => {
+        const { editable: _editable, ...properties } = (feature.properties ??
+          {}) as Record<string, unknown>;
+        return { ...feature, properties };
+      }),
+    };
+  }
+
+  it.each(Object.keys(fixture))("reproduces %s's geometry exactly", (model) => {
+    const expected = fixture[model];
+    const built = buildGeo(
+      nodesFromFeatures(expected.nodes),
+      linksFromFeatures(expected.links),
+    );
+
+    expect(withoutEditable(built.nodes)).toEqual(expected.nodes);
+    expect(built.links).toEqual(expected.links);
+    expect(built.bounds).toEqual(expected.bounds);
+  });
+
+  it("has geometry to compare in the first place", () => {
+    // An empty fixture would pass every assertion above without checking one.
+    for (const model of Object.keys(fixture)) {
+      expect(fixture[model].nodes.features.length).toBeGreaterThan(0);
+      expect(fixture[model].links.features.length).toBeGreaterThan(0);
+      expect(fixture[model].bounds).not.toBeNull();
+    }
   });
 });

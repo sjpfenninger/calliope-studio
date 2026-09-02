@@ -73,6 +73,8 @@ defineExpose({ browse });
       </span>
     </div>
 
+    <!-- design-check: allow height — a scroll viewport, not a control. Fixed so
+         the dialog does not resize as the user walks into deeper folders. -->
     <div
       class="h-72 min-h-0 overflow-y-auto rounded-sm border border-border bg-surface"
       data-testid="browse-entries"

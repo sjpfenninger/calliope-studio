@@ -3,10 +3,12 @@
  * The math files a model declares, and whether Calliope reads them.
  *
  * This is the half of custom math that had no interface at all. `math_paths` and
- * `extra_math` are both `hidden: true` in `ConfigEditor`, and deliberately so —
- * `SchemaObjectEditor` renders neither a name→path mapping nor an ordered list
- * of names in any useful way — so the only way to enable a math file was to hand
- * edit `model.yaml`. They stay hidden there; this owns them.
+ * `extra_math` are both marked `ownedBy` in `ConfigEditor`, so that form shows
+ * their values and refuses to write them. **The reason is single-writer
+ * ownership, not rendering** — `SchemaObjectEditor` can draw a name→path mapping
+ * and a list of names perfectly well now, and the note that said otherwise is
+ * how somebody would come to add a second writer. See the paragraph below on
+ * what that would cost.
  *
  * **Declaring and enabling are two acts, and the gap between them is the trap.**
  * `math_paths` registers a name against a file; `extra_math` lists the names to

@@ -60,6 +60,23 @@ const comments = (text) =>
     .map((line) => line.split("#")[1]?.trim())
     .filter(Boolean);
 
+/**
+ * Every key path in a parsed document.
+ *
+ * The deep comparison below already implies that none went missing, but it fails
+ * as one boolean and names nothing — and "a key the editor dropped" is the
+ * failure mode with the worst consequences and the most ways in. Twenty more
+ * config fields became editable at once, each with an empty state that now
+ * deletes its key; this is what says *which* one went.
+ */
+function keyPaths(value, prefix = "") {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+  return Object.entries(value).flatMap(([key, item]) => {
+    const path = prefix ? `${prefix}.${key}` : key;
+    return [path, ...keyPaths(item, path)];
+  });
+}
+
 const payload = requireMode(await health(BASE), "workspace", BASE);
 const ws = payload.workspace_id;
 
@@ -140,6 +157,13 @@ for (const [section, file] of SECTIONS) {
     `${section}: the line count is unchanged`,
     before.split("\n").length === after.split("\n").length,
     `${before.split("\n").length} → ${after.split("\n").length}`,
+  );
+  const kept = new Set(keyPaths(parse(after)));
+  const dropped = keyPaths(parse(before)).filter((path) => !kept.has(path));
+  check(
+    `${section}: no key is dropped`,
+    dropped.length === 0,
+    dropped.slice(0, 5).join(" | "),
   );
   check(
     `${section}: the parsed content is unchanged`,

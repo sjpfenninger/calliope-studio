@@ -236,6 +236,18 @@ jobs:
         continue-on-error: true
         run: pixi run -- pnpm --dir web run save-check http://127.0.0.1:8791 || { touch .check-failed/save-check; exit 1; }
 
+      # The config form shows every option the model sets, and writes each one
+      # back unchanged. Two silent failures, neither visible without a rendered
+      # form. An option can be missing from the form altogether — the overlay
+      # once hid nineteen of Calliope's twenty-six whatever the model said, so a
+      # model setting `shadow_prices` and `datetime_format` displayed neither.
+      # And a list-valued option can render into a text field as `a,b` and be
+      # written back as that *string*, which type-checks, saves cleanly, and
+      # leaves behind a model Calliope will not load.
+      - name: Config check
+        continue-on-error: true
+        run: pixi run -- pnpm --dir web run config-check http://127.0.0.1:8791 || { touch .check-failed/config-check; exit 1; }
+
       # The dual: an edited CSV cell must reach the file, once. Edits are
       # committed into AG Grid's own cloned rows, so only a real grid can say
       # whether they come back out — a lost edit looks exactly like a clean save.

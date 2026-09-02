@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.3 (unreleased)
+
+- Improved config model and schema widgets
+
 ## 0.1.2 (2026-09-02)
 
 - Allow opening runs by clicking anywhere in a run row

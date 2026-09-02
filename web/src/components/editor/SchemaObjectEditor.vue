@@ -3,22 +3,49 @@
  * A form built from a JSON Schema, for the parts of a model that have one.
  *
  * The widget for each property is inferred from its schema and can be overridden
- * per key by the parent. That inference is the load-bearing part: Calliope's
- * config schema uses `anyOf` heavily, so "a string or a list of strings" and "a
- * mapping of anything" both have to be recognised from their variants rather
- * than from a single `type`.
+ * per key by the parent. That inference lives in `lib/schemaWidgets.ts`, with
+ * every decision about what a value *is* — this file is rendering only.
+ *
+ * **A property the object actually sets is always shown.** That is the rule the
+ * `tier` overlay exists to be beaten by. `hidden: true` used to do double duty,
+ * meaning both "never render this" and "this one is less common", and the second
+ * reading is what left a model carrying `datetime_format`, `shadow_prices` and
+ * `calliope_version` looking, in the form, as though it set none of them. So:
+ * `tier: "advanced"` puts a field behind a disclosure *when it is unset*, and
+ * `revealed` — the keys the object arrived with — overrides it.
+ *
+ * `revealed` is seeded once, in setup, and never recomputed. Deliberately: were
+ * it derived from the current value, clearing a field would delete its key and
+ * the field would vanish from under the pointer into a collapsed group.
  *
  * Recursive: an object-typed property renders another one of these.
  */
-import { reactive, computed, onMounted, useId } from "vue";
-import { Plus, X } from "@lucide/vue";
+import { computed, reactive, useId } from "vue";
+import { Plus, Trash2, X } from "@lucide/vue";
 
+import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import Eyebrow from "@/components/app/Eyebrow.vue";
 import FieldRow from "@/components/app/FieldRow.vue";
 import InfoTip from "@/components/app/InfoTip.vue";
+import PanelDisclosure from "@/components/app/PanelDisclosure.vue";
 import TooltipButton from "@/components/app/TooltipButton.vue";
-import { FIELD, type FieldWidth } from "@/lib/formClasses";
+import { FIELD, FIELD_WIDTH, WARNING_BADGE, type FieldWidth } from "@/lib/formClasses";
+import {
+  describeValue,
+  detectWidget,
+  flushRows,
+  formatValue,
+  parseValue,
+  rangeParts,
+  rangeText,
+  rowsFromValue,
+  unknownKeys,
+  valueSchemaOf,
+  type KVRow,
+  type WidgetType,
+} from "@/lib/schemaWidgets";
+import { cn } from "@/lib/utils";
 // Self-import for recursive nested-object rendering.
 import SchemaObjectEditor from "./SchemaObjectEditor.vue";
 
@@ -27,8 +54,32 @@ import SchemaObjectEditor from "./SchemaObjectEditor.vue";
 // ---------------------------------------------------------------------------
 
 export interface FieldConfig {
-  /** Skip this field entirely. */
+  /** Skip this field entirely — it is not part of this form at any tier. */
   hidden?: boolean;
+  /**
+   * Where the field sits when the object does not set it.
+   *
+   * `advanced` fields are collapsed behind one disclosure per form. A field the
+   * object *does* set ignores this and renders with the common ones.
+   */
+  tier?: "common" | "advanced";
+  /**
+   * Another surface writes this key, so this form shows it without editing it.
+   *
+   * Two writers for one key is how a panel's settings get silently reverted by
+   * whichever editor was mounted with a staler copy of the section. But hiding
+   * the key instead is worse: `math_paths` and `extra_math` were invisible here
+   * and the form said nothing at all about a model that set them.
+   */
+  ownedBy?: { label: string; hint: string };
+  /**
+   * Why a key the schema does not describe is nonetheless expected.
+   *
+   * Present ⇒ the unrecognised row explains itself and offers no Remove, which
+   * is what `time_subset` needs: it is the pre-0.7 spelling, the editor migrates
+   * it on save, and deleting it would throw the value away instead.
+   */
+  expected?: string;
   /**
    * Show this field only when a condition is true.
    * field: sibling key name, or '$ctx.<name>' to read from the `context` prop.
@@ -68,25 +119,13 @@ export type FieldOverlay = Record<string, FieldConfig>;
 // Internal types
 // ---------------------------------------------------------------------------
 
-type WidgetType =
-  | "text"
-  | "select"
-  | "switch"
-  | "number"
-  | "commaSeparated" // string | string[] | null  ↔  one comma-joined field
-  | "keyValue" // {key: val} mapping  ↔  a list of key/value rows
-  | "object"; // nested SchemaObjectEditor (recursive)
-
-interface KVPair {
-  key: string;
-  value: string;
-}
-
 interface FieldEntry {
   key: string;
   label: string;
   widget: WidgetType;
   fieldSchema: Record<string, any>;
+  /** For a mapping widget: the schema its values must satisfy. */
+  valueSchema: Record<string, any>;
   options: string[] | null;
   suggestions: string[] | null;
   /** Calliope's own prose for this property, shown on the label. */
@@ -95,7 +134,14 @@ interface FieldEntry {
   placeholder: string | undefined;
   inputProps: Record<string, any>;
   width: FieldWidth;
+  ownedBy: { label: string; hint: string } | null;
+  /** Whether it belongs behind the disclosure rather than with the common set. */
+  advanced: boolean;
 }
+
+/** What is said about a key Calliope's schema does not describe. */
+const UNKNOWN_HINT =
+  "Calliope does not recognise this key. The model will not load until it is removed or corrected.";
 
 /**
  * The schema's `default`, as ghost text.
@@ -119,6 +165,7 @@ const WIDGET_WIDTH: Record<WidgetType, FieldWidth> = {
   text: "short",
   commaSeparated: "fill",
   keyValue: "fill",
+  keyValueRange: "fill",
   object: "fill",
 };
 
@@ -135,44 +182,28 @@ const props = defineProps<{
   context?: Record<string, any>;
   /** Per-key overlays forwarded to auto-rendered nested editors. */
   nestedOverlays?: Record<string, FieldOverlay>;
+  /**
+   * Whether the advanced group is open.
+   *
+   * A parent whose overlay uses `tier: "advanced"` must bind this and its
+   * update event; the state is the user's and so belongs in a store, not here.
+   */
+  showAdvanced?: boolean;
 }>();
 
 const emit = defineEmits<{
   "update:modelValue": [value: Record<string, any>];
+  "update:showAdvanced": [value: boolean];
 }>();
 
-// ---------------------------------------------------------------------------
-// Widget auto-detection
-// ---------------------------------------------------------------------------
-
-function detectWidget(fieldSchema: Record<string, any>): WidgetType {
-  if (fieldSchema.enum) return "select";
-  const type = fieldSchema.type;
-  if (type === "boolean") return "switch";
-  if (type === "number" || type === "integer") return "number";
-  if (type === "string") return "text";
-  if (type === "object" && !fieldSchema.patternProperties) return "object";
-  if (fieldSchema.patternProperties) return "keyValue";
-
-  // anyOf / oneOf — inspect variants
-  const anyOf: any[] = fieldSchema.anyOf ?? fieldSchema.oneOf ?? [];
-  if (anyOf.length) {
-    const hasPatternProps = anyOf.some(
-      (s) => s.patternProperties || s.type === "object",
-    );
-    if (hasPatternProps) return "keyValue";
-    const hasArray = anyOf.some((s) => s.type === "array");
-    if (hasArray) return "commaSeparated";
-    if (anyOf.some((s) => s.type === "boolean")) return "switch";
-  }
-  return "text";
-}
+/** The keys the object arrived with. See the note at the top on why it is fixed. */
+const revealed = new Set(Object.keys(props.modelValue ?? {}));
 
 // ---------------------------------------------------------------------------
 // Computed field list
 // ---------------------------------------------------------------------------
 
-const fieldEntries = computed<FieldEntry[]>(() => {
+const allEntries = computed<FieldEntry[]>(() => {
   const properties: Record<string, any> = props.schema?.properties ?? {};
   const entries: FieldEntry[] = [];
 
@@ -182,7 +213,11 @@ const fieldEntries = computed<FieldEntry[]>(() => {
 
     if (fc.hidden) continue;
 
-    if (fc.showIf) {
+    // A set key beats both gates: a model that declares `operate` under
+    // `mode: base` is exactly the case where seeing it matters.
+    const promoted = revealed.has(key);
+
+    if (fc.showIf && !promoted) {
       const { field, eq, in: inList } = fc.showIf;
       const isCtx = field.startsWith("$ctx.");
       const checkField = isCtx ? field.slice(5) : field;
@@ -201,16 +236,44 @@ const fieldEntries = computed<FieldEntry[]>(() => {
       label: fc.label ?? key,
       widget,
       fieldSchema,
+      valueSchema: valueSchemaOf(fieldSchema),
       options,
       suggestions: fc.suggestions?.length ? fc.suggestions : null,
       description: fieldSchema.description ?? null,
       placeholder: widget === "switch" ? undefined : placeholderFor(fieldSchema),
       inputProps: fc.inputProps ?? {},
       width: fc.width ?? WIDGET_WIDTH[widget],
+      ownedBy: fc.ownedBy ?? null,
+      advanced: fc.tier === "advanced" && !promoted,
     });
   }
   return entries;
 });
+
+const advancedEntries = computed(() => allEntries.value.filter((e) => e.advanced));
+
+/**
+ * The form as an ordered list of groups.
+ *
+ * One list rather than two `v-for`s over the same widget markup: every control
+ * in this file exists once, and a second copy is how the two would drift.
+ */
+const groups = computed(() => {
+  const out = [{ id: "common", entries: allEntries.value.filter((e) => !e.advanced) }];
+  if (advancedEntries.value.length) {
+    out.push({ id: "advanced", entries: props.showAdvanced ? advancedEntries.value : [] });
+  }
+  return out;
+});
+
+/** Keys in the value that the schema says nothing about. */
+const unknownEntries = computed(() =>
+  unknownKeys(props.schema, props.modelValue).map((key) => ({
+    key,
+    text: describeValue(props.modelValue[key]),
+    expected: props.overlay?.[key]?.expected ?? null,
+  })),
+);
 
 /**
  * One id per instance of this editor, so a `datalist` in the `solve` section
@@ -221,240 +284,358 @@ const instanceId = useId();
 const listId = (key: string) => `${instanceId}-${key}`;
 
 // ---------------------------------------------------------------------------
-// Local mutable caches for commaSeparated and keyValue widgets.
-// Initialized from modelValue on mount; writes go up via emit.
-// The parent should use :key="<stable-id>" so this component remounts when
-// the underlying data source changes (e.g. on file switch).
+// Drafts for the two widgets that edit text over a structured value.
+//
+// Read through the model and only overridden once the user types, rather than
+// initialised on mount: the schema and the value arrive from two independent
+// requests, and a mount-time snapshot taken before the schema landed showed an
+// empty field over a populated value — which the first edit then wrote back.
+// A draft outlives its flush so the input never has text pulled out from under
+// the caret; the parent remounts this component when the underlying file
+// changes, which is what discards them.
 // ---------------------------------------------------------------------------
 
-const commaSepCache = reactive<Record<string, string>>({});
-const kvCache = reactive<Record<string, KVPair[]>>({});
+const textDrafts = reactive<Record<string, string>>({});
+const rowDrafts = reactive<Record<string, KVRow[]>>({});
 
-function initCaches() {
-  const properties: Record<string, any> = props.schema?.properties ?? {};
-  for (const [key, rawSchema] of Object.entries(properties)) {
-    const fieldSchema = rawSchema as Record<string, any>;
-    const widget =
-      (props.overlay?.[key]?.widget as WidgetType | undefined) ??
-      detectWidget(fieldSchema);
-    if (widget === "commaSeparated") {
-      const v = props.modelValue[key];
-      commaSepCache[key] = Array.isArray(v) ? v.join(", ") : (v ?? "");
-    } else if (widget === "keyValue") {
-      const v = props.modelValue[key];
-      kvCache[key] =
-        v && typeof v === "object" && !Array.isArray(v)
-          ? Object.entries(v).map(([k, val]) => ({ key: k, value: String(val) }))
-          : [];
-    }
-  }
+function textFor(key: string): string {
+  return textDrafts[key] ?? formatValue(props.modelValue[key]);
 }
 
-onMounted(initCaches);
+function rowsFor(key: string): KVRow[] {
+  return rowDrafts[key] ?? rowsFromValue(props.modelValue[key]);
+}
+
+function editableRows(key: string): KVRow[] {
+  if (!rowDrafts[key]) rowDrafts[key] = rowsFromValue(props.modelValue[key]);
+  return rowDrafts[key]!;
+}
 
 // ---------------------------------------------------------------------------
 // Update helpers
 // ---------------------------------------------------------------------------
 
-function update(key: string, value: any) {
-  emit("update:modelValue", { ...props.modelValue, [key]: value });
+/**
+ * Writes one key, or removes it.
+ *
+ * An emptied field deletes its key rather than writing an explicit `null`. With
+ * twenty more fields now on screen, the alternative is a form that sprinkles
+ * `datetime_format:` and `save_logs:` into a file the user only looked at — and
+ * `revealed` being fixed is what makes it safe, since the field stays where it
+ * is instead of disappearing the moment it is cleared.
+ */
+function update(key: string, value: unknown) {
+  const next: Record<string, any> = { ...props.modelValue };
+  if (value === null || value === undefined) delete next[key];
+  else next[key] = value;
+  emit("update:modelValue", next);
 }
 
-function updateCommaSep(key: string) {
-  const s = commaSepCache[key] ?? "";
-  const parts = s
-    .split(",")
-    .map((p) => p.trim())
-    .filter(Boolean);
-  const val = parts.length === 0 ? null : parts.length === 1 ? parts[0] : parts;
-  update(key, val);
-}
-
-/** A number field writes a number, or null — never the string the DOM gives. */
+/** A number field writes a number, or removes the key — never the DOM's string. */
 function updateNumber(key: string, raw: string) {
   const trimmed = raw.trim();
   update(key, trimmed === "" ? null : Number(trimmed));
 }
 
-function addKVRow(key: string) {
-  kvCache[key] = [...(kvCache[key] ?? []), { key: "", value: "" }];
+function setText(key: string, value: string) {
+  textDrafts[key] = value;
 }
 
-function removeKVRow(key: string, i: number) {
-  const pairs = [...(kvCache[key] ?? [])];
-  pairs.splice(i, 1);
-  kvCache[key] = pairs;
-  flushKV(key);
+function flushText(entry: FieldEntry) {
+  update(entry.key, parseValue(entry.fieldSchema, textFor(entry.key)));
 }
 
-function flushKV(key: string) {
-  const obj = Object.fromEntries(
-    (kvCache[key] ?? []).filter((p) => p.key).map((p) => [p.key, p.value]),
-  );
-  update(key, Object.keys(obj).length ? obj : null);
+function setRowKey(key: string, index: number, value: string) {
+  editableRows(key)[index]!.key = value;
 }
 
+function setRowText(key: string, index: number, value: string) {
+  editableRows(key)[index]!.text = value;
+}
+
+/** The range cell is a view over the row's own text, so it needs no second path. */
+function setRowRange(key: string, index: number, half: "start" | "end", value: string) {
+  const row = editableRows(key)[index]!;
+  const [start, end] = rangeParts(row.text);
+  row.text = half === "start" ? rangeText(value, end) : rangeText(start, value);
+}
+
+function addRow(key: string) {
+  editableRows(key).push({ key: "", text: "" });
+}
+
+function removeRow(entry: FieldEntry, index: number) {
+  editableRows(entry.key).splice(index, 1);
+  flushRowsFor(entry);
+}
+
+function flushRowsFor(entry: FieldEntry) {
+  update(entry.key, flushRows(editableRows(entry.key), entry.valueSchema));
+}
 </script>
 
 <template>
   <div class="flex flex-col gap-2">
-    <template v-for="entry in fieldEntries" :key="entry.key">
-      <FieldRow
-        v-if="entry.widget === 'switch'"
-        :label="entry.label"
-        :description="entry.description ?? undefined"
-        :width="entry.width"
-      >
-        <Switch
-          :model-value="!!modelValue[entry.key]"
-          v-bind="entry.inputProps"
-          @update:model-value="update(entry.key, $event)"
-        />
-      </FieldRow>
+    <template v-for="group in groups" :key="group.id">
+      <PanelDisclosure
+        v-if="group.id === 'advanced'"
+        :open="Boolean(showAdvanced)"
+        :label="`advanced (${advancedEntries.length})`"
+        @toggle="emit('update:showAdvanced', !showAdvanced)"
+      />
 
-      <FieldRow
-        v-else-if="entry.widget === 'select'"
-        :label="entry.label"
-        :description="entry.description ?? undefined"
-        :width="entry.width"
-      >
-        <select
-          :value="modelValue[entry.key] ?? ''"
-          :class="FIELD"
-          v-bind="entry.inputProps"
-          @change="
-            update(entry.key, ($event.target as HTMLSelectElement).value || null)
-          "
+      <template v-for="entry in group.entries" :key="entry.key">
+        <!-- Owned elsewhere: shown, named, and not editable from here. -->
+        <FieldRow
+          v-if="entry.ownedBy"
+          :label="entry.label"
+          :description="entry.description ?? undefined"
+          width="fill"
         >
-          <!-- Blank first, so a value that was set can be unset again. A
-               select takes no placeholder, so this is where its default goes:
-               unset is not "nothing", it is whatever Calliope falls back to. -->
-          <option value="">{{ entry.placeholder ? `— ${entry.placeholder}` : "—" }}</option>
-          <option v-for="option in entry.options ?? []" :key="option" :value="option">
-            {{ option }}
-          </option>
-        </select>
-      </FieldRow>
+          <div class="flex min-w-0 items-center gap-2">
+            <span class="min-w-0 truncate text-sm text-text-dim">
+              {{ describeValue(modelValue[entry.key]) || "—" }}
+            </span>
+            <InfoTip :label="entry.ownedBy.hint" side="right">
+              <Badge variant="outline">{{ entry.ownedBy.label }}</Badge>
+            </InfoTip>
+          </div>
+        </FieldRow>
 
-      <FieldRow
-        v-else-if="entry.widget === 'number'"
-        :label="entry.label"
-        :description="entry.description ?? undefined"
-        :width="entry.width"
-      >
-        <input
-          type="number"
-          :value="modelValue[entry.key] ?? ''"
-          :placeholder="entry.placeholder"
-          :class="FIELD"
-          v-bind="entry.inputProps"
-          @change="updateNumber(entry.key, ($event.target as HTMLInputElement).value)"
-        />
-      </FieldRow>
+        <FieldRow
+          v-else-if="entry.widget === 'switch'"
+          :label="entry.label"
+          :description="entry.description ?? undefined"
+          :width="entry.width"
+        >
+          <Switch
+            :model-value="!!modelValue[entry.key]"
+            v-bind="entry.inputProps"
+            @update:model-value="update(entry.key, $event)"
+          />
+        </FieldRow>
 
-      <FieldRow
-        v-else-if="entry.widget === 'commaSeparated'"
-        :label="entry.label"
-        :description="entry.description ?? undefined"
-        :width="entry.width"
-      >
-        <input
-          v-model="commaSepCache[entry.key]"
-          type="text"
-          :placeholder="entry.placeholder"
-          :class="FIELD"
-          v-bind="entry.inputProps"
-          @change="updateCommaSep(entry.key)"
-        />
-      </FieldRow>
+        <FieldRow
+          v-else-if="entry.widget === 'select'"
+          :label="entry.label"
+          :description="entry.description ?? undefined"
+          :width="entry.width"
+        >
+          <select
+            :value="modelValue[entry.key] ?? ''"
+            :class="FIELD"
+            v-bind="entry.inputProps"
+            @change="
+              update(entry.key, ($event.target as HTMLSelectElement).value || null)
+            "
+          >
+            <!-- Blank first, so a value that was set can be unset again. A
+                 select takes no placeholder, so this is where its default goes:
+                 unset is not "nothing", it is whatever Calliope falls back to. -->
+            <option value="">{{ entry.placeholder ? `— ${entry.placeholder}` : "—" }}</option>
+            <option v-for="option in entry.options ?? []" :key="option" :value="option">
+              {{ option }}
+            </option>
+          </select>
+        </FieldRow>
 
-      <!-- A mapping is a group of rows, not one control, so it gets a heading
-           and its own rows in the same gutter rather than a label beside it. -->
-      <div v-else-if="entry.widget === 'keyValue'" class="flex flex-col gap-1">
-        <div class="flex items-center justify-between">
+        <FieldRow
+          v-else-if="entry.widget === 'number'"
+          :label="entry.label"
+          :description="entry.description ?? undefined"
+          :width="entry.width"
+        >
+          <input
+            type="number"
+            :value="modelValue[entry.key] ?? ''"
+            :placeholder="entry.placeholder"
+            :class="FIELD"
+            v-bind="entry.inputProps"
+            @change="updateNumber(entry.key, ($event.target as HTMLInputElement).value)"
+          />
+        </FieldRow>
+
+        <FieldRow
+          v-else-if="entry.widget === 'commaSeparated'"
+          :label="entry.label"
+          :description="entry.description ?? undefined"
+          :width="entry.width"
+        >
+          <input
+            type="text"
+            :value="textFor(entry.key)"
+            :placeholder="entry.placeholder"
+            :class="FIELD"
+            v-bind="entry.inputProps"
+            @input="setText(entry.key, ($event.target as HTMLInputElement).value)"
+            @change="flushText(entry)"
+          />
+        </FieldRow>
+
+        <!-- A mapping is a group of rows, not one control, so it gets a heading
+             and its own rows in the same gutter rather than a label beside it. -->
+        <div
+          v-else-if="entry.widget === 'keyValue' || entry.widget === 'keyValueRange'"
+          class="flex flex-col gap-1"
+        >
+          <div class="flex items-center justify-between">
+            <InfoTip :label="entry.description ?? ''" side="right">
+              <Eyebrow class="mb-0">{{ entry.label }}</Eyebrow>
+            </InfoTip>
+            <TooltipButton
+              label="Add a row"
+              :icon="Plus"
+              size="xs"
+              @click="addRow(entry.key)"
+            />
+          </div>
+          <FieldRow
+            v-for="(row, j) in rowsFor(entry.key)"
+            :key="j"
+            :label="row.key"
+          >
+            <template #label>
+              <input
+                :value="row.key"
+                type="text"
+                placeholder="key"
+                :class="FIELD"
+                @input="setRowKey(entry.key, j, ($event.target as HTMLInputElement).value)"
+                @change="flushRowsFor(entry)"
+              />
+            </template>
+            <!-- A range is a display variant over the same text: still one list,
+                 still flushed by the same path, so `subset: {nodes: [a, b, c]}`
+                 degrades to the two boxes rather than to a second code path. -->
+            <div
+              v-if="entry.widget === 'keyValueRange'"
+              class="flex items-center gap-2"
+            >
+              <input
+                :value="rangeParts(row.text)[0]"
+                type="text"
+                placeholder="start"
+                :class="cn(FIELD, FIELD_WIDTH.short)"
+                @change="
+                  setRowRange(
+                    entry.key,
+                    j,
+                    'start',
+                    ($event.target as HTMLInputElement).value,
+                  );
+                  flushRowsFor(entry);
+                "
+              />
+              <span class="text-text-faint">→</span>
+              <input
+                :value="rangeParts(row.text)[1]"
+                type="text"
+                placeholder="end"
+                :class="cn(FIELD, FIELD_WIDTH.short)"
+                @change="
+                  setRowRange(
+                    entry.key,
+                    j,
+                    'end',
+                    ($event.target as HTMLInputElement).value,
+                  );
+                  flushRowsFor(entry);
+                "
+              />
+            </div>
+            <input
+              v-else
+              :value="row.text"
+              type="text"
+              placeholder="value"
+              :class="FIELD"
+              @input="setRowText(entry.key, j, ($event.target as HTMLInputElement).value)"
+              @change="flushRowsFor(entry)"
+            />
+            <template #action>
+              <TooltipButton
+                label="Remove this row"
+                :icon="X"
+                tone="danger"
+                @click="removeRow(entry, j)"
+              />
+            </template>
+          </FieldRow>
+        </div>
+
+        <!-- Likewise a nested object: heading above, so its own fields keep the
+             gutter rather than indenting it inside another one. -->
+        <div
+          v-else-if="entry.widget === 'object'"
+          class="flex flex-col gap-1 rounded-sm border border-border p-2"
+        >
           <InfoTip :label="entry.description ?? ''" side="right">
-            <Eyebrow class="mb-0">{{ entry.label }}</Eyebrow>
+            <Eyebrow>{{ entry.label }}</Eyebrow>
           </InfoTip>
-          <TooltipButton
-            label="Add a row"
-            :icon="Plus"
-            size="xs"
-            @click="addKVRow(entry.key)"
+          <SchemaObjectEditor
+            :schema="entry.fieldSchema"
+            :model-value="modelValue[entry.key] ?? {}"
+            :overlay="nestedOverlays?.[entry.key]"
+            :context="context"
+            :show-advanced="showAdvanced"
+            @update:model-value="update(entry.key, $event)"
           />
         </div>
+
         <FieldRow
-          v-for="(pair, j) in kvCache[entry.key] ?? []"
-          :key="j"
-          :label="pair.key"
+          v-else
+          :label="entry.label"
+          :description="entry.description ?? undefined"
+          :width="entry.width"
         >
-          <template #label>
-            <input
-              v-model="pair.key"
-              type="text"
-              placeholder="key"
-              :class="FIELD"
-              @change="flushKV(entry.key)"
-            />
-          </template>
           <input
-            v-model="pair.value"
             type="text"
-            placeholder="value"
+            :value="modelValue[entry.key] != null ? String(modelValue[entry.key]) : ''"
+            :placeholder="entry.placeholder"
+            :list="entry.suggestions ? listId(entry.key) : undefined"
             :class="FIELD"
-            @change="flushKV(entry.key)"
+            v-bind="entry.inputProps"
+            @change="
+              update(entry.key, ($event.target as HTMLInputElement).value || null)
+            "
           />
-          <template #action>
-            <TooltipButton
-              label="Remove this row"
-              :icon="X"
-              tone="danger"
-              @click="removeKVRow(entry.key, j)"
-            />
-          </template>
+          <!-- A menu, not a constraint: the schema says any string is valid here
+               and the field goes on accepting one. -->
+          <datalist v-if="entry.suggestions" :id="listId(entry.key)">
+            <option v-for="value in entry.suggestions" :key="value" :value="value" />
+          </datalist>
         </FieldRow>
-      </div>
-
-      <!-- Likewise a nested object: heading above, so its own fields keep the
-           gutter rather than indenting it inside another one. -->
-      <div
-        v-else-if="entry.widget === 'object'"
-        class="flex flex-col gap-1 rounded-sm border border-border p-2"
-      >
-        <InfoTip :label="entry.description ?? ''" side="right">
-          <Eyebrow>{{ entry.label }}</Eyebrow>
-        </InfoTip>
-        <SchemaObjectEditor
-          :schema="entry.fieldSchema"
-          :model-value="modelValue[entry.key] ?? {}"
-          :overlay="nestedOverlays?.[entry.key]"
-          :context="context"
-          @update:model-value="update(entry.key, $event)"
-        />
-      </div>
-
-      <FieldRow
-        v-else
-        :label="entry.label"
-        :description="entry.description ?? undefined"
-        :width="entry.width"
-      >
-        <input
-          type="text"
-          :value="modelValue[entry.key] != null ? String(modelValue[entry.key]) : ''"
-          :placeholder="entry.placeholder"
-          :list="entry.suggestions ? listId(entry.key) : undefined"
-          :class="FIELD"
-          v-bind="entry.inputProps"
-          @change="
-            update(entry.key, ($event.target as HTMLInputElement).value || null)
-          "
-        />
-        <!-- A menu, not a constraint: the schema says any string is valid here
-             and the field goes on accepting one. -->
-        <datalist v-if="entry.suggestions" :id="listId(entry.key)">
-          <option v-for="value in entry.suggestions" :key="value" :value="value" />
-        </datalist>
-      </FieldRow>
+      </template>
     </template>
+
+    <!-- Keys the schema does not describe. Preserved on save either way; this is
+         so the model does not carry one the user cannot see. -->
+    <div v-if="unknownEntries.length" class="flex flex-col gap-1">
+      <Eyebrow class="mb-0">not recognised</Eyebrow>
+      <FieldRow
+        v-for="entry in unknownEntries"
+        :key="entry.key"
+        :label="entry.key"
+        width="fill"
+      >
+        <div class="flex min-w-0 items-center gap-2">
+          <span class="min-w-0 truncate text-sm text-text-dim">{{ entry.text }}</span>
+          <InfoTip :label="entry.expected ?? UNKNOWN_HINT" side="right">
+            <Badge variant="outline" :class="WARNING_BADGE">
+              {{ entry.expected ? "migrated" : "unknown" }}
+            </Badge>
+          </InfoTip>
+        </div>
+        <template #action>
+          <TooltipButton
+            v-if="!entry.expected"
+            label="Remove this key"
+            :icon="Trash2"
+            tone="danger"
+            @click="update(entry.key, null)"
+          />
+        </template>
+      </FieldRow>
+    </div>
   </div>
 </template>

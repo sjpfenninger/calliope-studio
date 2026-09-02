@@ -33,6 +33,7 @@ const DATA_TABLE_SPLIT_KEY = `${KEY_PREFIX}dataTable.split`;
 const MAP_SPLIT_KEY = `${KEY_PREFIX}map.split`;
 const RESULTS_LAYOUT_KEY = `${KEY_PREFIX}results.layout`;
 const RESULTS_GEOMETRY_KEY = `${KEY_PREFIX}results.geometry`;
+const CONFIG_ADVANCED_KEY = `${KEY_PREFIX}config.advanced`;
 
 /** The single-geometry keys this replaced, read once and then removed. */
 const LEGACY_RESULTS_SPLIT_KEY = `${KEY_PREFIX}results.split`;
@@ -387,6 +388,44 @@ export const useUiStore = defineStore("ui", () => {
    */
   const newLinkTemplate = ref<string | null>(null);
 
+  // ── The config editor's advanced fields ──────────────────────────────────
+
+  /**
+   * Which config sections are showing the options a model rarely sets.
+   *
+   * Keyed by section — `init`, `build`, `solve` — and not one shared flag. It
+   * was one, on the argument that "show me everything" is a single decision;
+   * but the control that expresses it is a disclosure sitting *inside* a
+   * section, and one of those opening the other two reads as a bug however it
+   * is justified. A control governs what it is attached to.
+   *
+   * None of it governs what a model *has* set: a property the file carries is
+   * shown whatever this says, which is the whole point of the tier. So the
+   * default is closed without hiding anything the user wrote.
+   */
+  const configAdvanced = ref<Record<string, boolean>>(readConfigAdvanced());
+
+  function readConfigAdvanced(): Record<string, boolean> {
+    try {
+      const stored = localStorage.getItem(CONFIG_ADVANCED_KEY);
+      if (!stored) return {};
+      const parsed = JSON.parse(stored) as unknown;
+      // The single-flag spelling this replaced wrote "1"/"0", which parse as
+      // numbers and land here as "not a record" — so it degrades to closed
+      // rather than needing a migration for one boolean.
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+        ? (parsed as Record<string, boolean>)
+        : {};
+    } catch {
+      return {};
+    }
+  }
+
+  function setConfigAdvanced(section: string, open: boolean) {
+    configAdvanced.value = { ...configAdvanced.value, [section]: open };
+    localStorage.setItem(CONFIG_ADVANCED_KEY, JSON.stringify(configAdvanced.value));
+  }
+
   return {
     preference,
     mode,
@@ -412,5 +451,7 @@ export const useUiStore = defineStore("ui", () => {
     setSectionView,
     toggleSectionView,
     newLinkTemplate,
+    configAdvanced,
+    setConfigAdvanced,
   };
 });

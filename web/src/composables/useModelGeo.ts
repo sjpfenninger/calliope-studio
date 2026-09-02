@@ -44,6 +44,22 @@ export function useModelGeo(versionId: Ref<string>) {
 
   let timer: ReturnType<typeof setTimeout> | null = null;
   let polls = 0;
+  /**
+   * Which call owns the answer, and whether this composable is still alive.
+   *
+   * `stopPolling` only ever cleared a pending timer, never an outstanding
+   * request — and `reload` is called from three places at once: the poll, the
+   * `versionId` watch, and every editor's `after()` hook. Three consequences,
+   * all of which happened. An older response landing last redrew the *pre-save*
+   * geometry. Two responses both seeing `resolve_task` each assigned `timer`,
+   * orphaning the first handle and doubling the poll rate every round. And a
+   * response that resolved after `onScopeDispose` scheduled a fresh timer, so a
+   * closed tab went on asking for `/geo/` up to `MAX_POLLS` times.
+   *
+   * `stores/validation.ts` is the model this now follows.
+   */
+  let generation = 0;
+  let alive = true;
 
   function stopPolling() {
     if (timer !== null) clearTimeout(timer);
@@ -52,10 +68,12 @@ export function useModelGeo(versionId: Ref<string>) {
 
   async function reload(): Promise<void> {
     stopPolling();
+    const mine = ++generation;
     error.value = null;
     try {
       const { source: from, resolve_task, resolve_error, ...payload } =
         await getGeo<GeoResponse>(versionId.value!);
+      if (mine !== generation || !alive) return;
       geo.value = payload as GeoPayload;
       source.value = from ?? "resolved";
       error.value = resolve_error ?? null;
@@ -67,6 +85,7 @@ export function useModelGeo(versionId: Ref<string>) {
         polls = 0;
       }
     } catch (caught) {
+      if (mine !== generation || !alive) return;
       geo.value = null;
       error.value = errorDetail(caught, "Could not read the model's geography.");
     }
@@ -77,7 +96,11 @@ export function useModelGeo(versionId: Ref<string>) {
     polls = 0;
     reload();
   });
-  onScopeDispose(stopPolling);
+  onScopeDispose(() => {
+    alive = false;
+    generation += 1;
+    stopPolling();
+  });
 
   return { geo, source, error, reload };
 }

@@ -23,6 +23,17 @@ from calliope_studio.results.catalog import get_array
 Order = Literal["time", "duration"]
 
 
+class BadQuery(ValueError):
+    """A query field the data cannot be reduced by.
+
+    `results` may not import fastapi, so the rejection travels as a type and the
+    route turns it into a 400. Without it, the two fields that reach pandas as
+    free-form client strings — `resample` and `time_range` — were the only
+    unacceptable inputs on this route that produced a 500 in pandas' own wording
+    rather than an answer anybody could act on.
+    """
+
+
 @dataclass(frozen=True)
 class Query:
     """A request for one variable, reduced and shaped for display.
@@ -93,10 +104,20 @@ def reduce_array(dataset: xr.Dataset, query: Query) -> xr.DataArray:
     array = array.sel(filter_selectors(array, query.selectors))
 
     if query.resample and "timesteps" in array.dims:
-        array = array.resample(timesteps=query.resample).mean()
+        # pandas raises `ValueError` on an offset alias it does not know, and
+        # this one comes straight off a chart control — so `resample: "1X"` was
+        # the one unacceptable input on this route that produced a 500 in
+        # pandas' own wording rather than a rejection anybody could act on.
+        try:
+            array = array.resample(timesteps=query.resample).mean()
+        except ValueError as exc:
+            raise BadQuery(f"Not a resampling interval: {query.resample!r}.") from exc
 
     if query.time_range and "timesteps" in array.dims:
-        array = array.sel(timesteps=slice(*query.time_range))
+        try:
+            array = array.sel(timesteps=slice(*query.time_range))
+        except (ValueError, TypeError) as exc:
+            raise BadQuery(f"Not a time range: {query.time_range!r}.") from exc
 
     if query.sum_by and query.sum_by in array.dims:
         array = array.sum(query.sum_by)

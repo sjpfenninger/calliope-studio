@@ -670,3 +670,34 @@ class TestExcludedPathsAreNotWritable:
             json={"content": (national_scale / "model.yaml").read_text()},
         )
         assert response.status_code == 200
+
+
+class TestOversizedReads:
+    """A CSV is capped like every other file handed to the browser whole.
+
+    `parse_csv(path.read_bytes())` had no cap, where the text route has
+    `MAX_TEXT_BYTES` for exactly this reason. A `data_tables/` holding an hourly
+    profile for a few hundred nodes is a few hundred megabytes: clicking it in
+    the file tree read it whole, exploded it into a `list[list[str]]` several
+    times that size, and serialised the lot as JSON.
+    """
+
+    def test_a_huge_csv_is_refused_rather_than_read(
+        self, client, ws, national_scale, monkeypatch
+    ):
+        monkeypatch.setattr(deps, "MAX_TEXT_BYTES", 64)
+        target = national_scale / "data_tables" / "big.csv"
+        target.parent.mkdir(exist_ok=True)
+        target.write_text("a,b\n" + "1,2\n" * 100, encoding="utf-8")
+
+        response = client.get(f"/api/versions/{ws}/csv/data_tables/big.csv")
+        assert response.status_code == 413
+
+    def test_an_ordinary_csv_still_opens(self, client, ws, national_scale):
+        target = national_scale / "data_tables" / "small.csv"
+        target.parent.mkdir(exist_ok=True)
+        target.write_text("a,b\n1,2\n", encoding="utf-8")
+
+        response = client.get(f"/api/versions/{ws}/csv/data_tables/small.csv")
+        assert response.status_code == 200
+        assert response.json()["rows"] == [["1", "2"]]

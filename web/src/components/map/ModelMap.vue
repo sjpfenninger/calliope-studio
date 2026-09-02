@@ -698,6 +698,17 @@ function addLayers(instance: maplibregl.Map) {
     select(name);
   });
 
+  // Clearing the latch belongs to *any* press, not to a press that starts a
+  // drag. `endDrag` also runs from the `window` mouseup, so a drag released over
+  // the form below the map sets `suppressClick` with no canvas click to consume
+  // it — and the reset used to sit past two early returns in the handler below,
+  // so pressing a node marked `editable: false` next left the latch set and
+  // swallowed that click with nothing on screen or in the console to say why.
+  // Registered before the layer handler, so it has run by the time one starts.
+  instance.on("mousedown", () => {
+    suppressClick = false;
+  });
+
   instance.on("mousedown", "nodes", (event) => {
     if (!props.draggableNodes) return;
     const feature = event.features?.[0];
@@ -707,7 +718,6 @@ function addLayers(instance: maplibregl.Map) {
     dragging = String(feature.properties?.node ?? feature.id);
     dragOrigin = { x: event.point.x, y: event.point.y };
     dragTravel = 0;
-    suppressClick = false;
     instance.dragPan.disable();
     instance.getCanvas().style.cursor = "grabbing";
   });

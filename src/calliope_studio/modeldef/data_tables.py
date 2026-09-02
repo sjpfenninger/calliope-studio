@@ -139,8 +139,20 @@ def active_tables(base: Path) -> tuple[Path | None, dict[str, dict]]:
 
 
 def _fingerprint(model_yaml: Path, tables: dict[str, dict]) -> tuple:
-    """Enough to know a cached reading is still current: the CSVs it read."""
+    """Enough to know a cached reading is still current.
+
+    The CSVs it read **and the configuration it read them under**. `select`,
+    `drop`, `add_dims`, `rename_dims`, `rows` and `columns` are the whole of what
+    decides what a table *means*, and none of them was in the key: fixing a
+    `rename_dims` or adding an `add_dims` in `model.yaml` leaves every CSV
+    untouched, so the fingerprint was identical and the previous reading was
+    served for the life of the process. `/data-table-params/` went on offering
+    editable fields for values the table now overwrites, and the fallback map
+    went on showing the old node positions.
+    """
     entries = [str(model_yaml)]
+    for name, config in sorted(tables.items()):
+        entries.append(f"{name}:config:{sorted(config.items(), key=repr)!r}")
     for name, config in tables.items():
         # `table:` from Calliope 0.7.0; `data:` is the pre-release spelling, kept
         # so a model awaiting migration still fingerprints (and so a stale cache
@@ -207,8 +219,13 @@ def _read_tables(base: Path) -> dict[str, dict]:
             }
 
     _cache[key] = found
+    # `pop(..., None)`: these caches are bare dicts with no lock, and FastAPI
+    # runs every one of the sync endpoints that reach them in a threadpool. Two
+    # requests evicting at the same moment compute the same oldest key, and the
+    # loser's single-argument `pop` raised `KeyError` — a 500 out of a request
+    # that was only tidying up.
     while len(_cache) > CACHE_SIZE:
-        _cache.pop(next(iter(_cache)))
+        _cache.pop(next(iter(_cache)), None)
     return found
 
 

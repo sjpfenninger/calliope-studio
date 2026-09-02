@@ -110,6 +110,24 @@ MAX_TEXT_BYTES = 8 * 1024 * 1024
 NUL_SNIFF_BYTES = 8000
 
 
+def require_within_size(path: Path) -> Path:
+    """Refuses a file too large to hand to the browser whole.
+
+    The same cap as `require_text`, for the readers that do not go through it.
+    `parse_csv(path.read_bytes())` had none: a `data_tables/` holding an hourly
+    profile for a few hundred nodes is a few hundred megabytes, and clicking it
+    in the file tree read it whole, exploded it into a `list[list[str]]` several
+    times that size, and serialised the lot as JSON.
+    """
+    size = path.stat().st_size
+    if size > MAX_TEXT_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+            detail=f"This file is too large to open ({size // 1024} kB).",
+        )
+    return path
+
+
 def require_text(path: Path) -> str:
     """Reads a file as text, refusing what is not text and what is too big.
 
@@ -130,12 +148,7 @@ def require_text(path: Path) -> str:
     decoded as cp1252 into plausible-looking text rather than replacement
     characters — the same corruption with nothing on screen to reveal it.
     """
-    size = path.stat().st_size
-    if size > MAX_TEXT_BYTES:
-        raise HTTPException(
-            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
-            detail=f"This file is too large to open ({size // 1024} kB).",
-        )
+    require_within_size(path)
     data = path.read_bytes()
     if b"\0" in data[:NUL_SNIFF_BYTES]:
         raise HTTPException(

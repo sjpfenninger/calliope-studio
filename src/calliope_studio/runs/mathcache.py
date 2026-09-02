@@ -111,7 +111,7 @@ def read(directory: Path, key: str) -> dict | None:
     """
     path = Path(directory) / f"{key}{SUFFIX}"
     try:
-        entry = json.loads(path.read_text())
+        entry = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return None
     payload = entry.get("payload") if isinstance(entry, dict) else None
@@ -150,7 +150,7 @@ def write(directory: Path, key: str, payload: dict, *, model_name: str = "") -> 
         # Written beside and renamed, so a reader can never see half an entry.
         # `read` would return None on one, which is safe but wastes eight seconds.
         temporary = path.with_suffix(f".{os.getpid()}.tmp")
-        temporary.write_text(json.dumps(entry, allow_nan=False))
+        temporary.write_text(json.dumps(entry, allow_nan=False), encoding="utf-8")
         os.replace(temporary, path)
     except (OSError, ValueError):
         return
@@ -165,8 +165,22 @@ def prune(directory: Path, keep: int) -> None:
     root = Path(directory)
     if not root.is_dir() or keep < 0:
         return
-    entries = sorted(
-        root.glob(f"*{SUFFIX}"), key=lambda path: path.stat().st_mtime, reverse=True
-    )
+
+    # `write` renames `<key>.<pid>.tmp` into place, and a worker killed between
+    # the two leaves the temporary behind — which is exactly what cancelling a
+    # math render does to it. Globbing `*.json` counted none of them and removed
+    # none of them, so each cancelled render left ~169 kB in the state directory
+    # for ever. Swept unconditionally: a temporary belongs to a process that is
+    # no longer writing, since `os.replace` is atomic.
+    for stale in root.glob("*.tmp"):
+        stale.unlink(missing_ok=True)
+
+    def mtime(path: Path) -> float:
+        try:
+            return path.stat().st_mtime
+        except OSError:
+            return 0.0
+
+    entries = sorted(root.glob(f"*{SUFFIX}"), key=mtime, reverse=True)
     for path in entries[keep:]:
         path.unlink(missing_ok=True)

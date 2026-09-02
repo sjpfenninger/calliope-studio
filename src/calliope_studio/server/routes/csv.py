@@ -6,9 +6,11 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
 from calliope_studio.modeldef.csv_io import parse_csv, serialize_csv
+from calliope_studio.modeldef.paths import write_bytes_atomic
 from calliope_studio.server.deps import (
     get_workspace,
     require_file,
+    require_within_size,
     resolve_path,
     resolve_writable_path,
 )
@@ -24,7 +26,7 @@ class CsvBody(BaseModel):
 
 @router.get("/versions/{id}/csv/{file_path:path}")
 def read_csv(file_path: str, workspace: Workspace = Depends(get_workspace)) -> dict:
-    path = require_file(resolve_path(workspace, file_path))
+    path = require_within_size(require_file(resolve_path(workspace, file_path)))
     return parse_csv(path.read_bytes())
 
 
@@ -33,10 +35,9 @@ def write_csv(
     file_path: str, body: CsvBody, workspace: Workspace = Depends(get_workspace)
 ) -> dict:
     path = resolve_writable_path(workspace, file_path)
-    path.parent.mkdir(parents=True, exist_ok=True)
     # Bytes, not text, and `serialize_csv` pins `lineterminator="\n"`. That is
-    # already the right pair and must stay one: switching this to `write_text`
-    # for consistency with the other writers would reintroduce the newline
-    # translation they had to be fixed for.
-    path.write_bytes(serialize_csv(body.columns, body.rows))
+    # already the right pair and must stay one: switching this to the text
+    # writer for consistency with the others would reintroduce the newline
+    # translation they had to be fixed for. Atomic like the rest of them.
+    write_bytes_atomic(path, serialize_csv(body.columns, body.rows))
     return {"ok": True}

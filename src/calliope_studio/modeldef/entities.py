@@ -54,6 +54,10 @@ _CACHE_SIZE = 4
 #: `{(entry file, yaml fingerprint): Definition | None}`.
 _assembled_cache: dict[tuple, "Definition | None"] = {}
 
+#: A miss, distinct from a cached `None` — which is what an unassemblable
+#: model is stored as, and is worth not recomputing.
+_MISSING = object()
+
 
 @dataclass(frozen=True)
 class Definition:
@@ -84,8 +88,13 @@ def assembled(base: Path) -> Definition | None:
         return None
 
     key = (str(model_yaml), _yaml_fingerprint(root))
-    if key in _assembled_cache:
-        return _assembled_cache[key]
+    # One lookup, not a membership test followed by a read: these caches are bare
+    # dicts with no lock and every endpoint that reaches them runs in FastAPI's
+    # threadpool, so an eviction between the two lines was a `KeyError` escaping
+    # as a 500 from `/component-tree/` or `/geo/`.
+    cached = _assembled_cache.get(key, _MISSING)
+    if cached is not _MISSING:
+        return cached
 
     definition = None
     try:
@@ -114,7 +123,7 @@ def assembled(base: Path) -> Definition | None:
 
     _assembled_cache[key] = definition
     while len(_assembled_cache) > _CACHE_SIZE:
-        _assembled_cache.pop(next(iter(_assembled_cache)))
+        _assembled_cache.pop(next(iter(_assembled_cache)), None)
     return definition
 
 

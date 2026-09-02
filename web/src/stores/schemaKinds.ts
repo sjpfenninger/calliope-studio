@@ -78,6 +78,11 @@ export const useSchemaKindsStore = defineStore("schemaKinds", () => {
       if (versionId.value !== id) return;
       detected.value = kinds;
     } catch {
+      // The same guard as the success path, and for the same reason. Without it
+      // a failed request for a model the user has already left wiped the
+      // *current* model's kinds — every YAML file lost its schema, so
+      // completion and validation went quiet with nothing to say why.
+      if (versionId.value !== id) return;
       // No classification is the pre-existing behaviour, minus the wrong schema.
       detected.value = {};
     }

@@ -134,6 +134,21 @@ class _Entry:
     calliope_model: Any = None
 
 
+def _mtime_or_zero(directory: Path) -> float:
+    """The directory's mtime, or 0 if it has just gone.
+
+    These sorts run over a `glob` result, and pruning is not the only thing
+    touching the tree: two prunes racing, or a user's `DELETE /runs/{id}/`
+    landing between the glob and the sort, made `stat` raise `FileNotFoundError`
+    out of a request that was only tidying up. Something already gone sorts
+    oldest, which is also where it belongs.
+    """
+    try:
+        return directory.stat().st_mtime
+    except OSError:
+        return 0.0
+
+
 class Resolver:
     """Keeps one resolved model per workspace, and refreshes it when files change.
 
@@ -396,6 +411,6 @@ class Resolver:
             for directory in root.glob("*/")
             if (directory / protocol.OUTCOME_FILE).is_file() and directory not in live
         ]
-        finished.sort(key=lambda directory: directory.stat().st_mtime, reverse=True)
+        finished.sort(key=_mtime_or_zero, reverse=True)
         for directory in finished[keep:]:
             shutil.rmtree(directory, ignore_errors=True)

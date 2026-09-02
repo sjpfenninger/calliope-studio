@@ -54,8 +54,11 @@ def find_model_yaml(base: Path) -> Path | None:
             # `/lost+found` every time.
             #
             # A directory we cannot read is not a model, which is the whole
-            # question being asked.
-            return None
+            # question being asked — but that is a statement about *this*
+            # candidate. Returning from the middle of a two-name loop also
+            # abandoned the `model.yml` probe on an `EACCES` reading
+            # `model.yaml`, which is a different claim and a wrong one.
+            continue
     return None
 
 

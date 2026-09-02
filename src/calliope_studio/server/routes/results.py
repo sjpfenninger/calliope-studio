@@ -25,7 +25,7 @@ from calliope_studio.results.catalog import (
 )
 from calliope_studio.results.colors import tech_colors
 from calliope_studio.results.links import link_orientation, transmission_links
-from calliope_studio.results.query import Query, reduce_array
+from calliope_studio.results.query import BadQuery, Query, reduce_array
 from calliope_studio.results.store import ResultHandle, ResultsNotFound, ResultStore
 from calliope_studio.runs import protocol
 from calliope_studio.runs.manager import RunManager
@@ -141,7 +141,12 @@ def frame(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"No such variable: {query.variable}",
         )
-    array = reduce_array(results.dataset, query)
+    try:
+        array = reduce_array(results.dataset, query)
+    except BadQuery as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        ) from None
 
     table = frames.build_table(
         array,

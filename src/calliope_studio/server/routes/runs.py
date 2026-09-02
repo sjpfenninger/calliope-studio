@@ -42,6 +42,7 @@ from calliope_studio.server.deps import (
     get_workspace,
     require_file,
     require_text,
+    require_within_size,
     resolve_within,
 )
 from calliope_studio.server.storage import LocalStorage, Workspace
@@ -352,7 +353,9 @@ def snapshot_csv(
     run_id: str, file_path: str, runs: RunManager = Depends(get_runs)
 ) -> dict:
     """A frozen data table, in the grid editor's shape."""
-    path = require_file(resolve_within(_snapshot_root(run_id, runs), file_path))
+    path = require_within_size(
+        require_file(resolve_within(_snapshot_root(run_id, runs), file_path))
+    )
     return parse_csv(path.read_bytes())
 
 

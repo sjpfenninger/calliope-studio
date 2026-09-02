@@ -34,7 +34,14 @@ readme = "README.md"
 requires-python = ">=3.12,<3.15"
 keywords = ["energy systems", "visualisation", "optimisation"]
 license = "AGPL-3.0-or-later"
-license-files = ["LICENSE"]
+# `THIRD_PARTY_LICENSES.md` is not decoration. The Vue bundle in
+# `server/static/` is redistributed inside every wheel, sdist and conda
+# package, minification strips the `@license` banners its sources carry, and
+# BSD-3, Apache-2.0, OFL-1.1 and CC-BY-4.0 material in it all require the
+# notice to travel with the copy. Naming it here is what puts it at the top of
+# the sdist, where conda-forge's `license_file` can reach it, and in the
+# wheel's `dist-info/licenses/`. `pixi run web-build` writes it.
+license-files = ["LICENSE", "THIRD_PARTY_LICENSES.md"]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Environment :: Web Environment",

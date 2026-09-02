@@ -388,6 +388,14 @@ jobs:
         # wheel with no interface, so the check is the point of this job.
         run: pixi run -e build build
 
+      # The build regenerates the notice from the module graph, so this is what
+      # catches a dependency change that alters attribution and was committed
+      # without it. It also proves the file is machine-independent: it is
+      # written here on Linux and committed from macOS, and a platform-specific
+      # package leaking into the graph would show up as a diff and nowhere else.
+      - name: Check the third-party licence notice is current
+        run: git diff --exit-code THIRD_PARTY_LICENSES.md
+
       # Handed to `interpreters` below rather than rebuilt there: that job is
       # about the *artefact* installing, and a wheel built per interpreter would
       # not be the one we ship.

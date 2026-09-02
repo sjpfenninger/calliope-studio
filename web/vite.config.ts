@@ -1,22 +1,64 @@
+import { readFileSync } from "node:fs";
 import { fileURLToPath, URL } from "node:url";
 import { defineConfig } from "vite";
 import vue from "@vitejs/plugin-vue";
 import tailwindcss from "@tailwindcss/vite";
 
+import { collectPackages, writeLicenseNotice } from "./scripts/licensePlugin";
+
+const here = (path: string) => fileURLToPath(new URL(path, import.meta.url));
+
+/**
+ * Source copied into the tree rather than installed, so no module graph and no
+ * `node_modules` entry can find it: `src/components/ui/` is shadcn-vue, added
+ * by `pnpm dlx shadcn-vue add` and then hand-edited. It is MIT, and the notice
+ * has to say so because the components ship in the bundle like anything else.
+ */
+const VENDORED = [
+  {
+    name: "shadcn-vue (src/components/ui/)",
+    version: null,
+    license: "MIT",
+    homepage: "https://github.com/unovue/shadcn-vue",
+    texts: [
+      {
+        file: "LICENSE",
+        text: readFileSync(here("./licenses/shadcn-vue-LICENSE.txt"), "utf8"),
+      },
+    ],
+  },
+];
+
 export default defineConfig({
-  plugins: [vue(), tailwindcss()],
+  plugins: [
+    vue(),
+    tailwindcss(),
+    // Writes THIRD_PARTY_LICENSES.md beside LICENSE, where `license-files` in
+    // pyproject.toml names it so that it reaches both the sdist and the
+    // wheel's dist-info. See the plugin for why the module graph, and not
+    // `pnpm licenses list`, decides what goes in it.
+    writeLicenseNotice(here("."), here("../THIRD_PARTY_LICENSES.md"), VENDORED),
+  ],
   resolve: {
     alias: {
       // shadcn-vue's generated components import through `@/`, so this has to
       // match the `paths` entry in tsconfig.json.
-      "@": fileURLToPath(new URL("./src", import.meta.url)),
+      "@": here("./src"),
     },
   },
   build: {
     // Build straight into the Python package so that a wheel serves the UI from
     // the same process as the API. See `pixi run web-build`.
-    outDir: fileURLToPath(new URL("../src/calliope_studio/server/static", import.meta.url)),
+    outDir: here("../src/calliope_studio/server/static"),
     emptyOutDir: true,
+  },
+  worker: {
+    // A `?worker` import is bundled by its own Rollup build, and the main
+    // config's plugins do not apply to it. Without this line the notice covers
+    // 51 packages instead of 57: prettier, the two vscode-languageserver-*,
+    // jsonc-parser, path-browserify and @vscode/l10n reach the browser only
+    // through the YAML worker, and would ship with nothing to attribute them.
+    plugins: () => [collectPackages()],
   },
   test: {
     // A DOM for every test rather than a per-file annotation: the stores under

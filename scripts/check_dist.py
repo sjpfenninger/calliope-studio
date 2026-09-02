@@ -12,6 +12,13 @@ a conda package serving a blank page to everyone who installed it that way —
 which, since the conda route is the one that brings a solver, is the route this
 project most wants people to take.
 
+**The third-party notice is checked the same way, and for the same reason.**
+`THIRD_PARTY_LICENSES.md` is written by the frontend build, so an artefact made
+without that step carries 12 MB of minified BSD-3, Apache-2.0, OFL-1.1 and
+CC-BY-4.0 material with no notice at all — a licensing defect that looks
+exactly like a working build. It is listed in `license-files`, so it lands at
+the top of the sdist and in the wheel's `dist-info/licenses/`.
+
 Given a version argument it also asserts the artefacts carry it, which is the
 release's guard against a different silent failure: setuptools-scm does not
 raise when it cannot read git, it falls back to `fallback_version`. A release
@@ -35,6 +42,15 @@ REQUIRED = STATIC_PREFIX + "index.html"
 #: A bundle with only an index page means the build produced no assets.
 MINIMUM_STATIC_FILES = 5
 
+NOTICE = "THIRD_PARTY_LICENSES.md"
+
+#: Marks one attributed package in the notice; see `licenseNotice.ts::render`.
+NOTICE_SECTION = b"\n## "
+
+#: The bundle draws on around sixty packages, so a notice naming a handful is
+#: a collector that found almost nothing rather than a short dependency tree.
+MINIMUM_NOTICE_PACKAGES = 20
+
 
 def _wheel_names(path: Path) -> list[str]:
     with zipfile.ZipFile(path) as archive:
@@ -56,6 +72,34 @@ def _sdist_names(path: Path) -> list[str]:
         head, _, tail = name.partition("/")
         stripped.append(tail if tail else head)
     return stripped
+
+
+def _notice(path: Path) -> bytes | None:
+    """The third-party notice inside an artefact, or None if it is absent.
+
+    The two layouts differ: `license-files` puts it in the wheel's
+    `dist-info/licenses/`, while an sdist keeps it where the repository does,
+    at the top level under the release directory.
+    """
+    if path.name.endswith(".whl"):
+        with zipfile.ZipFile(path) as archive:
+            names = [
+                name
+                for name in archive.namelist()
+                if name.endswith(f".dist-info/licenses/{NOTICE}")
+            ]
+            return archive.read(names[0]) if names else None
+
+    with tarfile.open(path) as archive:
+        names = [
+            name
+            for name in archive.getnames()
+            if name.count("/") == 1 and name.endswith(f"/{NOTICE}")
+        ]
+        if not names:
+            return None
+        handle = archive.extractfile(names[0])
+        return handle.read() if handle is not None else None
 
 
 def _metadata_version(path: Path) -> str | None:
@@ -117,6 +161,20 @@ def check(path: Path) -> list[str]:
             f"{path.name}: only {len(static)} bundled files, "
             "which suggests an incomplete frontend build"
         )
+
+    notice = _notice(path)
+    if notice is None:
+        problems.append(
+            f"{path.name}: no {NOTICE} — the bundled frontend would ship "
+            "with none of its third-party licences"
+        )
+    else:
+        packages = notice.count(NOTICE_SECTION)
+        if packages < MINIMUM_NOTICE_PACKAGES:
+            problems.append(
+                f"{path.name}: {NOTICE} attributes only {packages} packages, "
+                "which suggests the collector found almost nothing"
+            )
     return problems
 
 
@@ -162,7 +220,8 @@ def main(argv: list[str] | None = None) -> int:
         for problem in problems:
             print(problem, file=sys.stderr)
         if any(
-            "interface" in problem or "bundled files" in problem for problem in problems
+            "interface" in problem or "bundled files" in problem or NOTICE in problem
+            for problem in problems
         ):
             print(
                 "\nBuild the frontend first: pixi run web-build, or use pixi run build.",

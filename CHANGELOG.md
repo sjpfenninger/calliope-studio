@@ -2,6 +2,7 @@
 
 ## 0.1.2 (2026-09-02)
 
+- Allow opening runs by clicking anywhere in a run row
 - Correctly bundle third party licenses
 
 ## 0.1.1 (2026-09-01)

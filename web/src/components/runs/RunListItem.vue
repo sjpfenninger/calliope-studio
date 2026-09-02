@@ -71,6 +71,20 @@ async function startRename() {
   field.value?.select();
 }
 
+/**
+ * Anywhere in the row opens it, not just the name.
+ *
+ * The name is a target exactly the width of its own text — a `shrink truncate`
+ * button with a `flex-1` metric beside it — while the row is two lines tall and
+ * highlights under the pointer as though all of it were the target. It was not.
+ *
+ * `openIntent` reads the double-click off the event, so there is nothing here to
+ * distinguish one click from two; the whole of the fix is which element listens.
+ */
+function onRowClick(event: MouseEvent) {
+  emit("open", event);
+}
+
 function commitRename() {
   if (!renaming.value) return;
   renaming.value = false;
@@ -89,10 +103,11 @@ function commitRename() {
        line and the metrics line keep a single right edge; and the button never
        moves, so nothing reflows under the cursor. -->
   <div
-    class="group relative flex flex-col gap-0.5 border-b border-border-subtle py-1 pl-2 pr-7"
+    class="group relative flex select-none flex-col gap-0.5 border-b border-border-subtle py-1 pl-2 pr-7"
     :class="active ? 'bg-active' : 'hover:bg-hover'"
     data-testid="run-item"
     :data-run-id="run.id"
+    @click="onRowClick"
   >
     <div class="flex items-center gap-1.5">
       <RunStatusPill :status="run.status" dot-only />
@@ -103,19 +118,23 @@ function commitRename() {
         v-model="draft"
         type="text"
         data-testid="run-rename"
-        :class="cn(FIELD_SM, 'flex-1')"
+        :class="cn(FIELD_SM, 'flex-1 select-text')"
+        @click.stop
         @keydown.enter.prevent="commitRename"
         @keydown.esc.prevent="renaming = false"
         @blur="commitRename"
       />
       <!-- The id, not the label: this is the run's identity behind whatever it
-           has been renamed to, so it is help rather than an overflow reveal. -->
+           has been renamed to, so it is help rather than an overflow reveal.
+
+           Still a button now that the click is on the row: it carries no handler
+           of its own, so its click bubbles up, and it is what puts the row in the
+           tab order and answers Enter and Space. -->
       <InfoTip v-if="!renaming" :label="run.id">
         <button
           type="button"
           data-testid="run-open"
           class="min-w-0 shrink truncate text-left text-sm"
-          @click="emit('open', $event)"
         >
           {{ title }}
         </button>
@@ -129,8 +148,8 @@ function commitRename() {
            wherever their text runs out.
 
            It is the flexible one and the name is not, which is what makes the
-           *scenario* truncate first — the name is the thing clicked, and with
-           the two the other way round a 44-character scenario left the name
+           *scenario* truncate first — the name is what tells two runs apart, and
+           with the two the other way round a 44-character scenario left the name
            reading "a.". A `flex-1` here and a bare `shrink` there, because flex
            distributes shortfall in proportion to base size: a basis-0 item
            cannot give anything up, so whichever one carries `flex-1` is the one
@@ -164,6 +183,7 @@ function commitRename() {
     <InfoTip label="Run actions">
       <span
         class="absolute right-1.5 top-1 inline-flex opacity-0 group-hover:opacity-100 focus-within:opacity-100 has-[[data-state=open]]:opacity-100"
+        @click.stop
       >
         <DropdownMenu>
           <DropdownMenuTrigger as-child>

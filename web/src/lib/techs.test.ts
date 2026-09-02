@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isTransmission, mergeIntoSection } from "./techs";
+import { isTransmission, mergeIntoSection, ownedNames } from "./techs";
 
 /**
  * TechsEditor and LinksEditor each show half of one YAML section and each save
@@ -104,5 +104,64 @@ describe("mergeIntoSection", () => {
       isNotLink,
     );
     expect(Object.keys(merged)).toEqual(["ccgt", "a_to_b", "battery", "solar"]);
+  });
+});
+
+/**
+ * Which of the two editors owns an entry is decided when the section loads, and
+ * must not be re-derived from what a save wrote.
+ *
+ * `isTransmission` reads `base_tech`, and the techs form can *set* it. Asking
+ * the question against the just-written section therefore answered "not mine"
+ * for a row still on screen and still in the editor's list, so `mergeIntoSection`
+ * passed the pre-edit original through and every later edit to that row went
+ * into the void — with the tab marked clean each time.
+ */
+describe("ownedNames", () => {
+  const section: Record<string, Record<string, unknown>> = {
+    ccgt: { base_tech: "supply" },
+    battery: { base_tech: "storage" },
+    ac_line: { base_tech: "transmission", link_from: "a", link_to: "b" },
+    inherited_line: { template: "free_transmission" },
+  };
+
+  it("splits a section into the two editors' halves", () => {
+    expect(ownedNames(section, TEMPLATES, "techs")).toEqual(
+      new Set(["ccgt", "battery"]),
+    );
+    expect(ownedNames(section, TEMPLATES, "links")).toEqual(
+      new Set(["ac_line", "inherited_line"]),
+    );
+  });
+
+  it("gives every entry to exactly one of them", () => {
+    const techs = ownedNames(section, TEMPLATES, "techs");
+    const links = ownedNames(section, TEMPLATES, "links");
+    expect(techs.size + links.size).toBe(Object.keys(section).length);
+    expect([...techs].filter((name) => links.has(name))).toEqual([]);
+  });
+
+  it("keeps an entry whose base_tech was changed to transmission", () => {
+    // The load-time answer, held across the save that made it a link.
+    const owned = ownedNames(section, TEMPLATES, "techs");
+    const written: Record<string, Record<string, unknown>> = {
+      ...section,
+      ccgt: { base_tech: "transmission" },
+    };
+
+    const merged = mergeIntoSection(
+      written,
+      { ccgt: { base_tech: "transmission", flow_cap_max: 100 } },
+      (name) => owned.has(name),
+    );
+    expect(merged.ccgt).toEqual({ base_tech: "transmission", flow_cap_max: 100 });
+
+    // Asking the *section* instead is what dropped the edit.
+    const stale = mergeIntoSection(
+      written,
+      { ccgt: { base_tech: "transmission", flow_cap_max: 100 } },
+      (name) => !isTransmission(written[name] ?? null, TEMPLATES),
+    );
+    expect(stale.ccgt).toEqual({ base_tech: "transmission" });
   });
 });

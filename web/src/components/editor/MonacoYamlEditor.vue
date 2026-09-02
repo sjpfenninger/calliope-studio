@@ -251,10 +251,19 @@ function ensureVirtualModel(
 async function activateTab(tab: EditableTab | null) {
   if (!editor || !tab) return;
 
+  // The build can await a fetch, and the tab can change while it does. The
+  // `shared()` de-dupe stopped two builders racing to `createModel` for one
+  // path; it does nothing about *which* buffer ends up attached. Clicking an
+  // uncached file A and then a cached file B attached B, then attached A when
+  // its fetch landed — so the editor showed A's text under tab B, and Cmd+S
+  // wrote `models.get(B)`. The displayed file and the saved file were different
+  // files, and nothing said so.
   const model =
     tab.kind === "file"
       ? await ensureFileModel(tab.path)
       : await ensureVirtualModel(tab);
+
+  if (activeMonacoTab.value?.id !== tab.id) return;
 
   editor.setModel(model);
   editor.focus();
@@ -274,9 +283,19 @@ async function saveVirtualTab(tab: SectionTab | EntryTab) {
     // Read-modify-write: fetch full section, replace this entry, PUT back
     const fullSection = await getYamlSection(props.versionId!, filePath, section);
     const parsed = yamlParse(currentContent);
-    if (parsed && typeof parsed === "object" && entryName in (parsed as object)) {
-      fullSection[entryName] = (parsed as Record<string, any>)[entryName];
+    // A buffer that no longer declares the entry the tab is for cannot be
+    // written through this route, and the failure has to be loud. It used to
+    // fall through to a PUT of the section exactly as it had just been fetched
+    // and then mark the tab clean: renaming `ccgt:` to `ccgt_new:` in the raw
+    // view and pressing Cmd+S reported success, changed nothing, and lost the
+    // rename at the next tab close.
+    if (!parsed || typeof parsed !== "object" || !(entryName in parsed)) {
+      throw new Error(
+        `This buffer no longer defines "${entryName}". Renaming an entry has to ` +
+          `happen in the whole ${section} section, not in one entry's tab.`,
+      );
     }
+    fullSection[entryName] = (parsed as Record<string, any>)[entryName];
     await putYamlSection(props.versionId!, filePath, section, fullSection);
     sectionDataStore.invalidate(props.versionId!, filePath, section);
   } else {

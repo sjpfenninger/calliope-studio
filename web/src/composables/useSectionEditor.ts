@@ -157,6 +157,12 @@ export function useSectionEditor(options: SectionEditorOptions) {
   }
 
   async function save(): Promise<void> {
+    // Not re-entrant. Holding Cmd/Ctrl+S interleaved two saves: the second
+    // `build()` ran against a baseline the first `after()` had not replaced
+    // yet, two PUTs went out for one file, and `markClean` landed while a write
+    // was still in flight — so a failure of the *second* left the tab clean over
+    // whichever write happened to land last.
+    if (isSaving.value) return;
     const { versionId, path, tabId } = ids();
     isSaving.value = true;
     saveError.value = null;
@@ -169,6 +175,7 @@ export function useSectionEditor(options: SectionEditorOptions) {
         await write(versionId, path, written);
         cache.set(versionId, path, options.section, written);
         cache.noteFileWritten(path);
+        seenRevision = cache.fileRevisions.get(path) ?? 0;
       }
       tabs.markClean(tabId);
       saved = true;
@@ -212,6 +219,30 @@ export function useSectionEditor(options: SectionEditorOptions) {
   onUnmounted(() => window.removeEventListener("keydown", onKeydown));
 
   watch(() => toValue(options.filePath), load);
+
+  /**
+   * Adopt a write to this file that came from somewhere else.
+   *
+   * This used to come for free, and badly: `TabBody` mounted only the *active*
+   * structured editor, so a `config` write from the math panel or a raw Cmd+S
+   * in Monaco was picked up by the remount — at the cost of destroying any
+   * unsaved edits in every other form. The panes are kept alive now, so the
+   * same reverse channel `MonacoYamlEditor` watches carries it here instead.
+   *
+   * **A dirty form is left alone.** Its buffer is the user's unsaved work, and
+   * discarding that silently is the bug the whole change is about; the stale
+   * baseline is the lesser problem and the one they can see.
+   */
+  let seenRevision = cache.fileRevisions.get(toValue(options.filePath)) ?? 0;
+  watch(
+    () => cache.fileRevisions.get(toValue(options.filePath)) ?? 0,
+    (revision) => {
+      if (revision === seenRevision) return;
+      seenRevision = revision;
+      if (tabs.get(toValue(options.tabId))?.isDirty) return;
+      load();
+    },
+  );
 
   return { isLoading, isSaving, error, saveError, load, save, markDirty };
 }

@@ -147,7 +147,7 @@ def write_file(
     file_path: str, body: FileContent, workspace: Workspace = Depends(get_workspace)
 ) -> dict:
     path = resolve_writable_path(workspace, file_path)
-    # Through `yaml_io._write`, which is UTF-8, `newline=""` and atomic.
+    # Through `paths.write_text_atomic`: UTF-8, `newline=""`, and atomic.
     #
     # `newline=""` writes the string's bytes untouched. Without it Python
     # translates every `\n` to `os.linesep`, which on Windows means *every save

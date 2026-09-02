@@ -2,8 +2,8 @@
 /**
  * What the active tab shows.
  *
- * A stack of absolutely positioned panes rather than a `v-if` chain, because two
- * of them must not be destroyed when they go to the background:
+ * A stack of absolutely positioned panes rather than a `v-if` chain, because
+ * three of them must not be destroyed when they go to the background:
  *
  * - **Monaco** is a single instance shared by every raw YAML buffer. Each tab
  *   owns a text model; unmounting the component disposes all of them, so a
@@ -12,6 +12,12 @@
  * - **Run panes** each hold a MapLibre map and several ECharts instances. One is
  *   rendered per run tab that has ever been in front, so switching back does not
  *   refetch Arrow or rebuild the map. The store caps how many stay live.
+ * - **Structured editors** hold the user's unsaved form state in component state
+ *   and nowhere else. This was a `v-if` on the *active* tab, so looking at
+ *   anything else threw the edits away — and `useSectionEditor.load()` on the
+ *   way back re-read the saved section and called `markClean`, taking the dirty
+ *   dot with them. One pane per tab that has been shown as a form, `v-show`n,
+ *   capped by the store, and a dirty one is never evicted.
  *
  * Absolute positioning also matters for Monaco: its container is driven by a
  * ResizeObserver rather than `automaticLayout`, so returning from `display:none`
@@ -40,7 +46,7 @@ import MathTabView from "@/components/math/MathTabView.vue";
 import StructuredEditorHost from "./StructuredEditorHost.vue";
 import { isTextFileType } from "@/lib/fileKind";
 import { useTabsStore } from "@/stores/tabs";
-import type { FileViewMode } from "@/stores/tabs";
+import type { EntryTab, FileViewMode, SectionTab } from "@/stores/tabs";
 
 const tabs = useTabsStore();
 
@@ -88,13 +94,10 @@ const viewMode = computed<FileViewMode>({
   },
 });
 
-const structuredTab = computed(() => {
-  const tab = active.value;
-  return (tab?.kind === "section" || tab?.kind === "entry") &&
-    tab.editorMode === "structured"
-    ? tab
-    : null;
-});
+/** Whether a given structured pane is the one on screen. */
+function structuredVisible(tab: SectionTab | EntryTab): boolean {
+  return tab.id === tabs.activeId && tab.editorMode === "structured";
+}
 </script>
 
 <template>
@@ -145,11 +148,18 @@ const structuredTab = computed(() => {
         class="absolute inset-0"
       />
 
+      <!-- The front structured pane, plus any holding unsaved edits; see
+           `structuredTabs`. This was a plain `v-if` on the *active* tab, and a
+           structured editor's unsaved state is component state and nothing
+           else — so looking at another tab discarded the user's edits, and the
+           remount on the way back re-read the saved section and cleared the
+           dirty dot, leaving nothing to say anything had been lost. -->
       <StructuredEditorHost
-        v-if="structuredTab && tabs.versionId"
-        :key="structuredTab.id"
-        :tab="structuredTab"
-        :versionId="tabs.versionId"
+        v-for="tab in tabs.structuredTabs"
+        v-show="structuredVisible(tab)"
+        :key="tab.id"
+        :tab="tab"
+        :versionId="tabs.versionId!"
         class="absolute inset-0"
       />
 

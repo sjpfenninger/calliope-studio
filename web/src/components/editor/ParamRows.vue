@@ -25,7 +25,7 @@ import FieldRow from "@/components/app/FieldRow.vue";
 import TooltipButton from "@/components/app/TooltipButton.vue";
 import { FIELD, GHOST_BUTTON } from "@/lib/formClasses";
 import { cn } from "@/lib/utils";
-import { parseScalar, type Param } from "@/lib/entries";
+import { parseScalar, rowKey, type Param } from "@/lib/entries";
 import { unmatchedInherited, type Inherited } from "@/lib/inherited";
 
 const props = withDefaults(
@@ -76,9 +76,12 @@ function materialise(key: string, raw: string) {
 
 <template>
   <div class="flex flex-col gap-1">
+    <!-- Keyed by the row's own identity, never by its index: reusing the
+         component from a removed row is how one parameter's value came to be
+         written under the next one's name. -->
     <FieldRow
       v-for="(param, index) in params"
-      :key="index"
+      :key="rowKey(param)"
       :label="param.key"
       width="value"
       align="start"

@@ -221,3 +221,30 @@ export function entryKey(
 ): string {
   return entry.name || String(all.indexOf(entry as never));
 }
+
+/**
+ * A stable key for one row of a list edited in place.
+ *
+ * `entryKey` keys on the name, which every entity form has. A parameter row has
+ * no name until somebody types one, and the lists were keyed by array index
+ * instead — so removing a row made Vue *reuse* the component that had been
+ * showing the row above it. `ScalarOrDataVar` reads its props once at setup, so
+ * the reused instance kept the removed row's value while the key input showed
+ * the new one's, and the next change wrote that value under the new key: a
+ * wrong number in the user's model, indistinguishable from one they typed.
+ *
+ * A `WeakMap` rather than a field on the row, so the identity is invisible to
+ * `paramsToObject` and cannot be written into anybody's YAML, and so a removed
+ * row's entry is collected with it.
+ */
+const rowKeys = new WeakMap<object, string>();
+let nextRowKey = 0;
+
+export function rowKey(row: object): string {
+  let key = rowKeys.get(row);
+  if (key === undefined) {
+    key = `row-${(nextRowKey += 1)}`;
+    rowKeys.set(row, key);
+  }
+  return key;
+}

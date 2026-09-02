@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  entryKey,
   linkToRaw,
   nodeToRaw,
   rawToLink,
   rawToNode,
+  parseScalar,
   rawToTech,
+  rowKey,
   techToRaw,
 } from "./entries";
 
@@ -180,5 +183,86 @@ describe("nodes", () => {
     const entry = rawToNode("x", {});
     entry.techs.push({ techName: "", params: [{ key: "a", value: 1 }] });
     expect(nodeToRaw(entry)).toEqual({});
+  });
+});
+
+/**
+ * The one place the app decides whether a typed value is a number.
+ *
+ * Its own docstring says a second copy of this is how `.inf` came to be deleted
+ * from people's files once already, and it had no test at all. `Number(".inf")`
+ * is `NaN`, which is exactly what keeps the YAML spelling a string all the way
+ * back to `yaml_io.from_plain` — so these cases are the frontend half of an
+ * invariant `tests/test_yaml_io.py` pins four times on the Python side.
+ */
+describe("parseScalar", () => {
+  it.each([".inf", "-.inf", ".nan"])("leaves the YAML spelling %s alone", (raw) => {
+    expect(parseScalar(raw)).toBe(raw);
+  });
+
+  it.each([
+    ["100", 100],
+    ["0.5", 0.5],
+    ["1e6", 1000000],
+    ["-3", -3],
+    ["  42  ", 42],
+  ])("reads %s as the number %s", (raw, expected) => {
+    expect(parseScalar(raw as string)).toBe(expected);
+  });
+
+  it.each(["", "   "])("reads %o as unset, which drops the key", (raw) => {
+    expect(parseScalar(raw)).toBeNull();
+  });
+
+  it.each(["power", "monetary", "2005-01-01", "1,2"])(
+    "keeps %s as text",
+    (raw) => {
+      expect(parseScalar(raw)).toBe(raw);
+    },
+  );
+
+  it("does not read a boolean spelling as anything but text", () => {
+    expect(parseScalar("true")).toBe("true");
+  });
+});
+
+describe("entryKey", () => {
+  it("uses the name when there is one", () => {
+    const entries = [{ name: "ccgt" }, { name: "battery" }];
+    expect(entryKey(entries[1], entries)).toBe("battery");
+  });
+
+  it("falls back to the position while a name is being typed", () => {
+    const entries = [{ name: "ccgt" }, { name: "" }];
+    expect(entryKey(entries[1], entries)).toBe("1");
+  });
+});
+
+/**
+ * A parameter row has no name to key on, so the lists were keyed by index — and
+ * removing a row made Vue reuse the component that had been showing the row
+ * above it, which reads its value once at setup. The previous row's value then
+ * sat under the new row's key, and the next change wrote it there.
+ */
+describe("rowKey", () => {
+  it("is stable for one row across calls", () => {
+    const row = { key: "flow_cap_max", value: 100 };
+    expect(rowKey(row)).toBe(rowKey(row));
+  });
+
+  it("distinguishes two rows with identical contents", () => {
+    const a = { key: "flow_cap_max", value: 100 };
+    const b = { key: "flow_cap_max", value: 100 };
+    expect(rowKey(a)).not.toBe(rowKey(b));
+  });
+
+  it("survives the row moving, which is the whole point", () => {
+    const rows = [
+      { key: "a", value: 1 },
+      { key: "b", value: 2 },
+    ];
+    const second = rowKey(rows[1]);
+    rows.splice(0, 1);
+    expect(rowKey(rows[0])).toBe(second);
   });
 });

@@ -21,15 +21,20 @@
  * buffer to mark, and more to the point a toggle *is* an action — there is no
  * half-typed intermediate state for a Save button to protect.
  *
- * Writing `config` from here is safe against the config editor for a reason
- * worth knowing rather than rediscovering: `TabBody` renders
- * `StructuredEditorHost` under a `v-if` on the **active** tab, so a config
- * editor is never mounted while this panel is on screen, and it re-reads on its
- * next mount. Were that ever changed to `v-show` — Monaco is already kept alive
- * that way — a config tab holding the section as it was *before* this write
- * would save it back and silently revert the math settings. `math-check` pins
- * the property from the outside so the change would be caught rather than
- * reasoned about again.
+ * Writing `config` from here is safe against the config editor, but no longer
+ * for the reason this note used to give. `TabBody` mounted only the **active**
+ * structured editor, so a config editor was never alive while this panel was on
+ * screen and re-read on its next mount — at the cost of destroying the unsaved
+ * edits in every backgrounded form, which is why the panes are now `v-show`n
+ * and kept. What carries the write across instead is `sectionData`'s
+ * `fileRevisions`: `putYamlSection` here bumps it and `useSectionEditor`
+ * reloads any *clean* form for the same file. A form the user has unsaved edits
+ * in is deliberately not reloaded — their buffer wins, and it would save a
+ * stale `config` back over these settings, which is the one case left. It is
+ * the lesser of the two, and the one that is visible on screen.
+ *
+ * `math-check` pins the property from the outside, so the arrangement is
+ * checked rather than reasoned about again.
  */
 import { computed, ref } from "vue";
 import { FilePlus2, Trash2 } from "@lucide/vue";

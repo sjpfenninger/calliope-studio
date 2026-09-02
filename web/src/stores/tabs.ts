@@ -69,6 +69,20 @@ export interface SectionTab extends TabCommon {
   section: string;
   filePath: string;
   editorMode: EditorMode;
+  /**
+   * Whether a structured editor has ever been shown for this tab.
+   *
+   * The same latch as `mounted`, for the same reason and one axis over. A
+   * structured editor holds the user's unsaved form state in nothing but
+   * component state, so the tab body used to `v-if` the *active* one and
+   * destroy the rest — switching tabs discarded the edits, and the remount on
+   * the way back re-read the saved section and marked the tab clean, so the
+   * dirty dot vanished with them.
+   *
+   * Separate from `mounted` because a section tab opened straight into the raw
+   * view has no business fetching a section for a form nobody has asked for.
+   */
+  structuredMounted: boolean;
   isDirty: boolean;
 }
 
@@ -78,6 +92,20 @@ export interface EntryTab extends TabCommon {
   filePath: string;
   entryName: string;
   editorMode: EditorMode;
+  /**
+   * Whether a structured editor has ever been shown for this tab.
+   *
+   * The same latch as `mounted`, for the same reason and one axis over. A
+   * structured editor holds the user's unsaved form state in nothing but
+   * component state, so the tab body used to `v-if` the *active* one and
+   * destroy the rest — switching tabs discarded the edits, and the remount on
+   * the way back re-read the saved section and marked the tab clean, so the
+   * dirty dot vanished with them.
+   *
+   * Separate from `mounted` because a section tab opened straight into the raw
+   * view has no business fetching a section for a form nobody has asked for.
+   */
+  structuredMounted: boolean;
   isDirty: boolean;
 }
 
@@ -189,6 +217,14 @@ export interface OpenOptions {
 const MAX_LIVE_RUN_PANES = 4;
 
 /**
+ * The same cap for structured editors, higher because they are cheaper.
+ *
+ * A run pane is a map plus several ECharts instances; a structured editor is a
+ * form, and only two of the seven carry a map.
+ */
+const MAX_LIVE_STRUCTURED_PANES = 8;
+
+/**
  * Markdown opens rendered.
  *
  * A README is written to be read; someone who wants the source can ask for it,
@@ -263,6 +299,33 @@ export const useTabsStore = defineStore("tabs", () => {
   const hasDirtyTabs = computed(() => ordered.value.some((tab) => tab.isDirty));
   const runTabs = computed(() =>
     ordered.value.filter((tab): tab is RunTab => tab.kind === "run"),
+  );
+  /**
+   * Every structured editor that must stay mounted: the front one, and any
+   * holding unsaved work.
+   *
+   * **Dirty is the whole rule.** A structured editor's edits live in component
+   * state and nowhere else, so unmounting one throws them away — and
+   * `useSectionEditor.load()` on the way back re-reads the saved section and
+   * calls `markClean`, taking the dirty dot with them. So a dirty pane is kept.
+   *
+   * A *clean* one is not, and that is deliberate rather than a compromise. It
+   * has nothing to lose, and keeping it would put a second copy of every
+   * editor's markup in the DOM permanently — two AG Grids, two MapLibre maps,
+   * two of every `data-testid` — for tabs nobody is looking at. Keeping only
+   * what is at risk means the common case is the single pane it always was.
+   *
+   * Not filtered on `editorMode`: toggling a dirty tab to the raw view and back
+   * must not destroy the form either, and the raw buffer is `v-show`n for
+   * exactly that reason.
+   */
+  const structuredTabs = computed(() =>
+    ordered.value.filter(
+      (tab): tab is SectionTab | EntryTab =>
+        (tab.kind === "section" || tab.kind === "entry") &&
+        tab.structuredMounted &&
+        (tab.id === activeId.value || tab.isDirty),
+    ),
   );
 
   /**
@@ -395,12 +458,19 @@ export const useTabsStore = defineStore("tabs", () => {
     const tab = openTabs.get(id);
     if (!tab) return;
     tab.mounted = true;
+    if (
+      (tab.kind === "section" || tab.kind === "entry") &&
+      tab.editorMode === "structured"
+    ) {
+      tab.structuredMounted = true;
+    }
     activeId.value = id;
 
     const at = recency.indexOf(id);
     if (at >= 0) recency.splice(at, 1);
     recency.push(id);
     dropStaleRunPanes();
+    dropStaleStructuredPanes();
 
     if (!replaying) history.value = visit(history.value, { tabId: id, anchor });
   }
@@ -421,6 +491,32 @@ export const useTabsStore = defineStore("tabs", () => {
     for (const id of liveRuns.slice(0, -MAX_LIVE_RUN_PANES)) {
       const tab = openTabs.get(id);
       if (tab && id !== activeId.value) tab.mounted = false;
+    }
+  }
+
+  /**
+   * Drops the latch on structured editors that are no longer worth keeping.
+   *
+   * `structuredTabs` already renders only the front pane and the dirty ones, so
+   * this is about the latch rather than the DOM: without it a tab fronted once,
+   * a hundred tabs ago, still counts as one to build a form for on sight. **A
+   * dirty one is never dropped** — its unsaved state lives only in the
+   * component, and discarding that silently is the bug the latch exists to
+   * prevent. Someone with more than the cap in unsaved edits keeps all of them.
+   */
+  function dropStaleStructuredPanes() {
+    const live = recency.filter((id) => {
+      const tab = openTabs.get(id);
+      return (
+        (tab?.kind === "section" || tab?.kind === "entry") && tab.structuredMounted
+      );
+    });
+    for (const id of live.slice(0, -MAX_LIVE_STRUCTURED_PANES)) {
+      const tab = openTabs.get(id);
+      if (!tab || id === activeId.value) continue;
+      if ((tab.kind === "section" || tab.kind === "entry") && !tab.isDirty) {
+        tab.structuredMounted = false;
+      }
     }
   }
 
@@ -500,6 +596,7 @@ export const useTabsStore = defineStore("tabs", () => {
         section,
         filePath,
         editorMode: "structured",
+        structuredMounted: false,
         isDirty: false,
         mounted: false,
       });
@@ -526,6 +623,7 @@ export const useTabsStore = defineStore("tabs", () => {
         filePath,
         entryName,
         editorMode: "structured",
+        structuredMounted: false,
         isDirty: false,
         mounted: false,
       });
@@ -690,6 +788,7 @@ export const useTabsStore = defineStore("tabs", () => {
     const tab = openTabs.get(id);
     if (tab && (tab.kind === "section" || tab.kind === "entry")) {
       tab.editorMode = mode;
+      if (mode === "structured") tab.structuredMounted = true;
     }
   }
 
@@ -865,6 +964,7 @@ export const useTabsStore = defineStore("tabs", () => {
     ordered,
     hasDirtyTabs,
     runTabs,
+    structuredTabs,
     versionId,
     jumpTarget,
     canGoBack,

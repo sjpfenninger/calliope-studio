@@ -29,7 +29,7 @@ import { type DataTableParam } from "@/lib/dataTableParams";
 import { collectInherited, techSetsKey } from "@/lib/inherited";
 import { useComponentTreeStore } from "@/stores/componentTree";
 import { useTemplatesStore } from "@/stores/templates";
-import { isTransmission, mergeIntoSection, type RawTech } from "@/lib/techs";
+import { mergeIntoSection, ownedNames, type RawTech } from "@/lib/techs";
 import {
   entryKey,
   rawToTech,
@@ -89,8 +89,14 @@ async function loadDataTableParams() {
 /** Keys the form has a field for, so they get no ghost parameter row. */
 const PROMOTED = ["template", "active", "base_tech"];
 
+/**
+ * Fixed when the section loads; see `ownedNames`. Extended by a save, because an
+ * entry this editor just wrote is one it owns whatever its `base_tech` now says.
+ */
+const owned = ref<Set<string>>(new Set());
+
 function ownedHere(name: string): boolean {
-  return !isTransmission(originalSection.value[name] ?? null, templatesData.value);
+  return owned.value.has(name);
 }
 
 function buildPayload(): Record<string, RawTech> {
@@ -114,8 +120,9 @@ const { isLoading, isSaving, error, saveError, save, markDirty } = useSectionEdi
     // from its template, so nothing can be classified without them.
     await loadTemplatesSection();
     originalSection.value = data as Record<string, RawTech>;
+    owned.value = ownedNames(originalSection.value, templatesData.value, "techs");
     entries.value = Object.entries(originalSection.value)
-      .filter(([, raw]) => !isTransmission(raw, templatesData.value))
+      .filter(([name]) => owned.value.has(name))
       .map(([name, raw]) => rawToTech(name, raw));
     await loadDataTableParams();
     // The provenance marker on each field links to the template or table that
@@ -126,7 +133,15 @@ const { isLoading, isSaving, error, saveError, save, markDirty } = useSectionEdi
   async after(written) {
     // The merged whole becomes the new baseline, or the next save would compute
     // its merge against the section as it was two saves ago.
-    if (written) originalSection.value = written as Record<string, RawTech>;
+    if (written) {
+      originalSection.value = written as Record<string, RawTech>;
+      // Everything on screen is ours, including a row whose `base_tech` the
+      // user just set to `transmission`. It moves to LinksEditor on a reload,
+      // not underneath the person still editing it.
+      for (const entry of entries.value) {
+        if (entry.name) owned.value.add(entry.name);
+      }
+    }
     // A tech added, removed or renamed changes the explorer, as it does for
     // nodes and links.
     await componentTreeStore.refresh(props.versionId);

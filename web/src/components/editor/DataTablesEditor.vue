@@ -29,6 +29,7 @@ import {
 import { FIELD_LABEL, GHOST_BUTTON, IDENTIFIER } from "@/lib/formClasses";
 import { cn } from "@/lib/utils";
 
+import { rowKey } from "@/lib/entries";
 import { resolveDataPath } from "@/lib/modelPaths";
 import { useCsvGrid } from "@/composables/useCsvGrid";
 import { useTabsStore } from "@/stores/tabs";
@@ -188,6 +189,10 @@ watch(csvDirty, (dirty) => {
 
 const formDirty = ref(false);
 
+/** Which keys each table had on load, so a null placeholder is not deleted. */
+const loadedKeys = ref<Record<string, Set<string>>>({});
+const EMPTY_KEYS: ReadonlySet<string> = new Set();
+
 function touchForm() {
   formDirty.value = true;
   markDirty();
@@ -197,10 +202,17 @@ function buildPayload(): Record<string, any> {
   const result: Record<string, any> = {};
   for (const e of entries.value) {
     if (!e.name) continue;
-    // Strip null values before saving; preserve everything else as-is.
+    // A null is dropped, because that is how this form says "not set" and the
+    // section must not gain an empty key from a field nobody filled in.
+    //
+    // Except where the file already had one. `add_dims:` written as a bare
+    // placeholder parses to null, and stripping it deleted the line — and its
+    // comment — out of a save that touched a different field entirely. A key
+    // that was there on load stays there.
+    const wasPresent = loadedKeys.value[e.name] ?? EMPTY_KEYS;
     const payload: Record<string, any> = {};
     for (const [k, v] of Object.entries(e.data)) {
-      if (v !== null && v !== undefined) payload[k] = v;
+      if ((v !== null && v !== undefined) || wasPresent.has(k)) payload[k] = v;
     }
     result[e.name] = payload;
   }
@@ -231,6 +243,12 @@ const { isLoading, isSaving, error, saveError, save, markDirty } = useSectionEdi
       name,
       data: raw ?? {},
     }));
+    loadedKeys.value = Object.fromEntries(
+      Object.entries(data).map(([name, raw]) => [
+        name,
+        new Set(Object.keys((raw as Record<string, unknown>) ?? {})),
+      ]),
+    );
     formDirty.value = false;
   },
   build: buildPayload,
@@ -341,7 +359,7 @@ onUnmounted(() => clearTimeout(reloadTimer));
             <DataTableFields
               :name="activeEntry.name"
               :data="activeEntry.data"
-              :form-key="filePath + ':dt:' + visibleEntries[0].index"
+              :form-key="filePath + ':dt:' + rowKey(activeEntry)"
               @update:name="onNameChange(visibleEntries[0].index, $event)"
               @update:data="onEntryDataChange(visibleEntries[0].index, $event)"
             />
@@ -396,7 +414,7 @@ onUnmounted(() => clearTimeout(reloadTimer));
           <DataTableFields
             :name="activeEntry.name"
             :data="activeEntry.data"
-            :form-key="filePath + ':dt:' + visibleEntries[0].index"
+            :form-key="filePath + ':dt:' + rowKey(activeEntry)"
             @update:name="onNameChange(visibleEntries[0].index, $event)"
             @update:data="onEntryDataChange(visibleEntries[0].index, $event)"
           />
@@ -410,13 +428,19 @@ onUnmounted(() => clearTimeout(reloadTimer));
       <div v-else class="min-h-0 flex-1 overflow-auto">
         <Accordion
           type="multiple"
-          :default-value="visibleEntries.map(({ index }) => String(index))"
+          :default-value="visibleEntries.map(({ entry }) => rowKey(entry))"
           class="px-2"
         >
+          <!-- Keyed by the table's own identity, never by its position.
+               `SchemaObjectEditor` keeps text and row drafts seeded once at
+               setup and says in its own docblock that it relies on the parent
+               remounting it; an index key defeats that, so deleting a table
+               handed the next one's data to a component still holding the
+               deleted one's drafts. -->
           <EntryAccordionRow
             v-for="{ entry, index } in visibleEntries"
-            :key="index"
-            :value="String(index)"
+            :key="rowKey(entry)"
+            :value="rowKey(entry)"
             :name="entry.name || '(unnamed)'"
             remove-label="Remove this table"
             testid="dt-entry"
@@ -425,7 +449,7 @@ onUnmounted(() => clearTimeout(reloadTimer));
               <DataTableFields
                 :name="entry.name"
                 :data="entry.data"
-                :form-key="filePath + ':dt:' + index"
+                :form-key="filePath + ':dt:' + rowKey(entry)"
                 @update:name="onNameChange(index, $event)"
                 @update:data="onEntryDataChange(index, $event)"
               />

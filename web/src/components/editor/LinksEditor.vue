@@ -43,7 +43,7 @@ import { useTabsStore } from "@/stores/tabs";
 import { useComponentTreeStore } from "@/stores/componentTree";
 import { useTemplatesStore } from "@/stores/templates";
 import { useUiStore } from "@/stores/ui";
-import { isTransmission, mergeIntoSection, type RawTech } from "@/lib/techs";
+import { mergeIntoSection, ownedNames, type RawTech } from "@/lib/techs";
 import {
   buildGeo,
   linksFromFeatures,
@@ -191,8 +191,11 @@ function linkColor(entry: LinkEntry): string | undefined {
     : undefined;
 }
 
+/** Fixed when the section loads; see `ownedNames`. The mirror of TechsEditor. */
+const ownedHere = ref<Set<string>>(new Set());
+
 function owned(name: string): boolean {
-  return isTransmission(originalSection.value[name] ?? null, templatesData.value);
+  return ownedHere.value.has(name);
 }
 
 /**
@@ -226,8 +229,9 @@ const { isLoading, isSaving, error, saveError, save, markDirty } = useSectionEdi
     // nothing can be classified as a link without them.
     await loadTemplates();
     originalSection.value = data as Record<string, RawTech>;
+    ownedHere.value = ownedNames(originalSection.value, templatesData.value, "links");
     entries.value = Object.entries(originalSection.value)
-      .filter(([, raw]) => isTransmission(raw, templatesData.value))
+      .filter(([name]) => ownedHere.value.has(name))
       .map(([name, raw]) => rawToLink(name, raw));
     // The provenance marker on each field links to the template or table that
     // supplies the value, and the tree is what says which file holds it.
@@ -237,7 +241,12 @@ const { isLoading, isSaving, error, saveError, save, markDirty } = useSectionEdi
   async after(written) {
     // The merged whole becomes the new baseline: TechsEditor owns the rest of
     // this section, and the next save has to merge against what was written.
-    if (written) originalSection.value = written as Record<string, RawTech>;
+    if (written) {
+      originalSection.value = written as Record<string, RawTech>;
+      for (const entry of entries.value) {
+        if (entry.name) ownedHere.value.add(entry.name);
+      }
+    }
     // Adding or removing a link changes the explorer and the map.
     await componentTreeStore.refresh(props.versionId);
     // A save can change what entries inherit, so the resolved templates the

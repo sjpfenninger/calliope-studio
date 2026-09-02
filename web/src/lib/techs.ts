@@ -32,6 +32,34 @@ export function isTransmission(
 
 
 /**
+ * The names one of the two editors owns, decided once when the section loads.
+ *
+ * Ownership must not be re-derived from what a save wrote, and that is the
+ * whole reason this exists as a snapshot rather than a predicate. `base_tech`
+ * is a field the techs form can *set*: choosing `transmission` for a technology
+ * and saving made the very next ownership question answer "no" for a row still
+ * on screen and still in `entries`, so `mergeIntoSection` passed the pre-edit
+ * original through and every later edit to that row was discarded — silently,
+ * with the tab marked clean each time.
+ *
+ * Reclassifying is a load-time act. A reload is where an entry moves from one
+ * editor to the other.
+ */
+export function ownedNames(
+  section: Record<string, RawTech>,
+  templates: Record<string, Record<string, any>>,
+  kind: "techs" | "links",
+): Set<string> {
+  const wantsLinks = kind === "links";
+  return new Set(
+    Object.keys(section).filter(
+      (name) => isTransmission(section[name] ?? null, templates) === wantsLinks,
+    ),
+  );
+}
+
+
+/**
  * Rebuilds a full `techs:` section from one editor's partial edits.
  *
  * Both editors show half the section and both save the whole file, so an editor

@@ -10,7 +10,7 @@
  * Both shapes have to be editable in place, because a model mixes them freely —
  * `flow_cap_max: 100` next to a `cost_flow_cap` indexed over cost classes.
  */
-import { ref } from "vue";
+import { ref, watch } from "vue";
 import { MinusCircle, Table2 } from "@lucide/vue";
 
 import TooltipButton from "@/components/app/TooltipButton.vue";
@@ -37,12 +37,6 @@ const scalarText = ref<string>(
   structured.value ? "" : props.modelValue != null ? String(props.modelValue) : "",
 );
 
-function valueToDataString(v: any): string {
-  if (v === null || v === undefined) return "";
-  if (Array.isArray(v)) return v.join(", ");
-  return String(v);
-}
-
 function valueToString(v: any): string {
   if (v === null || v === undefined) return "";
   if (Array.isArray(v)) return v.join(", ");
@@ -50,13 +44,49 @@ function valueToString(v: any): string {
 }
 
 const dataText = ref<string>(
-  structured.value ? valueToDataString(props.modelValue?.data) : "",
+  structured.value ? valueToString(props.modelValue?.data) : "",
 );
 const indexText = ref<string>(
   structured.value ? valueToString(props.modelValue?.index) : "",
 );
 const dimsText = ref<string>(
   structured.value ? valueToString(props.modelValue?.dims) : "",
+);
+
+/**
+ * Adopt a value that arrived from outside.
+ *
+ * The four fields were snapshotted at setup and never looked at the prop again,
+ * which is only safe if the instance is never reused for a different value.
+ * `ParamRows` now keys its rows by identity so that it is not — but a form can
+ * still be handed a fresh entry, and a reverted field still changes underneath
+ * this. The guard is the round trip: what this component last *emitted* comes
+ * straight back as `modelValue`, and re-deriving the text from it would
+ * normalise what the user is typing mid-keystroke ("1," becoming "1").
+ */
+function adopt(value: any): void {
+  structured.value = isStructuredValue(value);
+  if (structured.value) {
+    dataText.value = valueToString(value?.data);
+    indexText.value = valueToString(value?.index);
+    dimsText.value = valueToString(value?.dims);
+    scalarText.value = "";
+  } else {
+    scalarText.value = value != null ? String(value) : "";
+    dataText.value = "";
+    indexText.value = "";
+    dimsText.value = "";
+  }
+}
+
+let emitted: any = props.modelValue;
+
+watch(
+  () => props.modelValue,
+  (value) => {
+    if (value === emitted) return;
+    adopt(value);
+  },
 );
 
 function parseCommaSep(s: string): string | string[] | null {
@@ -70,18 +100,17 @@ function parseCommaSep(s: string): string | string[] | null {
 }
 
 function emitScalar() {
-  emit("update:modelValue", parseScalar(scalarText.value));
+  emitted = parseScalar(scalarText.value);
+  emit("update:modelValue", emitted);
 }
 
 function emitStructured() {
   const data = parseCommaSep(dataText.value);
   const index = parseCommaSep(indexText.value);
   const dims = parseCommaSep(dimsText.value);
-  if (data === null && index === null && dims === null) {
-    emit("update:modelValue", null);
-  } else {
-    emit("update:modelValue", { data, index, dims });
-  }
+  emitted =
+    data === null && index === null && dims === null ? null : { data, index, dims };
+  emit("update:modelValue", emitted);
 }
 
 function toggleMode() {

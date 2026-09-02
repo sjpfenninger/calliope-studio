@@ -21,6 +21,7 @@ from calliope_studio.server.deps import (
     get_workspace,
     require_file,
     resolve_path,
+    resolve_writable_path,
 )
 from calliope_studio.server.resolution import Resolver
 from calliope_studio.server.storage import Workspace
@@ -60,7 +61,7 @@ def put_section(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="data required."
         )
-    path = require_file(resolve_path(workspace, file_path))
+    path = require_file(resolve_writable_path(workspace, file_path))
     data = harmonise_coordinates(body.data) if section == "nodes" else body.data
     try:
         write_section(path, section, data)

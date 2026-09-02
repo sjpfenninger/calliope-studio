@@ -1,3 +1,6 @@
+# macOS Finder metadata
+.DS_Store
+
 # Byte-compiled files
 __pycache__
 *.pyc
@@ -34,14 +37,9 @@ node_modules/
 # everywhere except in a released wheel, where setuptools picks it up.
 src/calliope_studio/server/static/
 
-# Claude Code. The guardrails in settings.json are shared, so they are tracked;
-# everything else under .claude/ is personal. Spelled out here rather than left
-# to whatever a developer has in their global excludes file, which is where
-# these were hidden before and does not travel with a clone.
-#
-# The first line is load-bearing: a global `.claude` pattern excludes the
-# directory itself, and git will not descend into an excluded directory to
-# re-include a file inside it.
-!.claude/
-.claude/*
-!.claude/settings.json
+# Claude Code. Not shared, all of it: the sandbox policy in settings.json names
+# absolute paths on one machine — its allowRead, allowWrite and excludedCommands
+# lists — so it means nothing in a clone. settings.json was tracked until now,
+# with a `!.claude/` line to re-include it past the directory exclusion; with
+# the whole directory ignored there is nothing left for that trick to do.
+.claude/

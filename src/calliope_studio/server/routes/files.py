@@ -12,6 +12,7 @@ from calliope_studio.server.deps import (
     require_file,
     require_text,
     resolve_path,
+    resolve_writable_path,
 )
 from calliope_studio.server.storage import Workspace
 
@@ -145,7 +146,7 @@ def create_folder(
 def write_file(
     file_path: str, body: FileContent, workspace: Workspace = Depends(get_workspace)
 ) -> dict:
-    path = resolve_path(workspace, file_path)
+    path = resolve_writable_path(workspace, file_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     # `newline=""` writes the string's bytes untouched. Without it Python
     # translates every `\n` to `os.linesep`, which on Windows means *every save

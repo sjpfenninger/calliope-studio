@@ -569,3 +569,104 @@ class TestValidation:
         assert body["status"] == "running"
         assert body["task_id"]
         assert body["result"] is None
+
+
+class TestTheStaticFallback:
+    """The SPA route, which is the one place a path did not go through `safe_path`.
+
+    It only exists in a built wheel, so nothing in a source checkout exercised
+    it — and `STATIC_DIR / path` served whatever the join resolved to. uvicorn
+    percent-decodes and does not normalise dot segments, so a client that is not
+    a URL-normalising browser could read any file the server's user can.
+    """
+
+    @pytest.fixture
+    def served(self, tmp_path, national_scale, storage, monkeypatch):
+        from fastapi.testclient import TestClient
+
+        from calliope_studio.server import app as app_module
+
+        static = tmp_path / "static"
+        (static / "assets").mkdir(parents=True)
+        (static / "index.html").write_text("<!doctype html>SPA", encoding="utf-8")
+        (static / "favicon.ico").write_text("icon", encoding="utf-8")
+        (tmp_path / "secret.txt").write_text("not yours", encoding="utf-8")
+        monkeypatch.setattr(app_module, "STATIC_DIR", static)
+
+        application = app_module.create_app(workspace=national_scale, storage=storage)
+        with TestClient(application) as test_client:
+            yield test_client
+
+    def test_a_real_asset_is_served(self, served):
+        assert served.get("/favicon.ico").text == "icon"
+
+    def test_an_unknown_route_falls_back_to_the_index(self, served):
+        assert "SPA" in served.get("/models/anything").text
+
+    @pytest.mark.parametrize(
+        "path",
+        # Only the percent-encoded form reaches the route intact: httpx, like a
+        # browser, collapses a literal `..` before sending. That is exactly why
+        # the hole survived — the encoded spelling is the one an attacker uses,
+        # and it is the one that leaked the file.
+        ["/%2e%2e/secret.txt", "/static/%2e%2e/%2e%2e/secret.txt"],
+    )
+    def test_traversal_gets_the_index_rather_than_the_file(self, served, path):
+        response = served.get(path)
+        assert response.status_code == 200
+        assert "not yours" not in response.text
+        assert "SPA" in response.text
+
+    def test_the_assets_mount_refuses_traversal_too(self, served):
+        """Starlette's own guard, asserted so the two cannot diverge silently."""
+        response = served.get("/assets/%2e%2e/%2e%2e/secret.txt")
+        assert response.status_code != 200
+        assert "not yours" not in response.text
+
+
+class TestExcludedPathsAreNotWritable:
+    """A run's frozen snapshot is not editable, and neither is `.git/`.
+
+    `EXCLUDED_NAMES` kept these out of the file tree and out of the *create*
+    verbs, but `PUT` resolved through `resolve_path`, which does not apply it.
+    A client could therefore rewrite `calliope-studio/runs/{id}/snapshot/`, and
+    with it the claim that a run solves exactly what it says it solved.
+    """
+
+    @pytest.fixture
+    def snapshot(self, national_scale):
+        target = national_scale / "calliope-studio" / "runs" / "abc" / "snapshot"
+        target.mkdir(parents=True)
+        (target / "model.yaml").write_text("name: frozen\n", encoding="utf-8")
+        return target / "model.yaml"
+
+    def test_writing_a_snapshot_file_is_refused(self, client, ws, snapshot):
+        response = client.put(
+            f"/api/versions/{ws}/files/calliope-studio/runs/abc/snapshot/model.yaml",
+            json={"content": "# vandalised\n"},
+        )
+        assert response.status_code == 400
+        assert snapshot.read_text(encoding="utf-8") == "name: frozen\n"
+
+    def test_writing_a_snapshot_section_is_refused(self, client, ws, snapshot):
+        response = client.put(
+            f"/api/versions/{ws}/yaml-section/"
+            "calliope-studio/runs/abc/snapshot/model.yaml?section=name",
+            json={"data": {"whatever": 1}},
+        )
+        assert response.status_code == 400
+
+    def test_writing_into_dot_git_is_refused(self, client, ws, national_scale):
+        (national_scale / ".git" / "hooks").mkdir(parents=True)
+        response = client.put(
+            f"/api/versions/{ws}/files/.git/hooks/pre-commit",
+            json={"content": "#!/bin/sh\n"},
+        )
+        assert response.status_code == 400
+
+    def test_an_ordinary_file_is_still_writable(self, client, ws, national_scale):
+        response = client.put(
+            f"/api/versions/{ws}/files/model.yaml",
+            json={"content": (national_scale / "model.yaml").read_text()},
+        )
+        assert response.status_code == 200

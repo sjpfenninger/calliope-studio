@@ -12,6 +12,7 @@ from fastapi import FastAPI, HTTPException, status
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from calliope_studio.modeldef.paths import UnsafePath, safe_path
 from calliope_studio.results import store as results_store
 from calliope_studio.results.store import ResultStore
 from calliope_studio.runs import protocol
@@ -162,8 +163,18 @@ def _mount_frontend(app: FastAPI) -> None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="No such endpoint."
             )
-        candidate = STATIC_DIR / path
-        if path and candidate.is_file():
+        # Through `safe_path`, like every other request-supplied path in the
+        # app. This is the one route that joined a `{path:path}` straight onto a
+        # directory: uvicorn percent-decodes and does not normalise dot
+        # segments, so `GET /%2e%2e/%2e%2e/etc/passwd` from anything that is not
+        # a URL-normalising browser read arbitrary files as the server's user.
+        # An escape is a client-side route as far as we are concerned, so it
+        # falls through to `index.html` rather than erroring.
+        try:
+            candidate = safe_path(STATIC_DIR, path) if path else None
+        except UnsafePath:
+            candidate = None
+        if candidate is not None and candidate.is_file():
             return FileResponse(candidate)
         return FileResponse(index)
 

@@ -9,7 +9,7 @@ from pathlib import Path
 
 from fastapi import Depends, HTTPException, Request, status
 
-from calliope_studio.modeldef.paths import UnsafePath, safe_path
+from calliope_studio.modeldef.paths import UnsafePath, is_excluded, safe_path
 from calliope_studio.results.store import ResultStore
 from calliope_studio.runs.manager import RunManager
 from calliope_studio.server.resolution import Resolver
@@ -64,6 +64,30 @@ def resolve_within(base: Path, file_path: str) -> Path:
 def resolve_path(workspace: Workspace, file_path: str) -> Path:
     """Resolves a request path inside a workspace, rejecting traversal."""
     return resolve_within(workspace.path, file_path)
+
+
+def resolve_writable_path(workspace: Workspace, file_path: str) -> Path:
+    """Resolves a path a request may *write* to.
+
+    Traversal is not the only thing a write has to refuse. `EXCLUDED_NAMES` is
+    what keeps run outputs and `.git/` out of the editor's file tree, and
+    `files._check_creatable` already applies it — but only on the create verbs.
+    `PUT` went through `resolve_path`, which does not, so a client could write
+    over `calliope-studio/runs/{id}/snapshot/model.yaml` and with it the claim
+    that a run's definition is frozen at the moment it starts. `.git/hooks/*`
+    was reachable the same way.
+
+    Reads stay permissive: the tree hides these paths rather than forbidding
+    them, and the run routes serve a snapshot deliberately.
+    """
+    path = resolve_path(workspace, file_path)
+    root = Path(workspace.path).resolve()
+    if is_excluded(path.relative_to(root)):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="That path is not part of the model definition.",
+        )
+    return path
 
 
 def require_file(path: Path) -> Path:

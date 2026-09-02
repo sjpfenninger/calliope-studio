@@ -206,7 +206,7 @@ class TestTimeseriesMatch:
     def test_reductions_agree(self, both, variable, resample, sum_by):
         old, new = both
         if variable not in old.catalog().timeseries:
-            pytest.skip(f"{variable} not in this model")
+            pytest.skip(f"{variable} not in {old.name}")
 
         expected = old.timeseries_frame(
             variable, {}, resample=resample, sum_by=sum_by
@@ -267,7 +267,7 @@ class TestStaticMatch:
     def test_static_values_agree(self, both, variable):
         old, new = both
         if variable not in old.catalog().static:
-            pytest.skip(f"{variable} not in this model")
+            pytest.skip(f"{variable} not in {old.name}")
 
         frame = old.static_frame(variable, {}, drop_zeros=False)
         expected = frame.set_index([c for c in frame.columns if c != variable])[

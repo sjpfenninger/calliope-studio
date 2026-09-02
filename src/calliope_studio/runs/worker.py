@@ -398,7 +398,9 @@ def _execute(
         mathdoc.write(model, run_dir / protocol.MATH_FILE)
         # Beside the payload rather than inside it: the key describes the
         # rendering, and the payload is the answer the browser reads.
-        (run_dir / protocol.MATH_KEY_FILE).write_text(mathcache.fingerprint(model))
+        (run_dir / protocol.MATH_KEY_FILE).write_text(
+            mathcache.fingerprint(model), encoding="utf-8"
+        )
         stage("build", "done")
         outcome["status"] = "success"
         outcome["termination_condition"] = "not_solved"

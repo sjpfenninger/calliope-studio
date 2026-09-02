@@ -232,7 +232,7 @@ def _store(run_dir, workspace: Workspace, storage: LocalStorage, payload: dict) 
     payload to keep.
     """
     try:
-        key = (run_dir / protocol.MATH_KEY_FILE).read_text().strip()
+        key = (run_dir / protocol.MATH_KEY_FILE).read_text(encoding="utf-8").strip()
     except OSError:
         return
     if not key:
@@ -277,7 +277,7 @@ def _read_payload(runs: RunManager, task_id: str) -> dict | None:
 def _load(run_dir) -> dict | None:
     path = run_dir / protocol.MATH_FILE
     try:
-        payload = json.loads(path.read_text())
+        payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return None
     return payload if isinstance(payload, dict) else None

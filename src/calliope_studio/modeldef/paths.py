@@ -4,6 +4,8 @@ Every path that reaches the filesystem from a request goes through
 `safe_path`. There is no second line of defence.
 """
 
+import os
+import tempfile
 from pathlib import Path
 
 #: Names never shown in the file tree, matched against any path component.
@@ -32,6 +34,52 @@ EXCLUDED_NAMES: frozenset[str] = frozenset(
         "Thumbs.db",
     }
 )
+
+
+def _replace_atomically(path: Path, write: "object") -> None:
+    """Runs `write(fd)` into a sibling temporary file, then renames it over `path`.
+
+    Every writer of a user's model definition goes through this. `runs.protocol`
+    has its own copy for the run registry, with the reason that applies here
+    too: a file lost to a crash or a full disk part-way through a write is not
+    recoverable from anywhere, and until now the user's `techs.yaml` was
+    truncated and rewritten in place.
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
+    try:
+        write(fd)  # type: ignore[operator]
+        os.replace(tmp, path)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
+
+
+def write_text_atomic(path: Path, text: str) -> None:
+    """Replaces a text file atomically, as UTF-8, with newlines untranslated.
+
+    The encoding is explicit for the reason `deps.require_text` gives: without
+    it Python uses the locale default, so on a Western Windows box a save wrote
+    cp1252 bytes that the next read — which *does* say utf-8 — turned into
+    replacement characters, and the save after that wrote the replacements.
+    """
+
+    def write(fd: int) -> None:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as fh:
+            fh.write(text)
+
+    _replace_atomically(path, write)
+
+
+def write_bytes_atomic(path: Path, data: bytes) -> None:
+    """Replaces a binary file atomically. For writers that pin their own bytes."""
+
+    def write(fd: int) -> None:
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(data)
+
+    _replace_atomically(path, write)
 
 
 class UnsafePath(ValueError):

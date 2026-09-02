@@ -245,6 +245,21 @@ def workspace_id(path: Path) -> str:
     return hashlib.sha256(resolved.encode()).hexdigest()[:16]
 
 
+def _mtime_or_zero(directory: Path) -> float:
+    """The directory's mtime, or 0 if it has just gone.
+
+    These sorts run over a `glob` result, and pruning is not the only thing
+    touching the tree: two prunes racing, or a user's `DELETE /runs/{id}/`
+    landing between the glob and the sort, made `stat` raise `FileNotFoundError`
+    out of a request that was only tidying up. Something already gone sorts
+    oldest, which is also where it belongs.
+    """
+    try:
+        return directory.stat().st_mtime
+    except OSError:
+        return 0.0
+
+
 class LocalStorage:
     """Tracks opened workspaces in a registry file under the user state dir."""
 
@@ -259,7 +274,7 @@ class LocalStorage:
 
     def _read_registry(self) -> list[dict]:
         try:
-            raw = json.loads(self.registry_path.read_text())
+            raw = json.loads(self.registry_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             # A corrupt or missing registry is not worth failing over; the
             # workspaces themselves are the real data.
@@ -425,7 +440,7 @@ class LocalStorage:
         """
         marker = workspace.path / WORKSPACE_DATA_DIR / ".gitignore"
         if not marker.exists():
-            marker.write_text(GITIGNORE_CONTENTS)
+            marker.write_text(GITIGNORE_CONTENTS, encoding="utf-8")
 
     def _scratch_dir(self, kind: str) -> Path:
         """A scratch root in the system temp dir, created on first use.
@@ -491,7 +506,7 @@ class LocalStorage:
             for directory in root.glob("*/")
             if (directory / protocol.OUTCOME_FILE).is_file()
         ]
-        finished.sort(key=lambda directory: directory.stat().st_mtime, reverse=True)
+        finished.sort(key=_mtime_or_zero, reverse=True)
         for directory in finished[keep:]:
             shutil.rmtree(directory, ignore_errors=True)
 
@@ -542,7 +557,7 @@ class LocalStorage:
                 continue  # still running, or died without a verdict
             finished.append(directory)
 
-        finished.sort(key=lambda directory: directory.stat().st_mtime, reverse=True)
+        finished.sort(key=_mtime_or_zero, reverse=True)
         removed = []
         for directory in finished[keep:]:
             # The results cache may still hold this run's `.nc` open — a run tab

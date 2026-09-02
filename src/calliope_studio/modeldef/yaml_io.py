@@ -14,6 +14,7 @@ spellings are identical to every YAML parser, including Calliope's, and
 introduces.
 """
 
+import copy
 import io
 import math
 import re
@@ -23,6 +24,8 @@ from typing import Any
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap, CommentedSeq
 from ruamel.yaml.error import YAMLError
+
+from calliope_studio.modeldef.paths import write_text_atomic
 
 #: A block sequence item, capturing its indentation.
 _SEQUENCE_ITEM = re.compile(r"^(?P<indent>[ ]*)-[ \n]")
@@ -118,9 +121,23 @@ def from_plain(obj: Any) -> Any:
     return obj
 
 
+def _read(path: Path) -> str:
+    """Reads a YAML file as UTF-8.
+
+    Explicit, everywhere. `read_text` with no encoding uses the locale default,
+    so on a Western Windows box a file holding `µ` or a CJK comment opened
+    through `deps.require_text` (which does say utf-8) and then saved back as
+    cp1252 — or raised `UnicodeEncodeError` and 500ed. The next open decoded
+    those bytes as replacement characters, and the save after that wrote the
+    replacements. Silent corruption of a model file, on a platform the suite
+    runs on.
+    """
+    return Path(path).read_text(encoding="utf-8")
+
+
 def load(path: Path) -> Any:
     """Loads a YAML document in round-trip mode, preserving formatting."""
-    return _round_trip_yaml().load(Path(path).read_text())
+    return _round_trip_yaml().load(_read(path))
 
 
 def read_section(path: Path, section: str) -> Any:
@@ -135,7 +152,72 @@ def read_section(path: Path, section: str) -> Any:
     return to_plain(document[section])
 
 
-def _merge(existing: Any, new: Any) -> Any:
+def _same(left: Any, right: Any) -> bool:
+    """Structural equality that does not conflate `True` with `1`, or `1` with `1.0`.
+
+    `True == 1` in Python, so a plain `==` would call a `true` turned into a `1`
+    an unchanged value and leave the file saying the opposite of what the user
+    asked for. `40 == 40.0` the same way, and there the *type* is what Calliope
+    checks. Mappings compare without regard to key order, because the merge below
+    keeps the file's order deliberately and a reordered payload is not an edit to
+    anything.
+    """
+    if isinstance(left, bool) != isinstance(right, bool):
+        return False
+    # `40` and `40.0` are equal numbers and different YAML, and the difference is
+    # load-bearing: Calliope requires a node's latitude and longitude to have
+    # *matching* types, so `entities.harmonise_coordinates` turns an integer
+    # longitude into a float on the way in. Calling the two the same value would
+    # quietly undo that and put the model back in the state that stopped it
+    # loading — `test_a_dragged_node_still_loads` is what catches it.
+    if isinstance(left, int) != isinstance(right, int):
+        return False
+    if isinstance(left, dict) and isinstance(right, dict):
+        return len(left) == len(right) and all(
+            key in right and _same(value, right[key]) for key, value in left.items()
+        )
+    if isinstance(left, list) and isinstance(right, list):
+        return len(left) == len(right) and all(
+            _same(one, other) for one, other in zip(left, right)
+        )
+    if isinstance(left, dict | list) or isinstance(right, dict | list):
+        return False
+    return left == right
+
+
+def _aliased(obj: Any, counts: dict[int, int] | None = None) -> set[int]:
+    """The ids of containers a document reaches more than once.
+
+    Two keys sharing a YAML anchor are the *same* `CommentedMap`, so merging
+    into one of them mutates both — the user edits one technology and two
+    change, and `to_plain` flattens the alias on the way out so nothing
+    upstream can tell. Knowing which nodes are shared is what lets the merge
+    give one of them a private copy instead.
+    """
+    counts = {} if counts is None else counts
+    if isinstance(obj, CommentedMap | CommentedSeq):
+        counts[id(obj)] = counts.get(id(obj), 0) + 1
+        if counts[id(obj)] == 1:
+            children = obj.values() if isinstance(obj, CommentedMap) else obj
+            for child in children:
+                _aliased(child, counts)
+    return {key for key, count in counts.items() if count > 1}
+
+
+def _detached(container: Any) -> Any:
+    """A private copy of a container that was reached through an alias.
+
+    The anchor goes with the original. Keeping it on the copy would emit the
+    same anchor name twice, which is valid YAML that means something else.
+    """
+    clone = copy.deepcopy(container)
+    clone.yaml_set_anchor(None)
+    return clone
+
+
+def _merge(
+    existing: Any, new: Any, aliased: frozenset[int] | set[int] = frozenset()
+) -> Any:
     """Applies `new` onto `existing` in place, disturbing as little as possible.
 
     Assigning the frontend's plain data straight over a section would discard
@@ -143,24 +225,49 @@ def _merge(existing: Any, new: Any) -> Any:
     preferred style rather than the user's. Merging key by key means an edit to
     one field leaves its neighbours — and their comments — exactly as they were.
     """
+    if isinstance(existing, CommentedMap | CommentedSeq):
+        # An untouched subtree is handed back whole, never walked. That is what
+        # keeps a YAML anchor intact across a save that did not touch it, and
+        # it is also why a spelling-only difference costs nothing: `1e6` and
+        # `1000000.0` compare equal, so the node is never reassigned.
+        if _same(to_plain(existing), to_plain(new)):
+            return existing
+        if id(existing) in aliased:
+            existing = _detached(existing)
+
     if isinstance(existing, CommentedMap) and isinstance(new, dict):
         for key in [key for key in existing if key not in new]:
             del existing[key]
         for key, value in new.items():
-            existing[key] = _merge(existing[key], value) if key in existing else value
+            existing[key] = (
+                _merge(existing[key], value, aliased) if key in existing else value
+            )
         return existing
 
     if isinstance(existing, CommentedSeq) and isinstance(new, list):
-        if len(existing) == len(new):
-            for index, value in enumerate(new):
-                existing[index] = _merge(existing[index], value)
-            return existing
-        return new
+        # Item by item over the common prefix, then extend or truncate.
+        # Replacing the whole sequence whenever the lengths differed dropped
+        # every comment on the items already there — and adding one item to a
+        # list is the ordinary case for an editor, not an exotic one.
+        for index in range(min(len(existing), len(new))):
+            existing[index] = _merge(existing[index], new[index], aliased)
+        while len(existing) > len(new):
+            del existing[len(existing) - 1]
+        for value in new[len(existing) :]:
+            existing.append(value)
+        return existing
 
     # Kept for a client that still sends the old shape: `to_plain` used to map a
     # non-finite float to None, and a field the user never touched would then
     # come back as None and silently bound an unbounded parameter.
     if new is None and isinstance(existing, float) and not math.isfinite(existing):
+        return existing
+
+    # A scalar that survived the JSON hop is no longer ruamel's object, so
+    # assigning it back rewrites the user's spelling: `bigM: 1e6` became
+    # `1000000.0`, `0.10` became `0.1` and `0xFF` became `255`, in entries
+    # nobody had touched. Same guard as `routes/overrides.py::_unchanged`.
+    if _same(existing, new):
         return existing
 
     return new
@@ -172,19 +279,18 @@ def write_section(path: Path, section: str, data: Any) -> None:
     Raises:
         SectionNotFound: If the document is empty or lacks the section.
     """
-    text = Path(path).read_text()
+    text = _read(path)
     yaml = _round_trip_yaml(text)
     document = yaml.load(text)
     if document is None or section not in document:
         raise SectionNotFound(section)
 
-    document[section] = _merge(document[section], from_plain(data))
+    document[section] = _merge(
+        document[section], from_plain(data), _aliased(document[section])
+    )
     buffer = io.StringIO()
     yaml.dump(document, buffer)
-    # `newline=""`: ruamel has already produced exactly the bytes intended, and
-    # letting Python translate them would rewrite every line ending in the file
-    # on Windows — see `routes/files.py`, which does the same for the raw editor.
-    path.write_text(buffer.getvalue(), newline="")
+    write_text_atomic(path, buffer.getvalue())
 
 
 def syntax_errors(path: Path, relative: str) -> list[dict]:
@@ -194,8 +300,7 @@ def syntax_errors(path: Path, relative: str) -> list[dict]:
         A list with at most one error, shaped for the frontend's problem list.
     """
     try:
-        with open(path) as fh:
-            YAML().load(fh)
+        YAML().load(_read(path))
     except YAMLError as exc:
         mark = getattr(exc, "problem_mark", None)
         return [
@@ -207,7 +312,10 @@ def syntax_errors(path: Path, relative: str) -> list[dict]:
                 "severity": "error",
             }
         ]
-    except OSError as exc:
+    except (OSError, ValueError) as exc:
+        # `ValueError` is `UnicodeDecodeError`: a file with one stray non-UTF-8
+        # byte is a file somebody is part-way through editing, and it must be
+        # reported as a problem in that file rather than raised at whoever asked.
         return [
             {
                 "file": relative,
@@ -228,6 +336,12 @@ def load_quietly(path: Path) -> Any:
     because one file is mid-edit and temporarily invalid.
     """
     try:
-        return _round_trip_yaml().load(Path(path).read_text())
-    except (YAMLError, OSError):
+        return _round_trip_yaml().load(_read(path))
+    except (YAMLError, OSError, ValueError):
+        # `ValueError` covers `UnicodeDecodeError`, which is neither of the
+        # other two and so used to escape a function documented as returning
+        # None on *any* failure. One non-UTF-8 byte anywhere in a workspace
+        # therefore 500ed the component tree, the import graph, `/geo/`,
+        # `/schema/files/`, snapshotting, resolution and validation at once,
+        # with nothing anywhere naming the file.
         return None

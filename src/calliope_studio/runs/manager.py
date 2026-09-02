@@ -384,7 +384,12 @@ class RunManager:
         # Closed as soon as the child has inherited it: the parent has no use for
         # the handle, and holding one open per run leaks a descriptor for the
         # lifetime of the server.
-        with open(run_dir / protocol.LOG_FILE, "w") as log_file:
+        # `errors="replace"`: this is a solver's own output, and a solver is
+        # free to emit whatever bytes it likes. Losing the log to a decode
+        # error would take the one complete record of the run with it.
+        with open(
+            run_dir / protocol.LOG_FILE, "w", encoding="utf-8", errors="replace"
+        ) as log_file:
             try:
                 # Its own killable group, so cancelling kills the solver too
                 # rather than leaving it orphaned and still burning CPU. How a

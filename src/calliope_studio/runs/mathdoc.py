@@ -218,7 +218,7 @@ def write(model: Any, destination: Path) -> None:
     here, loudly, instead of silently downstream.
     """
     payload = json.dumps(render(model), indent=2, default=str, allow_nan=False)
-    Path(destination).write_text(payload)
+    Path(destination).write_text(payload, encoding="utf-8")
 
 
 def _component(

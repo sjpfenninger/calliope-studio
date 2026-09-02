@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { reactive, computed, onMounted, watch } from "vue";
+import { reactive, computed, onMounted, ref, watch } from "vue";
 import StateMessage from "@/components/app/StateMessage.vue";
 
 import { useSectionEditor } from "@/composables/useSectionEditor";
@@ -124,6 +124,9 @@ const solveOverlay = computed<FieldOverlay>(() => ({
 // Load / save
 // ---------------------------------------------------------------------------
 
+/** Which of the three config sections the file actually declared. */
+const loadedSections = ref<Set<string>>(new Set());
+
 function buildPayload() {
   const init = { ...configData.init };
   // Written back where Calliope 0.7 reads it. This used to write `time_subset`,
@@ -132,7 +135,23 @@ function buildPayload() {
   // a key Calliope does not accept. `apply` has already folded it the other way.
   delete init.time_subset;
 
-  return { init, build: { ...configData.build }, solve: { ...configData.solve } };
+  // A section the file did not have and the form did not fill in is left out.
+  // Emitting all three unconditionally meant a model declaring only
+  // `config.init` gained `build: {}` and `solve: {}` from a save that changed
+  // nothing else — the no-op-save invariant, broken by the editor rather than
+  // by the YAML layer. `config-check` did not catch it because Calliope's own
+  // example models declare all three.
+  const payload: Record<string, unknown> = {};
+  for (const [name, values] of [
+    ["init", init],
+    ["build", { ...configData.build }],
+    ["solve", { ...configData.solve }],
+  ] as const) {
+    if (loadedSections.value.has(name) || Object.keys(values).length > 0) {
+      payload[name] = values;
+    }
+  }
+  return payload;
 }
 
 const { isLoading, isSaving, error, saveError, save, markDirty } = useSectionEditor({
@@ -153,6 +172,9 @@ const { isLoading, isSaving, error, saveError, save, markDirty } = useSectionEdi
     configData.init = init;
     configData.build = data.build ?? {};
     configData.solve = data.solve ?? {};
+    loadedSections.value = new Set(
+      (["init", "build", "solve"] as const).filter((name) => name in data),
+    );
   },
   build: buildPayload,
 });

@@ -161,7 +161,7 @@ class RunRequest:
         field is renamed or removed, every existing run raises `TypeError` during
         discovery and the user's entire history disappears.
         """
-        raw = json.loads((run_dir / REQUEST_FILE).read_text())
+        raw = json.loads((run_dir / REQUEST_FILE).read_text(encoding="utf-8"))
         known = {field_.name for field_ in dataclasses.fields(cls)}
         return cls(**{key: value for key, value in raw.items() if key in known})
 
@@ -176,7 +176,7 @@ def append_event(run_dir: Path, event: dict) -> None:
     """Appends one event, flushed, so a reader tailing the file sees it promptly."""
     line = json.dumps(event, default=str) + "\n"
     with _APPEND_LOCK:
-        with open(run_dir / EVENTS_FILE, "a") as fh:
+        with open(run_dir / EVENTS_FILE, "a", encoding="utf-8") as fh:
             fh.write(line)
             fh.flush()
 
@@ -229,7 +229,7 @@ def _read_json(path: Path) -> dict[str, Any] | None:
     listing that every other run appears in.
     """
     try:
-        loaded = json.loads(path.read_text())
+        loaded = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return None
     return loaded if isinstance(loaded, dict) else None
@@ -272,7 +272,7 @@ def write_json_atomic(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
     try:
-        with os.fdopen(fd, "w") as fh:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
             json.dump(payload, fh, indent=2, default=str)
         _replace_retrying(tmp, path)
     except BaseException:
@@ -286,7 +286,9 @@ def read_outcome(run_dir: Path) -> dict[str, Any] | None:
 
 
 def write_outcome(run_dir: Path, outcome: dict) -> None:
-    (run_dir / OUTCOME_FILE).write_text(json.dumps(outcome, indent=2, default=str))
+    (run_dir / OUTCOME_FILE).write_text(
+        json.dumps(outcome, indent=2, default=str), encoding="utf-8"
+    )
 
 
 def read_snapshot_manifest(run_dir: Path) -> dict[str, Any] | None:
@@ -295,7 +297,9 @@ def read_snapshot_manifest(run_dir: Path) -> dict[str, Any] | None:
 
 
 def write_snapshot_manifest(run_dir: Path, manifest: dict) -> None:
-    (run_dir / SNAPSHOT_FILE).write_text(json.dumps(manifest, indent=2, default=str))
+    (run_dir / SNAPSHOT_FILE).write_text(
+        json.dumps(manifest, indent=2, default=str), encoding="utf-8"
+    )
 
 
 def read_meta(run_dir: Path) -> dict[str, Any]:
@@ -321,12 +325,12 @@ def is_cancelled(run_dir: Path) -> bool:
 
 
 def write_pid(run_dir: Path, pid: int) -> None:
-    (run_dir / PID_FILE).write_text(str(pid))
+    (run_dir / PID_FILE).write_text(str(pid), encoding="utf-8")
 
 
 def read_pid(run_dir: Path) -> int | None:
     """The worker's pid, or None if it was never recorded or is unreadable."""
     try:
-        return int((run_dir / PID_FILE).read_text().strip())
+        return int((run_dir / PID_FILE).read_text(encoding="utf-8").strip())
     except (OSError, ValueError):
         return None

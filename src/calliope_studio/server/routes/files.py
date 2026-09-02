@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from calliope_studio.modeldef.paths import is_excluded, walk_files
+from calliope_studio.modeldef.paths import is_excluded, walk_files, write_text_atomic
 from calliope_studio.server.deps import (
     get_workspace,
     require_file,
@@ -147,15 +147,19 @@ def write_file(
     file_path: str, body: FileContent, workspace: Workspace = Depends(get_workspace)
 ) -> dict:
     path = resolve_writable_path(workspace, file_path)
-    path.parent.mkdir(parents=True, exist_ok=True)
+    # Through `yaml_io._write`, which is UTF-8, `newline=""` and atomic.
+    #
     # `newline=""` writes the string's bytes untouched. Without it Python
     # translates every `\n` to `os.linesep`, which on Windows means *every save
     # rewrites the whole file* with CRLF — while `require_text` reads through
     # `read_bytes().decode()` and so returns exactly what is on disk. The two
     # were asymmetric, which breaks the property the editors live by: a no-op
-    # save must not change the file.
+    # save must not change the file. Not `newline="\n"` either: the requirement
+    # is to preserve what the user's file already had, including one that is
+    # legitimately CRLF throughout.
     #
-    # Not `newline="\n"` either. The requirement is to preserve what the user's
-    # file already had, including one that is legitimately CRLF throughout.
-    path.write_text(body.content, newline="")
+    # UTF-8 for the same reason `require_text` reads that way — the two halves of
+    # one round trip cannot use different codecs — and atomic because this is the
+    # user's model definition and there is no backup of it anywhere.
+    write_text_atomic(path, body.content)
     return {"ok": True}

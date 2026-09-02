@@ -5,6 +5,7 @@ rest of the file exactly as the user wrote it. These are the tests that hold
 that promise, so they are deliberately strict: byte comparison, not semantic.
 """
 
+import json
 import math
 from pathlib import Path
 
@@ -191,3 +192,252 @@ class TestGoldenCorpus:
             assert not line.rstrip().endswith("=="), (
                 f"expression was wrapped mid-operator: {line!r}"
             )
+
+
+def _over_the_wire(path: Path, section: str):
+    """A section as the frontend sends it back: through JSON and no further.
+
+    The pure-Python round trip these tests otherwise use hands ruamel its own
+    objects back, so it cannot see the class of damage that only appears once a
+    value has been a JSON number. Every structured editor makes this hop.
+    """
+    return json.loads(json.dumps(read_section(path, section)))
+
+
+class TestSpellingSurvivesTheWire:
+    """A no-op save must not renormalise numbers the user never touched.
+
+    `_merge` ended `return new` for every scalar, so a value that had been
+    through JSON was no longer ruamel's `ScalarFloat`/`ScalarInt` and was
+    re-emitted in the emitter's preferred style. Every one of these was verified
+    against Calliope's own example models: `bigM: 1e6` became `1000000.0`, and
+    `0.10`, `25.00` and `0xFF` all lost their spelling — in entries nobody had
+    opened, let alone edited.
+    """
+
+    SPELLINGS = """\
+config:
+  build:
+    bigM: 1e6
+techs:
+  ccgt:
+    lifetime: 25.00
+    area_use_max: 0xFF
+    interest: 0.10
+    exponent: 1.5e-3
+    enabled: true
+    flow_cap_max: .inf
+"""
+
+    @pytest.fixture
+    def spellings(self, tmp_path: Path) -> Path:
+        path = tmp_path / "spellings.yaml"
+        path.write_text(self.SPELLINGS, encoding="utf-8")
+        return path
+
+    @pytest.mark.parametrize("section", ["config", "techs"])
+    def test_a_no_op_save_is_byte_identical(self, spellings, section):
+        write_section(spellings, section, _over_the_wire(spellings, section))
+        assert spellings.read_text(encoding="utf-8") == self.SPELLINGS
+
+    def test_editing_one_key_leaves_the_others_spelled_as_written(self, spellings):
+        data = _over_the_wire(spellings, "techs")
+        data["ccgt"]["lifetime"] = 30
+        write_section(spellings, "techs", data)
+
+        text = spellings.read_text(encoding="utf-8")
+        assert "lifetime: 30" in text
+        assert "area_use_max: 0xFF" in text
+        assert "interest: 0.10" in text
+        assert "exponent: 1.5e-3" in text
+
+    def test_a_boolean_turned_into_a_number_is_still_an_edit(self, spellings):
+        """`True == 1` in Python, so a plain equality check would skip this."""
+        data = _over_the_wire(spellings, "techs")
+        data["ccgt"]["enabled"] = 1
+        write_section(spellings, "techs", data)
+        assert "enabled: 1" in spellings.read_text(encoding="utf-8")
+
+    @pytest.mark.parametrize("model", ["national_scale", "urban_scale"])
+    def test_the_golden_corpus_survives_the_wire(self, model, request):
+        """The same corpus check as above, with the JSON hop the editors make.
+
+        `national_scale/model.yaml` and `urban_scale/model.yaml` both fail this
+        without the guard: each carries a `bigM: 1e6` and a `0.10`.
+        """
+        model_dir = request.getfixturevalue(model)
+        for path, section in _each_section(model_dir):
+            # Measured from an already-settled file, per `assert_faithful_rewrite`:
+            # a bare ruamel load/dump normalises flow-mapping padding whatever the
+            # merge does, and that is not what is under test here.
+            write_section(path, section, read_section(path, section))
+            settled = path.read_text(encoding="utf-8")
+
+            write_section(path, section, _over_the_wire(path, section))
+            assert path.read_text(encoding="utf-8") == settled, (
+                f"'{section}' in {path.name} was rewritten by a no-op save"
+            )
+
+
+class TestAnchors:
+    """Two keys sharing an anchor are one object, and merging into it hits both.
+
+    `_merge` recursed into the container it found, so editing `ccgt2` below
+    changed `ccgt` as well — the user edits one technology and two change, and
+    `to_plain` flattens the alias on the way out so nothing upstream can tell.
+    Same failure class as `mergeIntoSection` deleting half a model.
+    """
+
+    ANCHORED = """\
+techs:
+  ccgt: &common
+    base_tech: supply   # a comment
+    flow_cap_max: .inf
+  ccgt2: *common
+  chp:
+    base_tech: conversion
+"""
+
+    @pytest.fixture
+    def anchored(self, tmp_path: Path) -> Path:
+        path = tmp_path / "anchored.yaml"
+        path.write_text(self.ANCHORED, encoding="utf-8")
+        return path
+
+    def test_a_no_op_save_keeps_the_alias(self, anchored):
+        write_section(anchored, "techs", _over_the_wire(anchored, "techs"))
+        assert anchored.read_text(encoding="utf-8") == self.ANCHORED
+
+    def test_editing_one_end_leaves_the_other_alone(self, anchored):
+        data = _over_the_wire(anchored, "techs")
+        data["ccgt2"]["base_tech"] = "conversion"
+        write_section(anchored, "techs", data)
+
+        after = read_section(anchored, "techs")
+        assert after["ccgt2"]["base_tech"] == "conversion"
+        assert after["ccgt"]["base_tech"] == "supply"
+        assert after["ccgt2"]["flow_cap_max"] == ".inf"
+
+    def test_editing_the_anchor_holder_leaves_the_alias_alone(self, anchored):
+        data = _over_the_wire(anchored, "techs")
+        data["ccgt"]["base_tech"] = "conversion"
+        write_section(anchored, "techs", data)
+
+        after = read_section(anchored, "techs")
+        assert after["ccgt"]["base_tech"] == "conversion"
+        assert after["ccgt2"]["base_tech"] == "supply"
+
+    def test_an_unrelated_edit_does_not_touch_either(self, anchored):
+        data = _over_the_wire(anchored, "techs")
+        data["chp"]["base_tech"] = "storage"
+        write_section(anchored, "techs", data)
+
+        after = read_section(anchored, "techs")
+        assert after["ccgt"] == after["ccgt2"]
+        assert "*common" in anchored.read_text(encoding="utf-8")
+
+
+class TestSequences:
+    """A list whose length changed used to be replaced wholesale.
+
+    `_merge` returned the plain list when the lengths differed, so adding one
+    carrier to a technology deleted the comments on the carriers already there.
+    Adding an item to a list is the ordinary case for an editor.
+    """
+
+    LISTS = """\
+techs:
+  boiler:
+    carrier_in:
+      - power     # the main one
+      - heat      # secondary
+"""
+
+    @pytest.fixture
+    def lists(self, tmp_path: Path) -> Path:
+        path = tmp_path / "lists.yaml"
+        path.write_text(self.LISTS, encoding="utf-8")
+        return path
+
+    def test_appending_keeps_the_existing_comments(self, lists):
+        data = _over_the_wire(lists, "techs")
+        data["boiler"]["carrier_in"].append("gas")
+        write_section(lists, "techs", data)
+
+        text = lists.read_text(encoding="utf-8")
+        assert "# the main one" in text
+        assert "# secondary" in text
+        assert "- gas" in text
+
+    def test_truncating_keeps_the_comments_on_what_is_left(self, lists):
+        data = _over_the_wire(lists, "techs")
+        data["boiler"]["carrier_in"] = ["power"]
+        write_section(lists, "techs", data)
+
+        text = lists.read_text(encoding="utf-8")
+        assert "# the main one" in text
+        assert "heat" not in text
+
+
+class TestEncoding:
+    """Every read and write is UTF-8, explicitly.
+
+    There was no `encoding=` anywhere in `src/`, so both halves used the locale
+    codec while `deps.require_text` — the editor's own read — said UTF-8. On a
+    Western Windows box a save wrote cp1252 bytes, the next open decoded them as
+    replacement characters, and the save after that wrote the replacements.
+    """
+
+    def test_non_ascii_content_survives_a_no_op_save(self, tmp_path: Path):
+        path = tmp_path / "accents.yaml"
+        original = "techs:\n  boiler:\n    name: Wärmepumpe  # größer, 常用\n"
+        path.write_text(original, encoding="utf-8")
+        write_section(path, "techs", _over_the_wire(path, "techs"))
+        assert path.read_text(encoding="utf-8") == original
+
+    def test_a_non_utf8_file_is_reported_rather_than_raised(self, tmp_path: Path):
+        """`load_quietly` promises None on *any* failure, and a decode failure is
+        a `ValueError` rather than an `OSError`, so it escaped — and one stray
+        Latin-1 byte anywhere in a workspace 500ed the component tree, the
+        import graph, `/geo/`, snapshotting, resolution and validation at once.
+        """
+        from calliope_studio.modeldef.yaml_io import load_quietly, syntax_errors
+
+        path = tmp_path / "latin1.yaml"
+        path.write_bytes("name: caf\xe9\n".encode("latin-1"))
+
+        assert load_quietly(path) is None
+        problems = syntax_errors(path, "latin1.yaml")
+        assert len(problems) == 1
+        assert problems[0]["file"] == "latin1.yaml"
+        assert "utf-8" in problems[0]["message"]
+
+
+class TestAtomicWrites:
+    """A model definition is never truncated in place.
+
+    `runs.protocol` writes the run registry atomically because "a registry lost
+    to a half-written file is every model the user has ever opened". The user's
+    own `techs.yaml` was written with a plain `write_text`.
+    """
+
+    def test_a_save_leaves_no_temporary_file_behind(self, sample_file):
+        write_section(sample_file, "techs", read_section(sample_file, "techs"))
+        assert list(sample_file.parent.glob("*.tmp")) == []
+
+    def test_a_failed_write_leaves_the_original_intact(self, sample_file):
+        import os
+
+        from calliope_studio.modeldef import paths as paths_module
+
+        original = sample_file.read_text(encoding="utf-8")
+
+        def explode(fd: int) -> None:
+            os.close(fd)
+            raise OSError("no space left on device")
+
+        with pytest.raises(OSError):
+            paths_module._replace_atomically(sample_file, explode)
+
+        assert sample_file.read_text(encoding="utf-8") == original
+        assert list(sample_file.parent.glob("*.tmp")) == []

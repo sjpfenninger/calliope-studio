@@ -4,7 +4,9 @@ Every path that reaches the filesystem from a request goes through
 `safe_path`. There is no second line of defence.
 """
 
+import hashlib
 import os
+import shutil
 import tempfile
 from pathlib import Path
 
@@ -50,10 +52,47 @@ def _replace_atomically(path: Path, write: "object") -> None:
     fd, tmp = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
     try:
         write(fd)  # type: ignore[operator]
+        _copy_mode(path, tmp)
         os.replace(tmp, path)
     except BaseException:
         Path(tmp).unlink(missing_ok=True)
         raise
+
+
+def _copy_mode(original: Path, tmp: str) -> None:
+    """Gives the replacement the permission bits the original had.
+
+    `mkstemp` creates its file 0600, and `os.replace` keeps the temporary's
+    inode — so the first save through the app turned a 0644 `techs.yaml` into
+    one nobody else on the machine could read, and every save after kept it
+    that way. A file being created fresh gets what `open` would have given it.
+    """
+    try:
+        shutil.copymode(original, tmp)
+    except OSError:
+        umask = os.umask(0)
+        os.umask(umask)
+        os.chmod(tmp, 0o666 & ~umask)
+
+
+def content_revision(path: Path) -> str | None:
+    """A short digest of a file's bytes, for a write to name what it was based on.
+
+    This is the precondition every write route checks. A read hands it to the
+    client; a save carries it back; if the file on disk has changed in between —
+    another tab, another browser, an editor outside the app — the save is refused
+    rather than silently reverting whatever landed in the meantime. Content
+    rather than mtime, because an mtime has one-second resolution on some
+    filesystems and survives a copy unchanged.
+
+    Returns:
+        The digest, or None if there is no file to digest.
+    """
+    try:
+        data = Path(path).read_bytes()
+    except OSError:
+        return None
+    return hashlib.sha256(data).hexdigest()[:16]
 
 
 def write_text_atomic(path: Path, text: str) -> None:

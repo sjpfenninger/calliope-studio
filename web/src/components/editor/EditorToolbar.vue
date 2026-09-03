@@ -40,7 +40,7 @@ import InfoTip from "@/components/app/InfoTip.vue";
 import PanelHeader from "@/components/app/PanelHeader.vue";
 
 import { shortenPath } from "@/lib/format";
-import { PRIMARY_BUTTON } from "@/lib/formClasses";
+import { PRIMARY_BUTTON, TEXT_BUTTON_SM } from "@/lib/formClasses";
 import { ICON_STROKE_WIDTH_TIGHT } from "@/lib/icons";
 
 defineProps<{
@@ -48,10 +48,15 @@ defineProps<{
   disabled?: boolean;
   /** Why the last save failed, if it did. */
   error?: string | null;
+  /**
+   * The failure was a stale baseline: the file changed on disk after it was
+   * loaded here. Offers the one remedy, which is to reload and lose the edits.
+   */
+  conflict?: boolean;
   /** The file this editor reads and writes, relative to the model root. */
   file?: string | null;
 }>();
-defineEmits<{ save: [] }>();
+defineEmits<{ save: []; reload: [] }>();
 </script>
 
 <template>
@@ -82,6 +87,15 @@ defineEmits<{ save: [] }>();
     >
       <TriangleAlert class="size-3 shrink-0" :stroke-width="ICON_STROKE_WIDTH_TIGHT" />
       <span class="truncate">{{ error }}</span>
+      <button
+        v-if="conflict"
+        type="button"
+        data-testid="reload-from-disk"
+        :class="TEXT_BUTTON_SM"
+        @click="$emit('reload')"
+      >
+        Reload
+      </button>
     </span>
 
     <InfoTip v-else-if="file" :label="file">

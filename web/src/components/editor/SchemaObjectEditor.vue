@@ -331,10 +331,18 @@ function update(key: string, value: unknown) {
   emit("update:modelValue", next);
 }
 
-/** A number field writes a number, or removes the key — never the DOM's string. */
+/**
+ * A number field writes a number, or removes the key — never the DOM's string.
+ *
+ * Unless the text is not a number at all: `Number("1,5")` is `NaN`, which JSON
+ * carries as `null`, so a comma decimal used to write `zero_threshold: null`
+ * into the model. The text is kept instead, for the schema validation to flag.
+ */
 function updateNumber(key: string, raw: string) {
   const trimmed = raw.trim();
-  update(key, trimmed === "" ? null : Number(trimmed));
+  if (trimmed === "") return update(key, null);
+  const asNumber = Number(trimmed);
+  update(key, Number.isFinite(asNumber) ? asNumber : trimmed);
 }
 
 function setText(key: string, value: string) {

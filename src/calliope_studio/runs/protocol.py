@@ -37,6 +37,7 @@ import tempfile
 import threading
 import time
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterator
 
@@ -149,9 +150,9 @@ class RunRequest:
     requested_at: str | None = None
 
     def write(self, run_dir: Path) -> None:
-        (run_dir / REQUEST_FILE).write_text(
-            json.dumps(dataclasses.asdict(self), indent=2)
-        )
+        # Atomic like every other sidecar: this is the file that makes a
+        # directory a run, so a truncated one is a run that cannot be listed.
+        write_json_atomic(run_dir / REQUEST_FILE, dataclasses.asdict(self))
 
     @classmethod
     def read(cls, run_dir: Path) -> "RunRequest":
@@ -247,7 +248,7 @@ REPLACE_ATTEMPTS = 10
 REPLACE_DELAY = 0.05
 
 
-def _replace_retrying(source: str | Path, destination: Path) -> None:
+def replace_retrying(source: str | Path, destination: Path) -> None:
     """`os.replace`, retried briefly when the destination is momentarily held."""
     for attempt in range(REPLACE_ATTEMPTS):
         try:
@@ -274,10 +275,35 @@ def write_json_atomic(path: Path, payload: Any) -> None:
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             json.dump(payload, fh, indent=2, default=str)
-        _replace_retrying(tmp, path)
+        replace_retrying(tmp, path)
     except BaseException:
         Path(tmp).unlink(missing_ok=True)
         raise
+
+
+def request_time(run_dir: Path) -> float:
+    """When a run was requested, as epoch seconds, for ordering runs.
+
+    From `request.json` itself where it says, and from that file's mtime for a
+    run made before it did. Never from the directory's mtime: that is lost the
+    moment a workspace is copied, restored from a backup or checked out, and
+    retention ordered by it then deleted the *newest* runs of a copied model.
+    Something already gone sorts oldest, which is also where it belongs.
+    """
+    request_file = run_dir / REQUEST_FILE
+    try:
+        request = RunRequest.read(run_dir)
+    except (OSError, ValueError, TypeError):
+        request = None
+    if request is not None and request.requested_at:
+        try:
+            return datetime.fromisoformat(request.requested_at).timestamp()
+        except ValueError:
+            pass
+    try:
+        return request_file.stat().st_mtime
+    except OSError:
+        return 0.0
 
 
 def read_outcome(run_dir: Path) -> dict[str, Any] | None:
@@ -286,9 +312,9 @@ def read_outcome(run_dir: Path) -> dict[str, Any] | None:
 
 
 def write_outcome(run_dir: Path, outcome: dict) -> None:
-    (run_dir / OUTCOME_FILE).write_text(
-        json.dumps(outcome, indent=2, default=str), encoding="utf-8"
-    )
+    # A partial `outcome.json` reads as absent, which is a run that is "still
+    # running" for ever and that retention therefore never reclaims.
+    write_json_atomic(run_dir / OUTCOME_FILE, outcome)
 
 
 def read_snapshot_manifest(run_dir: Path) -> dict[str, Any] | None:
@@ -297,9 +323,7 @@ def read_snapshot_manifest(run_dir: Path) -> dict[str, Any] | None:
 
 
 def write_snapshot_manifest(run_dir: Path, manifest: dict) -> None:
-    (run_dir / SNAPSHOT_FILE).write_text(
-        json.dumps(manifest, indent=2, default=str), encoding="utf-8"
-    )
+    write_json_atomic(run_dir / SNAPSHOT_FILE, manifest)
 
 
 def read_meta(run_dir: Path) -> dict[str, Any]:

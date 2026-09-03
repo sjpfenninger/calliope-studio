@@ -219,9 +219,10 @@ class TestFiles:
         original = client.get(url).json()["content"]
         assert "config:" in original
 
-        assert client.put(
-            url, json={"content": original + "\n# appended\n"}
-        ).json() == {"ok": True}
+        assert (
+            client.put(url, json={"content": original + "\n# appended\n"}).json()["ok"]
+            is True
+        )
         assert client.get(url).json()["content"].endswith("# appended\n")
 
     def test_a_no_op_save_changes_no_byte(self, client, ws, national_scale):
@@ -237,7 +238,7 @@ class TestFiles:
         before = (national_scale / "model.yaml").read_bytes()
 
         content = client.get(url).json()["content"]
-        assert client.put(url, json={"content": content}).json() == {"ok": True}
+        assert client.put(url, json={"content": content}).json()["ok"] is True
 
         assert (national_scale / "model.yaml").read_bytes() == before
 
@@ -259,7 +260,7 @@ class TestFiles:
 
         content = client.get(url).json()["content"]
         assert "\r\n" in content, "the read path must not strip them either"
-        assert client.put(url, json={"content": content}).json() == {"ok": True}
+        assert client.put(url, json={"content": content}).json()["ok"] is True
 
         assert path.read_bytes() == original
 
@@ -398,7 +399,7 @@ class TestCsv:
     def test_write_round_trip(self, client, ws):
         url = f"/api/versions/{ws}/csv/data_tables/costs.csv"
         body = client.get(url).json()
-        assert client.put(url, json=body).json() == {"ok": True}
+        assert client.put(url, json=body).json()["ok"] is True
         assert client.get(url).json() == body
 
 
@@ -426,9 +427,12 @@ class TestYamlSections:
 
         data = client.get(url, params={"section": "config"}).json()["data"]
         data["init"]["name"] = "Renamed by test"
-        assert client.put(
-            url, params={"section": "config"}, json={"data": data}
-        ).json() == {"ok": True}
+        assert (
+            client.put(url, params={"section": "config"}, json={"data": data}).json()[
+                "ok"
+            ]
+            is True
+        )
 
         after = (national_scale / "model.yaml").read_text()
         assert "Renamed by test" in after
@@ -701,3 +705,144 @@ class TestOversizedReads:
         response = client.get(f"/api/versions/{ws}/csv/data_tables/small.csv")
         assert response.status_code == 200
         assert response.json()["rows"] == [["1", "2"]]
+
+
+class TestWritePreconditions:
+    """A save names what it was based on, and is refused if that has changed.
+
+    Every section write deletes the keys absent from its payload, so a save
+    from a stale baseline does not merely lose the race — it erases whatever
+    landed in between: an edit in another browser tab, in an editor outside
+    the app, or by the math panel writing `config`. A read hands out the file's
+    revision, a save carries it back, and a mismatch is a 409 with the file
+    untouched. A client that sends nothing is an old one and is let through.
+    """
+
+    def test_a_read_carries_the_revision(self, client, ws):
+        body = client.get(f"/api/versions/{ws}/files/model.yaml").json()
+        assert body["revision"]
+        assert body["lossy"] is False
+
+    def test_a_stale_file_save_is_refused(self, client, ws, national_scale):
+        url = f"/api/versions/{ws}/files/model.yaml"
+        body = client.get(url).json()
+        outside = body["content"] + "# outside the app\n"
+        (national_scale / "model.yaml").write_text(outside, encoding="utf-8")
+
+        response = client.put(
+            url, json={"content": body["content"], "revision": body["revision"]}
+        )
+        assert response.status_code == 409
+        assert (national_scale / "model.yaml").read_text(encoding="utf-8") == outside
+
+    def test_a_fresh_file_save_returns_the_next_revision(self, client, ws):
+        url = f"/api/versions/{ws}/files/model.yaml"
+        body = client.get(url).json()
+        response = client.put(
+            url,
+            json={
+                "content": body["content"] + "# more\n",
+                "revision": body["revision"],
+            },
+        )
+        assert response.status_code == 200
+        after = client.get(url).json()["revision"]
+        assert response.json()["revision"] == after != body["revision"]
+
+    def test_a_stale_section_save_is_refused(self, client, ws, national_scale):
+        url = f"/api/versions/{ws}/yaml-section/model.yaml"
+        body = client.get(url, params={"section": "config"}).json()
+        path = national_scale / "model.yaml"
+        path.write_text(
+            path.read_text(encoding="utf-8") + "# outside\n", encoding="utf-8"
+        )
+
+        response = client.put(
+            url,
+            params={"section": "config"},
+            json={"data": body["data"], "revision": body["revision"]},
+        )
+        assert response.status_code == 409
+        assert "# outside" in path.read_text(encoding="utf-8")
+
+    def test_a_stale_csv_save_is_refused(self, client, ws, national_scale):
+        url = f"/api/versions/{ws}/csv/data_tables/costs.csv"
+        body = client.get(url).json()
+        path = national_scale / "data_tables" / "costs.csv"
+        path.write_bytes(path.read_bytes() + b"outside,1\n")
+
+        assert client.put(url, json=body).status_code == 409
+        assert path.read_bytes().endswith(b"outside,1\n")
+
+    def test_a_stale_overrides_save_is_refused(self, client, ws, national_scale):
+        url = f"/api/versions/{ws}/overrides/scenarios.yaml"
+        body = client.get(url).json()
+        assert body["overrides"]
+        path = national_scale / "scenarios.yaml"
+        path.write_text(
+            path.read_text(encoding="utf-8") + "# outside\n", encoding="utf-8"
+        )
+
+        assert client.put(url, json=body).status_code == 409
+        assert "# outside" in path.read_text(encoding="utf-8")
+
+    def test_a_save_that_names_no_revision_is_let_through(self, client, ws):
+        url = f"/api/versions/{ws}/files/model.yaml"
+        content = client.get(url).json()["content"]
+        assert client.put(url, json={"content": content}).status_code == 200
+
+
+class TestLossyReads:
+    def test_a_stray_non_utf8_byte_is_reported(self, client, ws, national_scale):
+        """The file still opens, and the client is told the read lost something.
+
+        `errors="replace"` was chosen so a file with one Latin-1 byte still
+        opens. A save of that buffer then wrote U+FFFD over the byte: silent
+        corruption of a file the user opened only to look at. The flag is what
+        lets the editor refuse to save such a buffer.
+        """
+        (national_scale / "latin.yaml").write_bytes(b"name: caf\xe9\n")
+        body = client.get(f"/api/versions/{ws}/files/latin.yaml").json()
+        assert body["lossy"] is True
+        assert "\ufffd" in body["content"]
+
+
+class TestCsvFormat:
+    def test_an_excel_export_keeps_its_bom_and_line_endings(
+        self, client, ws, national_scale
+    ):
+        """The parser strips both, and the writer used to put neither back."""
+        path = national_scale / "data_tables" / "excel.csv"
+        path.write_bytes(b"\xef\xbb\xbfnodes,x\r\na,1\r\n")
+        url = f"/api/versions/{ws}/csv/data_tables/excel.csv"
+
+        body = client.get(url).json()
+        body["rows"][0][1] = "2"
+        assert client.put(url, json=body).status_code == 200
+        assert path.read_bytes() == b"\xef\xbb\xbfnodes,x\r\na,2\r\n"
+
+    def test_a_non_utf8_csv_is_refused_rather_than_a_500(
+        self, client, ws, national_scale
+    ):
+        (national_scale / "data_tables" / "latin.csv").write_bytes(b"n,x\ncaf\xe9,1\n")
+        response = client.get(f"/api/versions/{ws}/csv/data_tables/latin.csv")
+        assert response.status_code == 415
+
+
+class TestOverridesRespectExcludedPaths:
+    def test_writing_a_snapshot_overrides_block_is_refused(
+        self, client, ws, national_scale
+    ):
+        """The one write verb that still resolved without the exclusion check."""
+        target = national_scale / "calliope-studio" / "runs" / "abc" / "snapshot"
+        target.mkdir(parents=True)
+        frozen = target / "scenarios.yaml"
+        frozen.write_text("overrides:\n  a:\n    config.init.name: frozen\n")
+
+        response = client.put(
+            f"/api/versions/{ws}/overrides/"
+            "calliope-studio/runs/abc/snapshot/scenarios.yaml",
+            json={"overrides": {}},
+        )
+        assert response.status_code == 400
+        assert "frozen" in frozen.read_text()

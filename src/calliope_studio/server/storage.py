@@ -23,6 +23,7 @@ from typing import Iterable, Iterator
 
 import platformdirs
 
+from calliope_studio.modeldef.paths import write_text_atomic
 from calliope_studio.results import store as results_store
 from calliope_studio.runs import protocol
 
@@ -200,13 +201,18 @@ def _migrate_legacy_data_dir(workspace_path: Path) -> None:
     Newest legacy name first, so a workspace carrying both `.calligraph/` and
     `calligraph/` promotes the one that was already authoritative under the old
     rules and leaves the other where it is, exactly as before.
+
+    Only a directory that holds run outputs is moved. `calligraph` is also the
+    name of this project's predecessor, and a user who kept its plotting scripts
+    in a `calligraph/` folder beside their model had that folder renamed on
+    open, hidden from the file tree, and reported by git as wholly moved.
     """
     current = workspace_path / WORKSPACE_DATA_DIR
     if current.exists():
         return
     for name in reversed(LEGACY_WORKSPACE_DATA_DIRS):
         legacy = workspace_path / name
-        if not legacy.is_dir():
+        if not legacy.is_dir() or not (legacy / "runs").is_dir():
             continue
         try:
             legacy.rename(current)
@@ -292,8 +298,13 @@ class LocalStorage:
     def list(self) -> list[Workspace]:
         """Returns registered workspaces, most recently opened first.
 
-        Entries whose folder has since been deleted are pruned rather than
-        raising, so a stale registry cannot break the projects list.
+        Entries whose folder is not there are left out rather than raising, so a
+        stale registry cannot break the projects list — but they stay *in the
+        registry*. This runs on nearly every request, and a folder can be absent
+        because the external drive or network share holding it is not mounted
+        right now: pruning on that made a model vanish from the recents list
+        after one launch without the drive, permanently. Only an entry that
+        cannot be read at all is dropped.
         """
         entries = self._read_registry()
         live, kept = [], []
@@ -303,9 +314,9 @@ class LocalStorage:
                 opened_at = datetime.fromisoformat(entry["opened_at"])
             except (KeyError, TypeError, ValueError):
                 continue
+            kept.append(entry)
             if not path.is_dir():
                 continue
-            kept.append(entry)
             live.append(
                 Workspace(
                     id=workspace_id(path),
@@ -357,7 +368,11 @@ class LocalStorage:
             for entry in self._read_registry()
             if entry.get("path") != str(resolved)
         ]
-        entries.insert(0, self._entry_for(workspace))
+        # Over the old entry, not instead of it: a field this version does not
+        # know about — written by a newer one, or by hand — would otherwise be
+        # dropped every time the model is opened.
+        previous = existing[0] if existing else {}
+        entries.insert(0, {**previous, **self._entry_for(workspace)})
         self._write_registry(entries)
         return workspace
 
@@ -440,7 +455,7 @@ class LocalStorage:
         """
         marker = workspace.path / WORKSPACE_DATA_DIR / ".gitignore"
         if not marker.exists():
-            marker.write_text(GITIGNORE_CONTENTS, encoding="utf-8")
+            write_text_atomic(marker, GITIGNORE_CONTENTS)
 
     def _scratch_dir(self, kind: str) -> Path:
         """A scratch root in the system temp dir, created on first use.
@@ -540,6 +555,11 @@ class LocalStorage:
 
         Never removes a run that has not finished, however old it looks.
 
+        Ordered by when each run was *requested*, as `request.json` records it,
+        never by directory mtime: an mtime is lost the moment a workspace is
+        copied, restored from a backup or checked out, and ordering by it then
+        deleted the newest results of a copied model while keeping the oldest.
+
         Returns:
             The ids of the runs that were removed.
         """
@@ -557,7 +577,7 @@ class LocalStorage:
                 continue  # still running, or died without a verdict
             finished.append(directory)
 
-        finished.sort(key=_mtime_or_zero, reverse=True)
+        finished.sort(key=protocol.request_time, reverse=True)
         removed = []
         for directory in finished[keep:]:
             # The results cache may still hold this run's `.nc` open — a run tab

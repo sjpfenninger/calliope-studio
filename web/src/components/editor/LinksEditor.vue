@@ -18,6 +18,7 @@
  * form is already on the map.
  */
 import { ref, computed } from "vue";
+import LockedBanner from "@/components/app/LockedBanner.vue";
 import StateMessage from "@/components/app/StateMessage.vue";
 import TooltipButton from "@/components/app/TooltipButton.vue";
 // `Map` is aliased: unaliased it shadows the global `Map` constructor, which is
@@ -218,7 +219,18 @@ function buildPayload(): Record<string, RawTech> {
   return mergeIntoSection(originalSection.value, edited, owned);
 }
 
-const { isLoading, isSaving, error, saveError, save, markDirty } = useSectionEditor({
+const {
+  isLoading,
+  isSaving,
+  error,
+  saveError,
+  conflict,
+  locked,
+  lockOwner,
+  save,
+  reload,
+  markDirty,
+} = useSectionEditor({
   versionId: () => props.versionId,
   filePath: () => props.filePath,
   tabId: () => props.tabId,
@@ -339,8 +351,22 @@ function openElsewhere() {
     <StateMessage v-else-if="error" variant="block" tone="danger">{{ error }}</StateMessage>
 
     <template v-else>
-      <EditorToolbar :saving="isSaving" :error="saveError" :file="filePath" @save="save">
-        <button v-if="!entryName" type="button" :class="GHOST_BUTTON" @click="addEntry">
+      <EditorToolbar
+        :saving="isSaving"
+        :disabled="locked"
+        :error="saveError"
+        :conflict="conflict"
+        :file="filePath"
+        @save="save"
+        @reload="reload"
+      >
+        <button
+          v-if="!entryName"
+          type="button"
+          :class="GHOST_BUTTON"
+          :disabled="locked"
+          @click="addEntry"
+        >
           <Plus class="size-3.5" />
           Add link
         </button>
@@ -358,6 +384,7 @@ function openElsewhere() {
           {{ showMap ? "List" : "Map" }}
         </button>
       </EditorToolbar>
+      <LockedBanner v-if="lockOwner" :owner="lockOwner" :file="filePath" />
 
       <EditorMapPane
         v-if="showMap"
@@ -366,7 +393,7 @@ function openElsewhere() {
         :missing="missing"
         :error="geoError"
         :pending-link-from="pendingFrom"
-        interactive-links
+        :interactive-links="!locked"
         @node-click="onNodeClick"
         @link-click="activeLink = $event"
         @show-list="ui.setSectionView('links', 'structured')"
@@ -414,7 +441,7 @@ function openElsewhere() {
         </template>
 
         <template #detail>
-          <template v-if="activeEntry">
+          <fieldset v-if="activeEntry" :disabled="locked" class="contents">
             <div class="flex items-center justify-between gap-1.5">
               <span class="truncate text-sm">{{ activeEntry.name }}</span>
               <TooltipButton
@@ -430,7 +457,7 @@ function openElsewhere() {
               :templates="templatesData"
               @change="onChange"
             />
-          </template>
+          </fieldset>
           <div
             v-else-if="activeElsewhere"
             class="flex items-center gap-2 py-1 text-sm text-text-muted"
@@ -452,7 +479,7 @@ function openElsewhere() {
         </template>
       </EditorMapPane>
 
-      <div v-else class="min-h-0 flex-1 overflow-auto">
+      <fieldset v-else :disabled="locked" class="min-h-0 flex-1 overflow-auto">
         <StateMessage v-if="!visibleEntries.length" variant="block">
           {{
             entryName
@@ -491,7 +518,7 @@ function openElsewhere() {
               />
           </EntryAccordionRow>
         </Accordion>
-      </div>
+      </fieldset>
 
       <!-- Once for the whole editor: both the list's forms and the map's detail
            pane point their endpoint and template fields at these. -->

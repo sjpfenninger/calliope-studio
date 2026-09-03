@@ -9,7 +9,12 @@ from pathlib import Path
 
 from fastapi import Depends, HTTPException, Request, status
 
-from calliope_studio.modeldef.paths import UnsafePath, is_excluded, safe_path
+from calliope_studio.modeldef.paths import (
+    UnsafePath,
+    content_revision,
+    is_excluded,
+    safe_path,
+)
 from calliope_studio.results.store import ResultStore
 from calliope_studio.runs.manager import RunManager
 from calliope_studio.server.resolution import Resolver
@@ -90,6 +95,34 @@ def resolve_writable_path(workspace: Workspace, file_path: str) -> Path:
     return path
 
 
+def check_revision(path: Path, expected: str | None) -> None:
+    """Refuses a write whose baseline is no longer what is on disk.
+
+    A client that read a file gets `paths.content_revision` with it and sends
+    it back with the save. If the file has changed in between — a second
+    browser tab, an editor outside the app, the math panel writing `config` —
+    the save would silently revert that change: every section write deletes
+    the keys absent from its payload, so the older state does not merely win,
+    it erases. A client that sends nothing is an old one and is let through.
+
+    Raises:
+        HTTPException: 409, with the current revision in the detail so the
+            client can say what happened rather than merely that it did.
+    """
+    if expected is None:
+        return
+    current = content_revision(path)
+    if current is not None and current != expected:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "This file changed on disk after it was loaded here — in another "
+                "tab or outside the app. Reload it to pick up the change."
+            ),
+            headers={"X-Content-Revision": current},
+        )
+
+
 def require_file(path: Path) -> Path:
     """404s if the resolved path is not an existing file."""
     if not path.is_file():
@@ -129,7 +162,19 @@ def require_within_size(path: Path) -> Path:
 
 
 def require_text(path: Path) -> str:
+    """Reads a file as text; see `decode_text`, whose lossy flag this drops."""
+    return decode_text(path)[0]
+
+
+def decode_text(path: Path) -> tuple[str, bool]:
     """Reads a file as text, refusing what is not text and what is too big.
+
+    Returns:
+        The text, and whether decoding it lost anything. A stray Latin-1 byte
+        is replaced with U+FFFD so the file still opens — and a save of that
+        buffer would write the replacement over the original byte, which is
+        silent corruption of a file the user opened only to look at. The flag
+        is what lets the editor refuse to save such a buffer.
 
     Both refusals used to be silent successes. `read_text(errors="replace")`
     cannot fail, so a `.png` came back as HTTP 200 holding a megabyte of U+FFFD,
@@ -155,4 +200,7 @@ def require_text(path: Path) -> str:
             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
             detail="This file is not text.",
         )
-    return data.decode("utf-8", errors="replace")
+    try:
+        return data.decode("utf-8"), False
+    except UnicodeDecodeError:
+        return data.decode("utf-8", errors="replace"), True

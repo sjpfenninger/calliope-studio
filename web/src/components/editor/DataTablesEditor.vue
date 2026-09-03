@@ -12,6 +12,7 @@
  * is where they meet, so Save there writes both.
  */
 import { computed, onMounted, onUnmounted, ref, toRef, useTemplateRef, watch } from "vue";
+import LockedBanner from "@/components/app/LockedBanner.vue";
 import StateMessage from "@/components/app/StateMessage.vue";
 import { Plus } from "@lucide/vue";
 
@@ -32,6 +33,7 @@ import { cn } from "@/lib/utils";
 import { rowKey } from "@/lib/entries";
 import { resolveDataPath } from "@/lib/modelPaths";
 import { useCsvGrid } from "@/composables/useCsvGrid";
+import { useSectionDataStore } from "@/stores/sectionData";
 import { useTabsStore } from "@/stores/tabs";
 import { useSchemaStore } from "@/stores/schema";
 import { useUiStore } from "@/stores/ui";
@@ -44,6 +46,7 @@ const props = defineProps<{
 }>();
 
 const tabsStore = useTabsStore();
+const sectionData = useSectionDataStore();
 const schemaStore = useSchemaStore();
 const ui = useUiStore();
 
@@ -83,7 +86,7 @@ const activeEntry = computed(() =>
 // The table's CSV
 // ---------------------------------------------------------------------------
 
-const csv = useCsvGrid(toRef(props, "versionId"));
+const csv = useCsvGrid(toRef(props, "versionId"), { editable: () => !csvLocked.value });
 const {
   columnDefs,
   rowData,
@@ -91,6 +94,19 @@ const {
   error: csvError,
   isDirty: csvDirty,
 } = csv;
+
+/**
+ * Another buffer — a CSV file tab — holds unsaved changes to the table's file.
+ *
+ * The YAML section's own lock is the composable's; this is the second file
+ * the tab edits, and the single-writer rule applies to it separately.
+ */
+const csvLocked = computed(
+  () => !!csvPath.value && !tabsStore.canEdit(props.tabId, "form", csvPath.value),
+);
+const csvLockOwner = computed(() =>
+  csvLocked.value && csvPath.value ? tabsStore.dirtyOwner(csvPath.value) : null,
+);
 
 const csvGrid = useTemplateRef<InstanceType<typeof CsvGrid>>("csvGrid");
 
@@ -176,12 +192,35 @@ function reloadCsv() {
   request(next);
 }
 
-// Edits land in `useCsvGrid` through the grid's valueSetter; this watch only
-// propagates its dirtiness to the tab. Only the false→true edge marks, so a
-// grid reload (which resets dirtiness) never re-dirties the tab.
+/**
+ * Edits land in `useCsvGrid` through the grid's valueSetter; this watch
+ * propagates its dirtiness to the tab. The tab is marked as the *form's*
+ * source — the grid is part of this tab's work — and as holding the CSV's
+ * path, so a CSV file tab on the same file sees it is taken.
+ */
+let heldCsv: string | null = null;
 watch(csvDirty, (dirty) => {
-  if (dirty) tabsStore.markDirty(props.tabId);
+  if (dirty) {
+    tabsStore.markDirty(props.tabId, "form");
+    heldCsv = csv.loadedPath.value;
+    if (heldCsv) tabsStore.holdFile(props.tabId, heldCsv);
+  } else if (heldCsv) {
+    tabsStore.releaseFile(props.tabId, heldCsv);
+    heldCsv = null;
+  }
 });
+
+// Something else wrote the table's CSV — a file tab on it, say. Re-read it,
+// unless the cells here are the user's own unsaved work.
+let seenCsvRevision = 0;
+watch(
+  () => (csv.loadedPath.value ? sectionData.fileRevisions.get(csv.loadedPath.value) ?? 0 : 0),
+  (revision) => {
+    if (revision === seenCsvRevision) return;
+    seenCsvRevision = revision;
+    if (!csvDirty.value && csv.loadedPath.value) request(csv.loadedPath.value);
+  },
+);
 
 // ---------------------------------------------------------------------------
 // Load / save
@@ -232,7 +271,18 @@ function buildPayload(): Record<string, any> {
  * the whole file through `csv.writer`, so a no-op rewrite can still change
  * quoting and line endings.
  */
-const { isLoading, isSaving, error, saveError, save, markDirty } = useSectionEditor({
+const {
+  isLoading,
+  isSaving,
+  error,
+  saveError,
+  conflict,
+  locked,
+  lockOwner,
+  save,
+  reload,
+  markDirty,
+} = useSectionEditor({
   versionId: () => props.versionId,
   filePath: () => props.filePath,
   tabId: () => props.tabId,
@@ -263,8 +313,11 @@ const { isLoading, isSaving, error, saveError, save, markDirty } = useSectionEdi
     // dirtiness. Synchronous — the valueSetter runs inside `stopEditing`.
     csvGrid.value?.commitPendingEdit();
     if (csvDirty.value && csv.loadedPath.value) {
-      await tabsStore.saveCsvFile(csv.loadedPath.value, csv.columns, csv.toRows());
-      csv.markSaved();
+      const path = csv.loadedPath.value;
+      await csv.save(path);
+      // The CSV file tab on this path, if any, re-reads it.
+      sectionData.noteFileWritten(path);
+      seenCsvRevision = sectionData.fileRevisions.get(path) ?? 0;
     }
   },
   /**
@@ -327,17 +380,27 @@ onUnmounted(() => clearTimeout(reloadTimer));
     <StateMessage v-else-if="error" variant="block" tone="danger">{{ error }}</StateMessage>
 
     <template v-else>
-      <EditorToolbar :saving="isSaving" :error="saveError" :file="filePath" @save="save">
+      <EditorToolbar
+        :saving="isSaving"
+        :disabled="locked"
+        :error="saveError"
+        :conflict="conflict"
+        :file="filePath"
+        @save="save"
+        @reload="reload"
+      >
         <button
           v-if="!entryName"
           type="button"
           :class="GHOST_BUTTON"
+          :disabled="locked"
           @click="addEntry"
         >
           <Plus class="size-3.5" />
           Add table
         </button>
       </EditorToolbar>
+      <LockedBanner v-if="lockOwner" :owner="lockOwner" :file="filePath" />
 
       <StateMessage v-if="!visibleEntries.length" variant="block">
         {{
@@ -355,7 +418,7 @@ onUnmounted(() => clearTimeout(reloadTimer));
         @layout="ui.setDataTableSplit($event)"
       >
         <ResizablePanel :default-size="ui.dataTableSplit[0]" :min-size="20">
-          <div class="h-full overflow-auto px-2" data-testid="dt-entry">
+          <fieldset :disabled="locked" class="h-full overflow-auto px-2" data-testid="dt-entry">
             <DataTableFields
               :name="activeEntry.name"
               :data="activeEntry.data"
@@ -363,7 +426,7 @@ onUnmounted(() => clearTimeout(reloadTimer));
               @update:name="onNameChange(visibleEntries[0].index, $event)"
               @update:data="onEntryDataChange(visibleEntries[0].index, $event)"
             />
-          </div>
+          </fieldset>
         </ResizablePanel>
 
         <ResizableHandle with-handle />
@@ -396,6 +459,12 @@ onUnmounted(() => clearTimeout(reloadTimer));
               </button>
               <span class="text-text-faint">discards unsaved cell edits</span>
             </p>
+
+            <LockedBanner
+              v-if="csvLockOwner && csvPath"
+              :owner="csvLockOwner"
+              :file="csvPath"
+            />
 
             <StateMessage v-if="csvLoading" variant="block" loading>
               Loading…

@@ -14,8 +14,10 @@ spellings are identical to every YAML parser, including Calliope's, and
 introduces.
 """
 
+import codecs
 import copy
 import io
+import json
 import math
 import re
 from pathlib import Path
@@ -37,29 +39,47 @@ class SectionNotFound(KeyError):
     """Raised when a requested top-level section is absent from a file."""
 
 
-def _detect_sequence_indent(text: str) -> tuple[int, int]:
-    """Infers how a document indents block sequences.
+def _detect_indents(text: str) -> tuple[int, int, int]:
+    """Infers how a document indents mappings and block sequences.
 
-    ruamel emits sequences using one global setting, but real files differ: some
-    put the dash at the parent key's column, others indent it. Guessing wrong
-    reflows every list in the file and shifts its trailing comments, which is
-    exactly the kind of spurious diff that makes an editor untrustworthy.
+    ruamel emits with one global setting for each, but real files differ: some
+    put a list's dash at the parent key's column, others indent it, and a model
+    written with four-space mappings is not rare. Guessing wrong reflows every
+    line in the file and shifts its trailing comments — a save that touched one
+    field then diffs as the whole file, which is exactly the kind of spurious
+    change that makes an editor untrustworthy. Mapping indent used to be fixed
+    at two, so a four-space model was reformatted by its first structured save.
 
     Returns:
-        `(sequence, offset)` for `YAML.indent`, defaulting to ruamel's own.
+        `(mapping, sequence, offset)` for `YAML.indent`, defaulting to ruamel's own.
     """
+    mapping: int | None = None
+    sequence: tuple[int, int] | None = None
     key_indent: int | None = None
     for line in text.splitlines():
         item = _SEQUENCE_ITEM.match(line)
-        if item and key_indent is not None:
+        if item and key_indent is not None and sequence is None:
             offset = len(item.group("indent")) - key_indent
-            if offset >= 0:
-                return offset + 2, offset
-            return 4, 2
+            sequence = (offset + 2, offset) if offset >= 0 else (4, 2)
         key = _MAPPING_KEY.match(line)
         if key:
-            key_indent = len(key.group("indent"))
-    return 4, 2
+            indent = len(key.group("indent"))
+            if mapping is None and key_indent is not None and indent > key_indent:
+                mapping = indent - key_indent
+            key_indent = indent
+        if mapping is not None and sequence is not None:
+            break
+    return (mapping or 2, *(sequence or (4, 2)))
+
+
+def _has_explicit_start(text: str) -> bool:
+    """Whether the document opens with a bare `---` before any content."""
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped[0] in "#%":
+            continue
+        return stripped == "---" or stripped.startswith("--- ")
+    return False
 
 
 def _round_trip_yaml(text: str | None = None) -> YAML:
@@ -70,8 +90,11 @@ def _round_trip_yaml(text: str | None = None) -> YAML:
     # is semantically harmless but makes for an alarming diff.
     yaml.width = 4096
     if text is not None:
-        sequence, offset = _detect_sequence_indent(text)
-        yaml.indent(mapping=2, sequence=sequence, offset=offset)
+        mapping, sequence, offset = _detect_indents(text)
+        yaml.indent(mapping=mapping, sequence=sequence, offset=offset)
+        # A leading `---` is dropped by a plain load-and-dump; kept because the
+        # raw file route preserves it and the two save paths must agree.
+        yaml.explicit_start = _has_explicit_start(text)
     return yaml
 
 
@@ -215,6 +238,16 @@ def _detached(container: Any) -> Any:
     return clone
 
 
+def _key_text(key: Any) -> str:
+    """How a mapping key is spelled once it has been through JSON."""
+    if isinstance(key, str):
+        return key
+    try:
+        return json.dumps(key)
+    except TypeError:
+        return str(key)
+
+
 def _merge(
     existing: Any, new: Any, aliased: frozenset[int] | set[int] = frozenset()
 ) -> Any:
@@ -236,6 +269,15 @@ def _merge(
             existing = _detached(existing)
 
     if isinstance(existing, CommentedMap) and isinstance(new, dict):
+        # JSON has only string keys, so an integer, boolean or null key comes
+        # back spelled out: `nodes: {1: …}` arrived as `{"1": …}`, the merge
+        # deleted the integer key and appended a quoted one — and the comment on
+        # the original line went with it. Matching by spelling keeps the key.
+        by_text = {_key_text(key): key for key in existing}
+        new = {
+            by_text.get(key, key) if isinstance(key, str) else key: value
+            for key, value in new.items()
+        }
         for key in [key for key in existing if key not in new]:
             del existing[key]
         for key, value in new.items():
@@ -279,7 +321,16 @@ def write_section(path: Path, section: str, data: Any) -> None:
     Raises:
         SectionNotFound: If the document is empty or lacks the section.
     """
-    text = _read(path)
+    # Bytes, not `read_text`: universal newlines would fold a CRLF file to LF
+    # here while the raw file route preserves it, so which endpoint last saved
+    # a file decided its line endings. A BOM the same way. Both are put back.
+    raw = Path(path).read_bytes()
+    bom = raw.startswith(codecs.BOM_UTF8)
+    text = raw[len(codecs.BOM_UTF8) :].decode("utf-8") if bom else raw.decode("utf-8")
+    crlf = "\r\n" in text
+    if crlf:
+        text = text.replace("\r\n", "\n")
+
     yaml = _round_trip_yaml(text)
     document = yaml.load(text)
     if document is None or section not in document:
@@ -290,7 +341,12 @@ def write_section(path: Path, section: str, data: Any) -> None:
     )
     buffer = io.StringIO()
     yaml.dump(document, buffer)
-    write_text_atomic(path, buffer.getvalue())
+    out = buffer.getvalue()
+    if crlf:
+        out = out.replace("\n", "\r\n")
+    if bom:
+        out = "﻿" + out
+    write_text_atomic(path, out)
 
 
 def syntax_errors(path: Path, relative: str) -> list[dict]:

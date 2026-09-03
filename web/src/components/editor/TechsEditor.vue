@@ -12,6 +12,7 @@
  * save writes them back untouched rather than dropping them.
  */
 import { ref, computed } from "vue";
+import LockedBanner from "@/components/app/LockedBanner.vue";
 import StateMessage from "@/components/app/StateMessage.vue";
 import FieldRow from "@/components/app/FieldRow.vue";
 import { Plus } from "@lucide/vue";
@@ -109,7 +110,18 @@ function buildPayload(): Record<string, RawTech> {
   return mergeIntoSection(originalSection.value, edited, ownedHere);
 }
 
-const { isLoading, isSaving, error, saveError, save, markDirty } = useSectionEditor({
+const {
+  isLoading,
+  isSaving,
+  error,
+  saveError,
+  conflict,
+  locked,
+  lockOwner,
+  save,
+  reload,
+  markDirty,
+} = useSectionEditor({
   versionId: () => props.versionId,
   filePath: () => props.filePath,
   tabId: () => props.tabId,
@@ -187,14 +199,29 @@ function inheritedFor(entry: TechEntry) {
     <StateMessage v-else-if="error" variant="block" tone="danger">{{ error }}</StateMessage>
 
     <template v-else>
-      <EditorToolbar :saving="isSaving" :error="saveError" :file="filePath" @save="save">
-        <button v-if="!entryName" type="button" :class="GHOST_BUTTON" @click="addEntry">
+      <EditorToolbar
+        :saving="isSaving"
+        :disabled="locked"
+        :error="saveError"
+        :conflict="conflict"
+        :file="filePath"
+        @save="save"
+        @reload="reload"
+      >
+        <button
+          v-if="!entryName"
+          type="button"
+          :class="GHOST_BUTTON"
+          :disabled="locked"
+          @click="addEntry"
+        >
           <Plus class="size-3.5" />
           Add tech
         </button>
       </EditorToolbar>
+      <LockedBanner v-if="lockOwner" :owner="lockOwner" :file="filePath" />
 
-      <div class="min-h-0 flex-1 overflow-auto">
+      <fieldset :disabled="locked" class="min-h-0 flex-1 overflow-auto">
         <StateMessage v-if="!visibleEntries.length" variant="block">
           {{ entryName ? `No tech called "${entryName}".` : "No techs defined yet." }}
         </StateMessage>
@@ -295,7 +322,7 @@ function inheritedFor(entry: TechEntry) {
             />
           </EntryAccordionRow>
         </Accordion>
-      </div>
+      </fieldset>
     </template>
   </div>
 </template>

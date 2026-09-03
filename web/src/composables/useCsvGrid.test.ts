@@ -172,6 +172,18 @@ describe("useCsvGrid", () => {
       expect(csv.toRows()[0]).toEqual(["a", ""]);
     });
 
+    it("keeps cells beyond the header width", async () => {
+      // A row longer than its header has no column to live in, and a save
+      // used to cut it down to the header's width.
+      api.get.mockResolvedValue(payload(["a", "b"], [["1", "2", "3"], ["4", "5"]]));
+      const csv = useCsvGrid(ref("v1"));
+      await csv.load("t.csv");
+
+      setterFor(csv, "c1")({ data: cloneOfRow(csv, 0), newValue: "9" });
+
+      expect(csv.toRows()).toEqual([["1", "9", "3"], ["4", "5"]]);
+    });
+
     it("stringifies a numeric commit", async () => {
       const csv = await grid();
 

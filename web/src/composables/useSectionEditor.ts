@@ -30,14 +30,33 @@
  * allowed to be async: LinksEditor and TechsEditor cannot decide which
  * technologies are links until the templates have resolved, so `apply` awaits
  * that itself rather than the composable growing a phase for it.
+ *
+ * Three guards on `save()` are the ones that used to be missing, and each is a
+ * way a file was emptied or an edit silently lost:
+ *
+ * - **Nothing loaded, nothing saved.** After a failed load `build()` ran over
+ *   an empty form and wrote `{}` — and every section write deletes the keys
+ *   absent from its payload, so that was the whole section gone.
+ * - **Only the pane on screen answers Cmd+S.** The listener is on `window` and
+ *   every dirty pane stays mounted, so one keystroke used to save all of them
+ *   — two of which could be Techs and Links racing over one file.
+ * - **An edit typed during the write stays dirty.** `markClean` landed after
+ *   the await whatever had been typed meanwhile, and that edit was then never
+ *   saved by anything.
  */
-import { onMounted, onUnmounted, nextTick, ref, toValue, watch } from "vue";
+import { computed, onMounted, onUnmounted, nextTick, ref, toValue, watch } from "vue";
 import type { MaybeRefOrGetter } from "vue";
 
-import { errorDetail } from "@/api/errors";
-import { getYamlSection, putYamlSection, type SectionData } from "@/api/versions";
+import { errorDetail, isConflict } from "@/api/errors";
+import {
+  putYamlSection,
+  readYamlSection,
+  type Revised,
+  type SectionData,
+} from "@/api/versions";
+import { useConfirmStore } from "@/stores/confirm";
 import { useSectionDataStore } from "@/stores/sectionData";
-import { useTabsStore } from "@/stores/tabs";
+import { isEditableTab, useTabsStore } from "@/stores/tabs";
 
 export interface SectionEditorOptions {
   versionId: MaybeRefOrGetter<string>;
@@ -83,14 +102,20 @@ export interface SectionEditorOptions {
    * file. Only the transport differs; everything else here is identical.
    */
   transport?: {
-    read: (versionId: string, path: string) => Promise<SectionData>;
-    write: (versionId: string, path: string, data: SectionData) => Promise<void>;
+    read: (versionId: string, path: string) => Promise<Revised<SectionData>>;
+    write: (
+      versionId: string,
+      path: string,
+      data: SectionData,
+      revision: string | null,
+    ) => Promise<string | null>;
   };
 }
 
 export function useSectionEditor(options: SectionEditorOptions) {
   const tabs = useTabsStore();
   const cache = useSectionDataStore();
+  const confirm = useConfirmStore();
 
   const isLoading = ref(true);
   const isSaving = ref(false);
@@ -102,21 +127,37 @@ export function useSectionEditor(options: SectionEditorOptions) {
    * render in place of the form.
    */
   const saveError = ref<string | null>(null);
+  /**
+   * The save was refused because the file changed on disk since it was loaded
+   * here. The fix is a reload, not a retry, which is why it is its own flag.
+   */
+  const conflict = ref(false);
 
   const read =
     options.transport?.read ??
     ((versionId: string, path: string) =>
-      getYamlSection(versionId, path, options.section));
+      readYamlSection(versionId, path, options.section));
   const write =
     options.transport?.write ??
-    ((versionId: string, path: string, data: SectionData) =>
-      putYamlSection(versionId, path, options.section, data));
+    ((versionId: string, path: string, data: SectionData, revision: string | null) =>
+      putYamlSection(versionId, path, options.section, data, revision));
 
   const ids = () => ({
     versionId: toValue(options.versionId),
     path: toValue(options.filePath),
     tabId: toValue(options.tabId),
   });
+
+  /**
+   * Whether another buffer holds unsaved changes to this file.
+   *
+   * One buffer per file may be dirty — see `tabs.dirtyOwner`. While somebody
+   * else holds this file the form is shown but disabled, and `save` refuses.
+   */
+  const locked = computed(() => !tabs.canEdit(toValue(options.tabId), "form"));
+  const lockOwner = computed(() =>
+    locked.value ? tabs.dirtyOwner(toValue(options.filePath)) : null,
+  );
 
   // Guards overlapping loads: `filePath` can change again while a read is in
   // flight, and only the newest request may apply its data or mark the tab
@@ -129,17 +170,21 @@ export function useSectionEditor(options: SectionEditorOptions) {
     const { versionId, path, tabId } = ids();
     isLoading.value = true;
     error.value = null;
+    let applied = false;
     try {
       // Read-through, for every section rather than three of them. The cache is
       // populated on save and cleared by MonacoYamlEditor whenever the raw file
       // is written, so the two routes to a section cannot disagree.
       let data = cache.get(versionId, path, options.section);
       if (data === null) {
-        data = await read(versionId, path);
+        const fresh = await read(versionId, path);
+        data = fresh.data;
         cache.set(versionId, path, options.section, data);
+        cache.setRevision(path, fresh.revision);
       }
       if (mine !== generation) return;
       await options.apply(data);
+      applied = true;
     } catch (caught) {
       if (mine !== generation) return;
       error.value = errorDetail(caught, `Failed to load ${options.label}.`);
@@ -151,10 +196,17 @@ export function useSectionEditor(options: SectionEditorOptions) {
         // just wrote. Without the tick, opening a tab gave it an
         // unsaved-changes dot.
         await nextTick();
-        tabs.markClean(tabId);
+        // Only the form's own flag, and only when the form really was rebuilt:
+        // a failed load has changed nothing, and the raw buffer of the same tab
+        // may be holding the user's edits — clearing everything here is how a
+        // dirty Monaco buffer came to close without asking.
+        if (applied) tabs.markClean(tabId, "form");
       }
     }
   }
+
+  /** Counts edits, so a save can tell whether one landed while it was writing. */
+  let edits = 0;
 
   async function save(): Promise<void> {
     // Not re-entrant. Holding Cmd/Ctrl+S interleaved two saves: the second
@@ -163,24 +215,38 @@ export function useSectionEditor(options: SectionEditorOptions) {
     // was still in flight — so a failure of the *second* left the tab clean over
     // whichever write happened to land last.
     if (isSaving.value) return;
+    if (isLoading.value || error.value) {
+      saveError.value = `Nothing is loaded here to save — ${options.label} could not be read.`;
+      return;
+    }
+    if (locked.value) {
+      saveError.value = `${lockOwner.value?.title ?? "Another tab"} holds unsaved changes to this file.`;
+      return;
+    }
     const { versionId, path, tabId } = ids();
     isSaving.value = true;
     saveError.value = null;
+    conflict.value = false;
     let written: SectionData | null = null;
     let saved = false;
+    const editsAtBuild = edits;
     try {
       await options.beforeWrite?.();
       if (options.shouldWrite?.() ?? true) {
         written = options.build();
-        await write(versionId, path, written);
+        const revision = await write(versionId, path, written, cache.revisionOf(path));
         cache.set(versionId, path, options.section, written);
+        cache.setRevision(path, revision);
         cache.noteFileWritten(path);
         seenRevision = cache.fileRevisions.get(path) ?? 0;
       }
-      tabs.markClean(tabId);
+      // An edit made while the write was in flight is not on disk; leaving the
+      // tab dirty is what keeps it from being closed and lost.
+      if (edits === editsAtBuild) tabs.markClean(tabId, "form");
       saved = true;
     } catch (caught) {
       // The tab stays dirty: something did not land.
+      conflict.value = isConflict(caught);
       saveError.value = errorDetail(caught, `Failed to save ${options.label}.`);
     } finally {
       isSaving.value = false;
@@ -196,15 +262,45 @@ export function useSectionEditor(options: SectionEditorOptions) {
     }
   }
 
+  /**
+   * Throws the form's edits away and re-reads the file, after asking.
+   *
+   * For the 409: the file changed under this form, and the user has to choose
+   * between their edits here and whatever landed on disk. Nothing chooses for
+   * them.
+   */
+  async function reload(): Promise<void> {
+    const ok = await confirm.ask({
+      title: `Reload ${options.label} from disk?`,
+      message: "The unsaved edits in this form will be lost.",
+      confirmLabel: "Reload",
+      destructive: true,
+    });
+    if (!ok) return;
+    const { versionId, path } = ids();
+    saveError.value = null;
+    conflict.value = false;
+    cache.invalidate(versionId, path, options.section);
+    await load();
+  }
+
   function markDirty(): void {
-    tabs.markDirty(toValue(options.tabId));
+    edits += 1;
+    tabs.markDirty(toValue(options.tabId), "form");
   }
 
   function onKeydown(event: KeyboardEvent): void {
-    if ((event.metaKey || event.ctrlKey) && event.key === "s") {
-      event.preventDefault();
-      save();
+    if (!(event.metaKey || event.ctrlKey) || event.key !== "s") return;
+    // Only the pane on screen. The listener is on `window` and every dirty
+    // pane stays mounted, so without this one keystroke saved all of them.
+    const tabId = toValue(options.tabId);
+    if (tabs.activeId !== tabId) return;
+    const tab = tabs.get(tabId);
+    if ((tab?.kind === "section" || tab?.kind === "entry") && tab.editorMode !== "structured") {
+      return;
     }
+    event.preventDefault();
+    save();
   }
 
   onMounted(() => {
@@ -230,8 +326,8 @@ export function useSectionEditor(options: SectionEditorOptions) {
    * same reverse channel `MonacoYamlEditor` watches carries it here instead.
    *
    * **A dirty form is left alone.** Its buffer is the user's unsaved work, and
-   * discarding that silently is the bug the whole change is about; the stale
-   * baseline is the lesser problem and the one they can see.
+   * discarding that silently is the bug the whole change is about. Under the
+   * one-buffer-per-file rule this form is dirty only when it is the writer.
    */
   let seenRevision = cache.fileRevisions.get(toValue(options.filePath)) ?? 0;
   watch(
@@ -239,10 +335,23 @@ export function useSectionEditor(options: SectionEditorOptions) {
     (revision) => {
       if (revision === seenRevision) return;
       seenRevision = revision;
-      if (tabs.get(toValue(options.tabId))?.isDirty) return;
+      const tab = tabs.get(toValue(options.tabId));
+      if (tab && isEditableTab(tab) && tab.dirtySources.has("form")) return;
       load();
     },
   );
 
-  return { isLoading, isSaving, error, saveError, load, save, markDirty };
+  return {
+    isLoading,
+    isSaving,
+    error,
+    saveError,
+    conflict,
+    locked,
+    lockOwner,
+    load,
+    save,
+    reload,
+    markDirty,
+  };
 }

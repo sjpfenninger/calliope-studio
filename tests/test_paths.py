@@ -10,9 +10,16 @@ to be the same table as `fileKind.test.ts`. If you add an extension to one, add
 it to both, here and there.
 """
 
+import sys
+
 import pytest
 
-from calliope_studio.modeldef.paths import file_type, walk_files
+from calliope_studio.modeldef.paths import (
+    content_revision,
+    file_type,
+    walk_files,
+    write_text_atomic,
+)
 
 #: Kept identical to the table in `web/src/lib/fileKind.test.ts`.
 CLASSIFICATIONS = [
@@ -71,3 +78,45 @@ def test_walk_files_hides_excluded_directories(tmp_path):
 
     paths = {entry["path"] for entry in walk_files(tmp_path)}
     assert paths == {"model.yaml"}
+
+
+class TestAtomicReplacement:
+    """A save replaces the inode, so what the temporary had is what remains."""
+
+    @pytest.mark.skipif(sys.platform == "win32", reason="POSIX permission bits")
+    def test_the_original_permissions_survive_a_save(self, tmp_path):
+        """`mkstemp` creates 0600, so the first save made a 0644 file private."""
+        import os
+        import stat
+
+        path = tmp_path / "techs.yaml"
+        path.write_text("a: 1\n", encoding="utf-8")
+        os.chmod(path, 0o644)
+
+        write_text_atomic(path, "a: 2\n")
+        assert stat.S_IMODE(path.stat().st_mode) == 0o644
+
+    @pytest.mark.skipif(sys.platform == "win32", reason="POSIX permission bits")
+    def test_a_new_file_gets_what_open_would_have_given_it(self, tmp_path):
+        import os
+        import stat
+
+        umask = os.umask(0)
+        os.umask(umask)
+        path = tmp_path / "new.yaml"
+        write_text_atomic(path, "a: 1\n")
+        assert stat.S_IMODE(path.stat().st_mode) == 0o666 & ~umask
+
+
+class TestContentRevision:
+    def test_follows_the_bytes_not_the_clock(self, tmp_path):
+        path = tmp_path / "a.yaml"
+        path.write_text("a: 1\n", encoding="utf-8")
+        first = content_revision(path)
+        path.write_text("a: 1\n", encoding="utf-8")
+        assert content_revision(path) == first
+        path.write_text("a: 2\n", encoding="utf-8")
+        assert content_revision(path) != first
+
+    def test_a_missing_file_has_none(self, tmp_path):
+        assert content_revision(tmp_path / "missing") is None

@@ -39,8 +39,23 @@ function isSet(value: any): boolean {
 export function parseScalar(raw: string): string | number | null {
   const trimmed = raw.trim();
   if (!trimmed) return null;
+  // Only a YAML number is read as one. `Number()` also accepts `0x1A`, `0b11`
+  // and `Infinity` — and JSON cannot carry `Infinity`, so `axios` sent it as
+  // `null` and the file gained an empty value where the user typed a word.
+  if (!NUMBER.test(trimmed)) return trimmed;
   const asNumber = Number(trimmed);
-  return isNaN(asNumber) ? trimmed : asNumber;
+  return Number.isFinite(asNumber) ? asNumber : trimmed;
+}
+
+/** A decimal or scientific number, as YAML spells one. Hex and words are text. */
+const NUMBER = /^[-+]?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?$/i;
+
+/** A comma-separated field as a list of values, each read like `parseScalar`. */
+export function parseScalarList(raw: string): (string | number)[] {
+  return raw
+    .split(",")
+    .map((part) => parseScalar(part))
+    .filter((value): value is string | number => value !== null);
 }
 
 function paramsToObject(params: Param[]): Record<string, any> {

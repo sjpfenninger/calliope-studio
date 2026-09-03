@@ -1,6 +1,6 @@
 import { ref, shallowRef, type Ref } from "vue";
 
-import { getCsv } from "@/api/versions";
+import { getCsv, putCsv } from "@/api/versions";
 
 /**
  * Loads a CSV into AG Grid shape, and serialises it back unchanged.
@@ -59,6 +59,14 @@ export interface CellEdit {
   value: unknown;
 }
 
+export interface CsvGridOptions {
+  /**
+   * Whether cells take edits. A function, read by the grid per cell, so a lock
+   * that arrives after the column definitions were built still applies.
+   */
+  editable?: () => boolean;
+}
+
 function describe(e: any): string {
   const status = e?.response?.status;
   const detail = e?.response?.data?.detail;
@@ -68,7 +76,7 @@ function describe(e: any): string {
   return e?.message ?? "Failed to load CSV.";
 }
 
-export function useCsvGrid(versionId: Ref<string | null>) {
+export function useCsvGrid(versionId: Ref<string | null>, options: CsvGridOptions = {}) {
   const columnDefs = shallowRef<any[]>([]);
   const rowData = shallowRef<Record<string, string>[]>([]);
   const isLoading = ref(false);
@@ -80,6 +88,21 @@ export function useCsvGrid(versionId: Ref<string | null>) {
   // header names and their order, exactly as the file had them.
   let columns: CsvColumn[] = [];
 
+  /**
+   * Cells past the end of the header, by row index, put back on save.
+   *
+   * A row longer than its header has nowhere to go in a grid keyed by column,
+   * and `toRows` used to map over the header only — so a save quietly cut
+   * every such row down to the header's width.
+   */
+  let overflow = new Map<number, string[]>();
+
+  /** The file's revision as loaded, sent back with a save; see `Revised`. */
+  let revision: string | null = null;
+
+  /** Counts edits, so a save can tell whether one landed while it was writing. */
+  let edits = 0;
+
   // A response for a superseded path must not land. The data-tables view
   // reloads whenever `table:` changes, so out-of-order responses are ordinary
   // there rather than exotic.
@@ -87,6 +110,8 @@ export function useCsvGrid(versionId: Ref<string | null>) {
 
   function reset() {
     columns = [];
+    overflow = new Map();
+    revision = null;
     columnDefs.value = [];
     rowData.value = [];
     isDirty.value = false;
@@ -109,18 +134,21 @@ export function useCsvGrid(versionId: Ref<string | null>) {
       if (mine !== token) return;
 
       columns = (payload.columns as CsvColumn[]) ?? [];
+      revision = payload.revision ?? null;
       columnDefs.value = columns.map((col, i) => ({
         field: fieldFor(i),
         headerName: col.name || "(unnamed)",
-        editable: true,
+        editable: () => options.editable?.() ?? true,
         type: col.type === "numeric" ? "numericColumn" : undefined,
         valueSetter: makeValueSetter(fieldFor(i)),
       }));
+      overflow = new Map();
       rowData.value = (payload.rows ?? []).map((row, rowIndex) => {
         const obj: Record<string, string> = { [ROW_KEY]: String(rowIndex) };
         columns.forEach((_, i) => {
           obj[fieldFor(i)] = row[i] ?? "";
         });
+        if (row.length > columns.length) overflow.set(rowIndex, row.slice(columns.length));
         return obj;
       });
       isDirty.value = false;
@@ -139,7 +167,10 @@ export function useCsvGrid(versionId: Ref<string | null>) {
 
   /** The rows as the CSV endpoint wants them: header order, strings. */
   function toRows(): string[][] {
-    return rowData.value.map((row) => columns.map((_, i) => row[fieldFor(i)] ?? ""));
+    return rowData.value.map((row) => [
+      ...columns.map((_, i) => row[fieldFor(i)] ?? ""),
+      ...(overflow.get(Number(row[ROW_KEY])) ?? []),
+    ]);
   }
 
   /** Writes a committed edit into the real rows. Returns whether it landed. */
@@ -149,6 +180,7 @@ export function useCsvGrid(versionId: Ref<string | null>) {
     // In-place on purpose: replacing `rowData.value` would fire the wrapper's
     // prop watcher, which re-clones everything and resets the grid mid-edit.
     row[edit.field] = edit.value == null ? "" : String(edit.value);
+    edits += 1;
     isDirty.value = true;
     return true;
   }
@@ -176,6 +208,22 @@ export function useCsvGrid(versionId: Ref<string | null>) {
     };
   }
 
+  /**
+   * Writes the grid to `path`, carrying the revision it was loaded from.
+   *
+   * Throws rather than returns when no model is open: a resolved promise reads
+   * as "saved" to the caller, which then marks the buffer clean over a file that
+   * was never written. An edit committed while the write was in flight keeps
+   * the grid dirty, since it is not on disk.
+   */
+  async function save(path: string): Promise<void> {
+    if (!versionId.value) throw new Error("No model is open — nothing was saved.");
+    const at = edits;
+    const next = await putCsv(versionId.value, path, columns, toRows(), revision);
+    if (next) revision = next;
+    if (edits === at) isDirty.value = false;
+  }
+
   function markSaved() {
     isDirty.value = false;
   }
@@ -190,9 +238,13 @@ export function useCsvGrid(versionId: Ref<string | null>) {
     get columns() {
       return columns;
     },
+    get revision() {
+      return revision;
+    },
     load,
     toRows,
     applyEdit,
+    save,
     markSaved,
   };
 }

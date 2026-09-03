@@ -15,6 +15,7 @@
  *   run time, with a message that does not say which scenario was at fault.
  */
 import { computed, ref } from "vue";
+import LockedBanner from "@/components/app/LockedBanner.vue";
 import StateMessage from "@/components/app/StateMessage.vue";
 import { entryKey } from "@/lib/entries";
 import { ChevronDown, ChevronUp, Plus, TriangleAlert, Trash2, X } from "@lucide/vue";
@@ -69,7 +70,18 @@ function unresolved(entry: ScenarioEntry): string[] {
   return entry.overrides.filter((name) => !knownOverrides.value.includes(name));
 }
 
-const { isLoading, isSaving, error, saveError, save, markDirty } = useSectionEditor({
+const {
+  isLoading,
+  isSaving,
+  error,
+  saveError,
+  conflict,
+  locked,
+  lockOwner,
+  save,
+  reload,
+  markDirty,
+} = useSectionEditor({
   versionId: () => props.versionId,
   filePath: () => props.filePath,
   tabId: () => props.tabId,
@@ -142,14 +154,29 @@ const onChange = markDirty;
     <StateMessage v-else-if="error" variant="block" tone="danger">{{ error }}</StateMessage>
 
     <template v-else>
-      <EditorToolbar :saving="isSaving" :error="saveError" :file="filePath" @save="save">
-        <button v-if="!entryName" type="button" :class="GHOST_BUTTON" @click="addEntry">
+      <EditorToolbar
+        :saving="isSaving"
+        :disabled="locked"
+        :error="saveError"
+        :conflict="conflict"
+        :file="filePath"
+        @save="save"
+        @reload="reload"
+      >
+        <button
+          v-if="!entryName"
+          type="button"
+          :class="GHOST_BUTTON"
+          :disabled="locked"
+          @click="addEntry"
+        >
           <Plus class="size-3.5" />
           Add scenario
         </button>
       </EditorToolbar>
+      <LockedBanner v-if="lockOwner" :owner="lockOwner" :file="filePath" />
 
-      <div class="min-h-0 flex-1 overflow-auto p-2">
+      <fieldset :disabled="locked" class="min-h-0 flex-1 overflow-auto p-2">
         <StateMessage v-if="!visibleEntries.length" variant="block">
           {{
             entryName
@@ -240,7 +267,7 @@ const onChange = markDirty;
             This scenario composes no overrides.
           </p>
         </section>
-      </div>
+      </fieldset>
     </template>
   </div>
 </template>

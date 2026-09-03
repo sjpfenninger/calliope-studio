@@ -67,8 +67,24 @@ export interface ComponentTree {
 export type { FileEntry } from "../lib/fileTree";
 
 export interface CsvPayload {
-  columns: { name: string }[];
+  columns: { name: string; type?: "numeric" | "text" }[];
   rows: string[][];
+  /** See `Revised`. */
+  revision?: string | null;
+}
+
+/**
+ * Something the client may write back, and what it was based on.
+ *
+ * Every read a save can follow carries the file's revision, and the save
+ * carries it back: the server refuses (409) a write whose baseline is no
+ * longer what is on disk — a second browser tab, an editor outside the app —
+ * rather than letting the older state silently erase the newer. Null from a
+ * server that predates it, which is then simply not checked.
+ */
+export interface Revised<T> {
+  data: T;
+  revision: string | null;
 }
 
 export interface WorkspaceSettings {
@@ -82,29 +98,44 @@ export type SectionData = Record<string, any>;
 // YAML sections
 // ---------------------------------------------------------------------------
 
+export async function readYamlSection(
+  versionId: string,
+  path: string,
+  section: string,
+): Promise<Revised<SectionData>> {
+  const res = await client.get<{
+    section: string;
+    data: SectionData | null;
+    revision?: string | null;
+  }>(`/api/versions/${seg(versionId)}/yaml-section/${filePath(path)}`, {
+    params: { section },
+  });
+  return { data: res.data.data ?? {}, revision: res.data.revision ?? null };
+}
+
+/** `readYamlSection` for a caller that only looks and never writes back. */
 export async function getYamlSection(
   versionId: string,
   path: string,
   section: string,
 ): Promise<SectionData> {
-  const res = await client.get<{ section: string; data: SectionData | null }>(
-    `/api/versions/${seg(versionId)}/yaml-section/${filePath(path)}`,
-    { params: { section } },
-  );
-  return res.data.data ?? {};
+  return (await readYamlSection(versionId, path, section)).data;
 }
 
+/** Returns the file's revision after the write, for the next save to carry. */
 export async function putYamlSection(
   versionId: string,
   path: string,
   section: string,
   data: SectionData,
-): Promise<void> {
-  await client.put(
+  revision: string | null = null,
+): Promise<string | null> {
+  const res = await client.put<{ ok: boolean; revision?: string | null }>(
     `/api/versions/${seg(versionId)}/yaml-section/${filePath(path)}`,
-    { data },
+    { data, revision },
     { params: { section } },
   );
+  return res?.data?.revision ?? null;
 }
 
 // ---------------------------------------------------------------------------
@@ -116,24 +147,35 @@ export interface OverrideSetting {
   value: unknown;
 }
 
+export async function readOverrides<T = OverrideSetting>(
+  versionId: string,
+  path: string,
+): Promise<Revised<Record<string, T[]>>> {
+  const res = await client.get<{
+    overrides: Record<string, T[]>;
+    revision?: string | null;
+  }>(`/api/versions/${seg(versionId)}/overrides/${filePath(path)}`);
+  return { data: res.data.overrides, revision: res.data.revision ?? null };
+}
+
 export async function getOverrides<T = OverrideSetting>(
   versionId: string,
   path: string,
 ): Promise<Record<string, T[]>> {
-  const res = await client.get<{ overrides: Record<string, T[]> }>(
-    `/api/versions/${seg(versionId)}/overrides/${filePath(path)}`,
-  );
-  return res.data.overrides;
+  return (await readOverrides<T>(versionId, path)).data;
 }
 
 export async function putOverrides<T = OverrideSetting>(
   versionId: string,
   path: string,
   overrides: Record<string, T[]>,
-): Promise<void> {
-  await client.put(`/api/versions/${seg(versionId)}/overrides/${filePath(path)}`, {
-    overrides,
-  });
+  revision: string | null = null,
+): Promise<string | null> {
+  const res = await client.put<{ ok: boolean; revision?: string | null }>(
+    `/api/versions/${seg(versionId)}/overrides/${filePath(path)}`,
+    { overrides, revision },
+  );
+  return res?.data?.revision ?? null;
 }
 
 // ---------------------------------------------------------------------------
@@ -145,21 +187,46 @@ export async function listFiles(versionId: string): Promise<FileEntry[]> {
   return res.data;
 }
 
+export interface FileRead {
+  content: string;
+  /**
+   * The bytes were not all UTF-8 and some became U+FFFD on the way in. Such a
+   * buffer must not be saved: the replacement character would be written over
+   * the original byte, silently, in a file the user opened only to look at.
+   */
+  lossy: boolean;
+  revision: string | null;
+}
+
+export async function readFile(versionId: string, path: string): Promise<FileRead> {
+  const res = await client.get<{
+    content: string;
+    lossy?: boolean;
+    revision?: string | null;
+  }>(`/api/versions/${seg(versionId)}/files/${filePath(path)}`);
+  return {
+    content: res.data.content,
+    lossy: res.data.lossy ?? false,
+    revision: res.data.revision ?? null,
+  };
+}
+
+/** `readFile` for a caller that only looks and never writes back. */
 export async function getFile(versionId: string, path: string): Promise<string> {
-  const res = await client.get<{ content: string }>(
-    `/api/versions/${seg(versionId)}/files/${filePath(path)}`,
-  );
-  return res.data.content;
+  return (await readFile(versionId, path)).content;
 }
 
 export async function putFile(
   versionId: string,
   path: string,
   content: string,
-): Promise<void> {
-  await client.put(`/api/versions/${seg(versionId)}/files/${filePath(path)}`, {
-    content,
-  });
+  revision: string | null = null,
+): Promise<string | null> {
+  const res = await client.put<{ ok: boolean; revision?: string | null }>(
+    `/api/versions/${seg(versionId)}/files/${filePath(path)}`,
+    { content, revision },
+  );
+  return res?.data?.revision ?? null;
 }
 
 /**
@@ -206,11 +273,13 @@ export async function putCsv(
   path: string,
   columns: unknown[],
   rows: unknown[][],
-): Promise<void> {
-  await client.put(`/api/versions/${seg(versionId)}/csv/${filePath(path)}`, {
-    columns,
-    rows,
-  });
+  revision: string | null = null,
+): Promise<string | null> {
+  const res = await client.put<{ ok: boolean; revision?: string | null }>(
+    `/api/versions/${seg(versionId)}/csv/${filePath(path)}`,
+    { columns, rows, revision },
+  );
+  return res?.data?.revision ?? null;
 }
 
 // ---------------------------------------------------------------------------

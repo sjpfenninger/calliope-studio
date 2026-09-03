@@ -106,10 +106,14 @@ export const router = createRouter({
 /**
  * Leaving the shell tears down Monaco's models, and unsaved edits go with them.
  * Moving *between* sections is not leaving, which is exactly what the shared
- * `AppShell` record expresses.
+ * `AppShell` record expresses. Moving to another *model* is: the shell record
+ * is reused, but the tabs store closes every tab for the new model, so a
+ * back/forward between two models' URLs has to ask too.
  */
 router.beforeEach(async (to, from) => {
-  if (!from.meta.section || to.meta.section) return true;
+  if (!from.meta.section) return true;
+  const staying = to.meta.section && to.params.versionId === from.params.versionId;
+  if (staying) return true;
   const tabs = useTabsStore();
   if (!tabs.hasDirtyTabs) return true;
   // Awaiting a real dialog. This was the app's one `window.confirm` — an

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { reactive, computed, onMounted, ref, watch } from "vue";
+import LockedBanner from "@/components/app/LockedBanner.vue";
 import StateMessage from "@/components/app/StateMessage.vue";
 
 import { useSectionEditor } from "@/composables/useSectionEditor";
@@ -127,13 +128,18 @@ const solveOverlay = computed<FieldOverlay>(() => ({
 /** Which of the three config sections the file actually declared. */
 const loadedSections = ref<Set<string>>(new Set());
 
+/** Whether `apply` moved a legacy `time_subset` into `subset.timesteps`. */
+const foldedTimeSubset = ref(false);
+
 function buildPayload() {
   const init = { ...configData.init };
   // Written back where Calliope 0.7 reads it. This used to write `time_subset`,
   // which is the *pre*-0.7 spelling and not in the schema at all — so opening
   // the config editor and pressing Save replaced a working `subset:` block with
-  // a key Calliope does not accept. `apply` has already folded it the other way.
-  delete init.time_subset;
+  // a key Calliope does not accept. `apply` has already folded it the other way
+  // — and only then is it dropped here. A `time_subset` that was not a list
+  // could not be folded, and deleting it anyway lost the value outright.
+  if (foldedTimeSubset.value) delete init.time_subset;
 
   // A section the file did not have and the form did not fill in is left out.
   // Emitting all three unconditionally meant a model declaring only
@@ -154,7 +160,18 @@ function buildPayload() {
   return payload;
 }
 
-const { isLoading, isSaving, error, saveError, save, markDirty } = useSectionEditor({
+const {
+  isLoading,
+  isSaving,
+  error,
+  saveError,
+  conflict,
+  locked,
+  lockOwner,
+  save,
+  reload,
+  markDirty,
+} = useSectionEditor({
   versionId: () => props.versionId,
   filePath: () => props.filePath,
   tabId: () => props.tabId,
@@ -166,7 +183,8 @@ const { isLoading, isSaving, error, saveError, save, markDirty } = useSectionEdi
     // written for 0.6 says `time_subset`, and is read into the modern shape so
     // the form edits one thing rather than two that disagree.
     const legacy = init.time_subset;
-    if (Array.isArray(legacy) && init.subset?.timesteps == null) {
+    foldedTimeSubset.value = Array.isArray(legacy) && init.subset?.timesteps == null;
+    if (foldedTimeSubset.value) {
       init.subset = { ...(init.subset ?? {}), timesteps: legacy };
     }
     configData.init = init;
@@ -211,9 +229,21 @@ onMounted(() => {
     <StateMessage v-else-if="error" variant="block" tone="danger">{{ error }}</StateMessage>
 
     <template v-else>
-      <EditorToolbar :saving="isSaving" :error="saveError" :file="filePath" @save="save" />
+      <EditorToolbar
+        :saving="isSaving"
+        :disabled="locked"
+        :error="saveError"
+        :conflict="conflict"
+        :file="filePath"
+        @save="save"
+        @reload="reload"
+      />
+      <LockedBanner v-if="lockOwner" :owner="lockOwner" :file="filePath" />
 
-      <div class="flex min-h-0 flex-1 flex-col gap-2 overflow-auto p-2">
+      <fieldset
+        :disabled="locked"
+        class="flex min-h-0 flex-1 flex-col gap-2 overflow-auto p-2"
+      >
         <section :class="SECTION">
           <Eyebrow class="mb-0">init</Eyebrow>
           <SchemaObjectEditor
@@ -251,7 +281,7 @@ onMounted(() => {
             @update:show-advanced="ui.setConfigAdvanced('solve', $event)"
           />
         </section>
-      </div>
+      </fieldset>
     </template>
   </div>
 </template>

@@ -18,11 +18,12 @@
  * editor talks to `/overrides/` rather than to `yaml-section`.
  */
 import { computed, ref } from "vue";
+import LockedBanner from "@/components/app/LockedBanner.vue";
 import StateMessage from "@/components/app/StateMessage.vue";
 import { entryKey } from "@/lib/entries";
 import { Plus, X } from "@lucide/vue";
 
-import { getOverrides, putOverrides } from "@/api/versions";
+import { putOverrides, readOverrides } from "@/api/versions";
 import { useSectionEditor } from "@/composables/useSectionEditor";
 import EditorToolbar from "./EditorToolbar.vue";
 import ScalarOrDataVar from "./ScalarOrDataVar.vue";
@@ -90,16 +91,32 @@ const suggestions = computed(() => {
  * Overrides are not served through `yaml-section`, so this is the one editor
  * that supplies its own transport. Everything else about it is identical.
  */
-const { isLoading, isSaving, error, saveError, save, markDirty } = useSectionEditor({
+const {
+  isLoading,
+  isSaving,
+  error,
+  saveError,
+  conflict,
+  locked,
+  lockOwner,
+  save,
+  reload,
+  markDirty,
+} = useSectionEditor({
   versionId: () => props.versionId,
   filePath: () => props.filePath,
   tabId: () => props.tabId,
   section: "overrides",
   label: "overrides",
   transport: {
-    read: (versionId, path) => getOverrides<Setting>(versionId, path),
-    write: (versionId, path, data) =>
-      putOverrides<Setting>(versionId, path, data as Record<string, Setting[]>),
+    read: (versionId, path) => readOverrides<Setting>(versionId, path),
+    write: (versionId, path, data, revision) =>
+      putOverrides<Setting>(
+        versionId,
+        path,
+        data as Record<string, Setting[]>,
+        revision,
+      ),
   },
   apply(data) {
     entries.value = Object.entries(data as Record<string, Setting[]>).map(
@@ -157,20 +174,36 @@ const onChange = markDirty;
     <StateMessage v-if="isLoading" variant="block" loading>
       Loading overrides…
     </StateMessage>
+    <!-- In place of the form, as every other editor does. This one used to
+         render the error as a banner *under* the toolbar, Save button and all —
+         and a save over the empty form it left wrote `{}`, which deleted every
+         override in the file. -->
+    <StateMessage v-else-if="error" variant="block" tone="danger">{{ error }}</StateMessage>
 
     <template v-else>
-      <EditorToolbar :saving="isSaving" :error="saveError" :file="filePath" @save="save">
-        <button v-if="!entryName" type="button" :class="GHOST_BUTTON" @click="addEntry">
+      <EditorToolbar
+        :saving="isSaving"
+        :disabled="locked"
+        :error="saveError"
+        :conflict="conflict"
+        :file="filePath"
+        @save="save"
+        @reload="reload"
+      >
+        <button
+          v-if="!entryName"
+          type="button"
+          :class="GHOST_BUTTON"
+          :disabled="locked"
+          @click="addEntry"
+        >
           <Plus class="size-3.5" />
           Add override
         </button>
       </EditorToolbar>
+      <LockedBanner v-if="lockOwner" :owner="lockOwner" :file="filePath" />
 
-      <p v-if="error" class="border-b border-border bg-danger-soft p-2 text-sm text-danger-text">
-        {{ error }}
-      </p>
-
-      <div class="min-h-0 flex-1 overflow-auto">
+      <fieldset :disabled="locked" class="min-h-0 flex-1 overflow-auto">
         <StateMessage v-if="!visibleEntries.length" variant="block">
           {{
             entryName
@@ -271,7 +304,7 @@ const onChange = markDirty;
         <datalist id="override-paths">
           <option v-for="path in suggestions" :key="path" :value="path" />
         </datalist>
-      </div>
+      </fieldset>
     </template>
   </div>
 </template>

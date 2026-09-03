@@ -9,12 +9,15 @@
  *
  * Switching tabs swaps the active model via editor.setModel().
  */
-import { computed, ref, watch, onMounted, onUnmounted } from "vue";
+import { computed, reactive, ref, watch, onMounted, onUnmounted } from "vue";
 import * as monaco from "monaco-editor";
 import { TriangleAlert } from "@lucide/vue";
 import { stringify as yamlStringify, parse as yamlParse } from "yaml";
-import { errorDetail } from "../../api/errors";
-import { getFile, getYamlSection, putYamlSection } from "../../api/versions";
+import { errorDetail, isConflict } from "../../api/errors";
+import { putYamlSection, readFile, readYamlSection } from "../../api/versions";
+import LockedBanner from "../app/LockedBanner.vue";
+import { TEXT_BUTTON_SM } from "../../lib/formClasses";
+import { useConfirmStore } from "../../stores/confirm";
 import {
   applyMonacoTheme,
   monacoFontFamily,
@@ -42,6 +45,7 @@ const props = defineProps<{
 
 const tabsStore = useTabsStore();
 const sectionDataStore = useSectionDataStore();
+const confirm = useConfirmStore();
 const ui = useUiStore();
 const containerRef = ref<HTMLElement | null>(null);
 
@@ -51,6 +55,22 @@ const containerRef = ref<HTMLElement | null>(null);
  * the buffer with the unsaved edits stays exactly where it is, dirty.
  */
 const saveError = ref<string | null>(null);
+/** The failure was a stale baseline; the strip then offers a reload. */
+const conflict = ref(false);
+
+/**
+ * Files whose bytes were not all UTF-8. The server replaced what it could not
+ * decode, so the buffer is a *transcription* and saving it would write U+FFFD
+ * over the original bytes. Such a buffer is read-only here.
+ */
+const lossyFiles = reactive(new Set<string>());
+
+/**
+ * Virtual buffers whose section could not be fetched. They were created empty
+ * so the tab has something to show, and an empty section saved is a section
+ * emptied — so the save refuses until the tab is reopened.
+ */
+const failedVirtual = new Set<string>();
 
 let editor: monaco.editor.IStandaloneCodeEditor | null = null;
 // Map from tab key (or file path) → monaco model
@@ -96,7 +116,11 @@ function ensureFileModel(path: string): Promise<monaco.editor.ITextModel> {
   return shared(path, async () => {
     let content = "";
     if (props.versionId) {
-      content = await getFile(props.versionId, path);
+      const read = await readFile(props.versionId, path);
+      content = read.content;
+      sectionDataStore.setRevision(path, read.revision);
+      if (read.lossy) lossyFiles.add(path);
+      else lossyFiles.delete(path);
     }
 
     // Through `fileModelUri` so the scheme is written once: the markdown preview
@@ -113,7 +137,7 @@ function ensureFileModel(path: string): Promise<monaco.editor.ITextModel> {
       if (refreshing.has(path)) return;
       // A file tab's id is derived from its path rather than being it, so this
       // has to be built — passing the bare path used to work only by coincidence.
-      tabsStore.markDirty(fileTabId(path));
+      tabsStore.markDirty(fileTabId(path), "raw");
     });
     changeDisposables.set(path, disposable);
     models.set(path, model);
@@ -134,14 +158,24 @@ const refreshing = new Set<string>();
 async function refreshFileModel(path: string): Promise<void> {
   if (!props.versionId || !models.has(path)) return;
   if (tabsStore.get(fileTabId(path))?.isDirty) return;
-  const content = await getFile(props.versionId, path);
+  const read = await readFile(props.versionId, path);
   const model = models.get(path);
   // Re-checked after the await: the user may have started typing meanwhile.
   if (!model || model.isDisposed() || tabsStore.get(fileTabId(path))?.isDirty) return;
-  if (model.getValue() === content) return;
+  sectionDataStore.setRevision(path, read.revision);
+  if (read.lossy) lossyFiles.add(path);
+  else lossyFiles.delete(path);
+  if (model.getValue() === read.content) return;
   refreshing.add(path);
   try {
-    model.setValue(content);
+    // An edit operation rather than `setValue`, which discards the undo stack:
+    // a reload after somebody else's save must not take away the ability to
+    // undo what was typed here before it.
+    model.pushEditOperations(
+      [],
+      [{ range: model.getFullModelRange(), text: read.content }],
+      () => null,
+    );
   } finally {
     refreshing.delete(path);
   }
@@ -226,12 +260,17 @@ function ensureVirtualModel(
     let content = "";
     if (props.versionId) {
       try {
-        const sectionData = await getYamlSection(props.versionId, filePath, section);
+        const read = await readYamlSection(props.versionId, filePath, section);
+        sectionDataStore.setRevision(filePath, read.revision);
         content = entryName
-          ? yamlStringify({ [entryName]: sectionData[entryName] ?? null })
-          : yamlStringify(sectionData);
+          ? yamlStringify({ [entryName]: read.data[entryName] ?? null })
+          : yamlStringify(read.data);
+        failedVirtual.delete(tab.id);
       } catch {
+        // Shown empty rather than failing the tab, but remembered: a Cmd+S on
+        // this buffer used to write `{}` over the whole section.
         content = "";
+        failedVirtual.add(tab.id);
       }
     }
 
@@ -240,7 +279,7 @@ function ensureVirtualModel(
     const model = monaco.editor.createModel(content, "yaml", uri);
 
     const disposable = model.onDidChangeContent(() => {
-      tabsStore.markDirty(tab.id);
+      tabsStore.markDirty(tab.id, "raw");
     });
     changeDisposables.set(tab.id, disposable);
     models.set(tab.id, model);
@@ -266,6 +305,7 @@ async function activateTab(tab: EditableTab | null) {
   if (activeMonacoTab.value?.id !== tab.id) return;
 
   editor.setModel(model);
+  editor.updateOptions({ readOnly: readOnly.value });
   editor.focus();
 }
 
@@ -274,14 +314,26 @@ async function saveVirtualTab(tab: SectionTab | EntryTab) {
   if (!props.versionId) return;
   const model = models.get(tab.id);
   if (!model) return;
+  if (failedVirtual.has(tab.id)) {
+    throw new Error(
+      "This section could not be loaded, so the buffer cannot be saved. " +
+        "Close the tab and open it again.",
+    );
+  }
 
   const { section, filePath } = tab;
   const entryName = tab.kind === "entry" ? tab.entryName : null;
   const currentContent = model.getValue();
+  // Compared after the write: an edit typed meanwhile is not on disk, and the
+  // tab has to stay dirty for it.
+  const version = model.getAlternativeVersionId();
 
   if (entryName) {
-    // Read-modify-write: fetch full section, replace this entry, PUT back
-    const fullSection = await getYamlSection(props.versionId!, filePath, section);
+    // Read-modify-write: fetch full section, replace this entry, PUT back —
+    // carrying the revision just read, so the write is refused if the file
+    // moved between the two.
+    const read = await readYamlSection(props.versionId!, filePath, section);
+    const fullSection = read.data;
     const parsed = yamlParse(currentContent);
     // A buffer that no longer declares the entry the tab is for cannot be
     // written through this route, and the failure has to be loud. It used to
@@ -296,17 +348,74 @@ async function saveVirtualTab(tab: SectionTab | EntryTab) {
       );
     }
     fullSection[entryName] = (parsed as Record<string, any>)[entryName];
-    await putYamlSection(props.versionId!, filePath, section, fullSection);
+    const revision = await putYamlSection(
+      props.versionId!,
+      filePath,
+      section,
+      fullSection,
+      read.revision,
+    );
+    sectionDataStore.setRevision(filePath, revision);
     sectionDataStore.invalidate(props.versionId!, filePath, section);
   } else {
-    // Section tab: parse and PUT the whole section
+    // Section tab: parse and PUT the whole section. An empty buffer, or one
+    // that is not a mapping, is refused: `parsed ?? {}` used to turn it into a
+    // write of `{}`, which deletes every entry in the section.
     const parsed = yamlParse(currentContent);
-    await putYamlSection(props.versionId!, filePath, section, parsed ?? {});
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error(
+        `The buffer is empty or not a mapping, so it cannot replace the ${section} ` +
+          "section. Remove entries in the structured editor instead.",
+      );
+    }
+    const revision = await putYamlSection(
+      props.versionId!,
+      filePath,
+      section,
+      parsed as Record<string, any>,
+      sectionDataStore.revisionOf(filePath),
+    );
+    sectionDataStore.setRevision(filePath, revision);
     sectionDataStore.invalidate(props.versionId!, filePath, section);
   }
   // A section PUT rewrites the file, so a raw model of it is now stale too.
   sectionDataStore.noteFileWritten(filePath);
-  tabsStore.markClean(tab.id);
+  if (model.getAlternativeVersionId() === version) tabsStore.markClean(tab.id, "raw");
+}
+
+/**
+ * Throws the active buffer away and re-reads it, for a 409, after asking.
+ *
+ * The file changed under this buffer and the user has to choose between their
+ * edits and what landed on disk; nothing chooses for them.
+ */
+async function reloadActive(): Promise<void> {
+  const tab = activeMonacoTab.value;
+  if (!tab) return;
+  const ok = await confirm.ask({
+    title: "Reload from disk?",
+    message: "The unsaved edits in this buffer will be lost.",
+    confirmLabel: "Reload",
+    destructive: true,
+  });
+  if (!ok) return;
+  saveError.value = null;
+  conflict.value = false;
+  tabsStore.markClean(tab.id, "raw");
+  if (tab.kind === "file") {
+    await refreshFileModel(tab.path);
+    return;
+  }
+  // A virtual buffer is rebuilt from a fresh fetch rather than patched.
+  const model = models.get(tab.id);
+  if (model) {
+    if (editor?.getModel() === model) editor.setModel(null);
+    changeDisposables.get(tab.id)?.dispose();
+    changeDisposables.delete(tab.id);
+    model.dispose();
+    models.delete(tab.id);
+  }
+  await activateTab(tab);
 }
 
 // The tab whose Monaco model should be showing, or null when Monaco is not the
@@ -326,6 +435,51 @@ const activeMonacoTab = computed<EditableTab | null>(() => {
 /** The workspace path being edited, or null for a virtual section/entry tab. */
 const filePath = computed(() =>
   activeMonacoTab.value?.kind === "file" ? activeMonacoTab.value.path : null,
+);
+
+/** The file the active buffer is over, for a virtual tab as well. */
+const activeFile = computed(() => {
+  const tab = activeMonacoTab.value;
+  return tab ? tabsStore.fileOf(tab) : null;
+});
+
+/**
+ * Another buffer holds unsaved changes to the active buffer's file — the
+ * structured form of this very tab, typically, when it is toggled to Raw with
+ * edits pending. The buffer is shown read-only rather than taking edits it
+ * would later save over the form's.
+ */
+const lockOwner = computed(() => {
+  const tab = activeMonacoTab.value;
+  if (!tab || tabsStore.canEdit(tab.id, "raw")) return null;
+  return tabsStore.dirtyOwner(tabsStore.fileOf(tab));
+});
+
+const activeLossy = computed(() =>
+  activeMonacoTab.value?.kind === "file" && lossyFiles.has(activeMonacoTab.value.path),
+);
+
+const readOnly = computed(() => lockOwner.value !== null || activeLossy.value);
+
+watch(readOnly, (value) => editor?.updateOptions({ readOnly: value }));
+
+// Another model: every buffer here belongs to the previous one. Keyed by
+// path, they would otherwise answer for the new model's files with the old
+// model's text — and Cmd+S would write it there.
+watch(
+  () => props.versionId,
+  (next, previous) => {
+    if (previous == null || next === previous) return;
+    editor?.setModel(null);
+    for (const d of changeDisposables.values()) d.dispose();
+    changeDisposables.clear();
+    for (const m of models.values()) m.dispose();
+    models.clear();
+    building.clear();
+    failedVirtual.clear();
+    lossyFiles.clear();
+    if (activeMonacoTab.value) activateTab(activeMonacoTab.value);
+  },
 );
 
 onMounted(() => {
@@ -356,17 +510,35 @@ onMounted(() => {
     const tab = activeMonacoTab.value;
     if (!tab) return;
     saveError.value = null;
+    conflict.value = false;
     try {
+      if (lockOwner.value) {
+        throw new Error(`${lockOwner.value.title} holds unsaved changes to this file.`);
+      }
       if (tab.kind === "file") {
         const model = models.get(tab.path);
         if (!model) return;
-        await tabsStore.saveYamlFile(tab.path, model.getValue());
-        // Invalidate all section caches for this file — Monaco may have changed any section
+        if (lossyFiles.has(tab.path)) {
+          throw new Error(
+            "This file has bytes that are not UTF-8, so saving it from here would " +
+              "write replacement characters over them. Fix the encoding outside the app.",
+          );
+        }
+        const version = model.getAlternativeVersionId();
+        // Invalidate all section caches for this file — Monaco may have changed
+        // any section. Before the write lands, not after: a form reloading on
+        // the write's own signal must not find the stale entry first.
         if (props.versionId) sectionDataStore.invalidateFile(props.versionId, tab.path);
+        await tabsStore.saveYamlFile(tab.path, model.getValue());
+        // Typed while the write was in flight: not on disk, so still dirty.
+        if (model.getAlternativeVersionId() !== version) {
+          tabsStore.markDirty(fileTabId(tab.path), "raw");
+        }
       } else {
         await saveVirtualTab(tab);
       }
     } catch (caught) {
+      conflict.value = isConflict(caught);
       saveError.value = errorDetail(caught, "The file could not be saved.");
     }
   });
@@ -384,6 +556,7 @@ onMounted(() => {
 // to the buffer it happened in, so it does not follow the user to another tab.
 watch(activeMonacoTab, (tab) => {
   saveError.value = null;
+  conflict.value = false;
   if (tab) activateTab(tab);
 });
 
@@ -440,6 +613,28 @@ onUnmounted(() => {
     >
       <TriangleAlert class="size-3 shrink-0" />
       <span class="truncate">{{ saveError }}</span>
+      <button
+        v-if="conflict"
+        type="button"
+        data-testid="reload-from-disk"
+        :class="TEXT_BUTTON_SM"
+        @click="reloadActive"
+      >
+        Reload
+      </button>
+    </div>
+    <LockedBanner v-if="lockOwner && activeFile" :owner="lockOwner" :file="activeFile" />
+    <div
+      v-else-if="activeLossy"
+      role="status"
+      data-testid="lossy-notice"
+      class="flex items-center gap-1 border-b border-border bg-warning-soft px-2 py-1 text-2xs text-warning-text"
+    >
+      <TriangleAlert class="size-3 shrink-0" />
+      <span class="truncate">
+        Read-only: this file has bytes that are not UTF-8, and saving it from
+        here would replace them. Fix the encoding outside the app.
+      </span>
     </div>
     <div ref="containerRef" class="monaco-container min-h-0 flex-1" />
   </div>

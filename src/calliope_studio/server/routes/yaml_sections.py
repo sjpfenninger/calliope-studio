@@ -11,12 +11,14 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 
 from calliope_studio.modeldef.entities import harmonise_coordinates
+from calliope_studio.modeldef.paths import content_revision
 from calliope_studio.modeldef.yaml_io import (
     SectionNotFound,
     read_section,
     write_section,
 )
 from calliope_studio.server.deps import (
+    check_revision,
     get_resolver,
     get_workspace,
     require_file,
@@ -31,6 +33,8 @@ router = APIRouter(tags=["yaml"])
 
 class SectionBody(BaseModel):
     data: Any
+    #: The file's revision when the section was read; see `deps.check_revision`.
+    revision: str | None = None
 
 
 @router.get("/versions/{id}/yaml-section/{file_path:path}")
@@ -41,7 +45,11 @@ def get_section(
 ) -> dict:
     path = require_file(resolve_path(workspace, file_path))
     try:
-        return {"section": section, "data": read_section(path, section)}
+        return {
+            "section": section,
+            "data": read_section(path, section),
+            "revision": content_revision(path),
+        }
     except SectionNotFound:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -62,6 +70,7 @@ def put_section(
             status_code=status.HTTP_400_BAD_REQUEST, detail="data required."
         )
     path = require_file(resolve_writable_path(workspace, file_path))
+    check_revision(path, body.revision)
     data = harmonise_coordinates(body.data) if section == "nodes" else body.data
     try:
         write_section(path, section, data)
@@ -76,4 +85,4 @@ def put_section(
     # whatever needs the result asks for it — `GET /geo/` reports the state — and
     # this response is a write acknowledgement, not a handle.
     resolver.refresh(workspace)
-    return {"ok": True}
+    return {"ok": True, "revision": content_revision(path)}

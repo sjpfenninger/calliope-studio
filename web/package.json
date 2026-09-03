@@ -23,6 +23,7 @@
     "monaco-check": "node scripts/monaco-check.mjs",
     "preview": "vite preview",
     "run-lifecycle": "node scripts/run-lifecycle.mjs",
+    "same-file-lock": "node scripts/same-file-lock.mjs",
     "save-check": "node scripts/save-check.mjs",
     "screenshots": "node scripts/screenshots.mjs",
     "smoke": "node scripts/smoke.mjs",

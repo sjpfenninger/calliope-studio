@@ -441,3 +441,68 @@ class TestAtomicWrites:
 
         assert sample_file.read_text(encoding="utf-8") == original
         assert list(sample_file.parent.glob("*.tmp")) == []
+
+
+class TestFileFidelity:
+    """What a section write must put back that a load-and-dump throws away.
+
+    The raw file route round-trips bytes and so keeps every one of these; the
+    section route parsed and re-emitted, so which endpoint last saved a file
+    decided its line endings, its byte-order mark, its `---` and its indent.
+    None of them is data, and all of them are a diff of every line.
+    """
+
+    def _rewrite(self, path: Path) -> bytes:
+        write_section(path, "techs", _over_the_wire(path, "techs"))
+        return path.read_bytes()
+
+    def test_crlf_stays_crlf(self, tmp_path: Path):
+        path = tmp_path / "t.yaml"
+        original = b"techs:\r\n  a:\r\n    x: 1  # c\r\n"
+        path.write_bytes(original)
+        assert self._rewrite(path) == original
+
+    def test_a_byte_order_mark_survives(self, tmp_path: Path):
+        path = tmp_path / "t.yaml"
+        original = b"\xef\xbb\xbftechs:\n  a:\n    x: 1\n"
+        path.write_bytes(original)
+        assert self._rewrite(path) == original
+
+    def test_a_document_start_marker_survives(self, tmp_path: Path):
+        path = tmp_path / "t.yaml"
+        original = b"---\n# top\ntechs:\n  a:\n    x: 1\n"
+        path.write_bytes(original)
+        assert self._rewrite(path) == original
+
+    def test_four_space_indentation_is_kept(self, tmp_path: Path):
+        """A four-space model was reflowed to two spaces by its first save."""
+        path = tmp_path / "t.yaml"
+        original = (
+            "techs:\n    a:\n        x: 1  # c\n        y: 2\n    b:\n        z: 3\n"
+        )
+        path.write_text(original, encoding="utf-8")
+        data = _over_the_wire(path, "techs")
+        data["a"]["y"] = 5
+        write_section(path, "techs", data)
+        assert path.read_text(encoding="utf-8") == original.replace("y: 2", "y: 5")
+
+    def test_an_integer_key_keeps_its_type_and_its_comment(self, tmp_path: Path):
+        """JSON spells every key as a string, and the merge used to believe it.
+
+        `nodes: {1: …}` came back as `{"1": …}`; the integer key was deleted and
+        a quoted one appended — with the comment on the original line lost.
+        """
+        path = tmp_path / "n.yaml"
+        original = "nodes:\n  1:  # north\n    latitude: 1.0\n  2:\n    latitude: 2.0\n"
+        path.write_text(original, encoding="utf-8")
+
+        write_section(path, "nodes", _over_the_wire(path, "nodes"))
+        assert path.read_text(encoding="utf-8") == original
+
+        data = _over_the_wire(path, "nodes")
+        data["2"]["latitude"] = 3.0
+        write_section(path, "nodes", data)
+        assert path.read_text(encoding="utf-8") == original.replace(
+            "latitude: 2.0", "latitude: 3.0"
+        )
+        assert list(load(path)["nodes"]) == [1, 2]

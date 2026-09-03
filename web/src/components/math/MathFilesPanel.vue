@@ -44,13 +44,12 @@ import { Switch } from "@/components/ui/switch";
 import { errorDetail } from "@/api/errors";
 import {
   createFile,
-  getYamlSection,
   putFile,
   putYamlSection,
+  readYamlSection,
   type SectionData,
 } from "@/api/versions";
 import { FIELD_SM, GHOST_BUTTON, DANGER_ICON_BUTTON_SM } from "@/lib/formClasses";
-import { sectionTabId } from "@/lib/tabId";
 import { useConfirmStore } from "@/stores/confirm";
 import { useComponentTreeStore } from "@/stores/componentTree";
 import { useMathStore } from "@/stores/math";
@@ -99,15 +98,20 @@ async function edit(change: (init: SectionData) => void): Promise<boolean> {
   error.value = null;
   const path = configFile();
   try {
-    const config: SectionData = await getYamlSection(props.versionId, path, "config");
+    const read = await readYamlSection(props.versionId, path, "config");
+    const config: SectionData = read.data;
     config.init = { ...(config.init ?? {}) };
     change(config.init);
-    await putYamlSection(props.versionId, path, "config", config);
+    // Carrying the revision just read, so a config edited elsewhere between the
+    // read and the write is refused rather than partly reverted.
+    const revision = await putYamlSection(props.versionId, path, "config", config, read.revision);
+    sectionData.setRevision(path, revision);
     sectionData.invalidate(props.versionId, path, "config");
-    // A raw Monaco model of the config file is stale now too.
+    // A raw Monaco model of the config file is stale now too, and so is a config
+    // form in another tab: this bump makes a clean one re-read. A dirty one is
+    // left alone — it used to be marked clean here, which handed it to that
+    // same re-read and silently discarded the user's edits in it.
     sectionData.noteFileWritten(path);
-    // The config editor may be showing the previous values in another tab.
-    tabs.markClean(sectionTabId("config", path));
     await Promise.all([math.loadSources(props.versionId), componentTree.refresh(props.versionId)]);
     return true;
   } catch (err) {

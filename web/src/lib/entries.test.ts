@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  parseScalarList,
   entryKey,
   linkToRaw,
   nodeToRaw,
@@ -223,6 +224,25 @@ describe("parseScalar", () => {
 
   it("does not read a boolean spelling as anything but text", () => {
     expect(parseScalar("true")).toBe("true");
+  });
+
+  it.each(["Infinity", "-Infinity", "1e999", "NaN", "0x1A", "0b11", "0o17"])(
+    "keeps %s as text, since JSON could not carry what Number() makes of it",
+    (raw) => {
+      expect(parseScalar(raw)).toBe(raw);
+    },
+  );
+});
+
+describe("parseScalarList", () => {
+  it("reads each item like parseScalar", () => {
+    expect(parseScalarList("100, 200")).toEqual([100, 200]);
+    expect(parseScalarList("electricity, heat")).toEqual(["electricity", "heat"]);
+  });
+
+  it("drops empty items", () => {
+    expect(parseScalarList(" , a,, ")).toEqual(["a"]);
+    expect(parseScalarList("")).toEqual([]);
   });
 });
 

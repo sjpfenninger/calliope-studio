@@ -18,13 +18,22 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
 from calliope_studio.modeldef.overrides import flatten, set_path, unset_path
+from calliope_studio.modeldef.paths import content_revision
 from calliope_studio.modeldef.yaml_io import (
     SectionNotFound,
     from_plain,
     read_section,
     write_section,
 )
-from calliope_studio.server.deps import get_workspace, require_file, resolve_path
+from calliope_studio.server.deps import (
+    check_revision,
+    get_resolver,
+    get_workspace,
+    require_file,
+    resolve_path,
+    resolve_writable_path,
+)
+from calliope_studio.server.resolution import Resolver
 from calliope_studio.server.storage import Workspace
 
 router = APIRouter(tags=["overrides"])
@@ -47,6 +56,8 @@ class OverrideBody(BaseModel):
     """
 
     overrides: dict[str, list[Setting]]
+    #: The file's revision when the overrides were read; see `deps.check_revision`.
+    revision: str | None = None
 
 
 def _unchanged(existing: Any, value: Any) -> bool:
@@ -66,15 +77,16 @@ def get_overrides(
 ) -> dict:
     """Each override in the file, as the list of settings it makes."""
     path = require_file(resolve_path(workspace, file_path))
+    revision = content_revision(path)
     try:
         section = read_section(path, SECTION)
     except SectionNotFound:
         # A file with no `overrides:` block is a perfectly ordinary file, and the
         # editor's answer is an empty list rather than an error.
-        return {"overrides": {}}
+        return {"overrides": {}, "revision": revision}
 
     if not isinstance(section, dict):
-        return {"overrides": {}}
+        return {"overrides": {}, "revision": revision}
 
     return {
         "overrides": {
@@ -83,13 +95,17 @@ def get_overrides(
                 for setting, value in flatten(body).items()
             ]
             for name, body in section.items()
-        }
+        },
+        "revision": revision,
     }
 
 
 @router.put("/versions/{id}/overrides/{file_path:path}")
 def put_overrides(
-    file_path: str, body: OverrideBody, workspace: Workspace = Depends(get_workspace)
+    file_path: str,
+    body: OverrideBody,
+    workspace: Workspace = Depends(get_workspace),
+    resolver: Resolver = Depends(get_resolver),
 ) -> dict:
     """Applies the edits, leaving every untouched line exactly as it was.
 
@@ -97,7 +113,11 @@ def put_overrides(
     set through `set_path`, which resolves against what the file already has.
     Only overrides named in the payload survive, so deleting one is expressible.
     """
-    path = require_file(resolve_path(workspace, file_path))
+    # `resolve_writable_path`, like every other write verb: this was the one
+    # that still went through `resolve_path`, so a run's frozen snapshot could
+    # be edited through its overrides after every other route had refused.
+    path = require_file(resolve_writable_path(workspace, file_path))
+    check_revision(path, body.revision)
     try:
         section = read_section(path, SECTION)
     except SectionNotFound:
@@ -134,4 +154,7 @@ def put_overrides(
         updated[name] = document
 
     write_section(path, SECTION, updated)
-    return {"ok": True}
+    # An override changes what a scenario means; the resolver re-reads the
+    # definition after a section write, and this is a section write.
+    resolver.refresh(workspace)
+    return {"ok": True, "revision": content_revision(path)}

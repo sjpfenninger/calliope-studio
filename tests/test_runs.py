@@ -1146,3 +1146,38 @@ class TestADeadWorkerSaysWhyItDied:
                 manager.start(tmp_path / "runs", request)
 
         assert "no such file" in str(raised.value)
+
+
+class TestSavingResults:
+    def test_results_land_whole_or_not_at_all(self, tmp_path):
+        """`results.nc` is written beside its name and renamed into place.
+
+        A worker killed during the save stage — `cancel` escalates to SIGKILL,
+        and saving a real model takes longer than the grace — used to leave a
+        truncated file under the one name that means "this run has results".
+        The rename is atomic, so the final name exists whole or not at all.
+        """
+        from pathlib import Path
+
+        from calliope_studio.runs import worker
+
+        target = tmp_path / "results.nc"
+
+        class Model:
+            def to_netcdf(self, path):
+                Path(path).write_bytes(b"CDF\x01 whole")
+
+        worker._save_netcdf(Model(), target)
+        assert target.read_bytes() == b"CDF\x01 whole"
+        assert list(tmp_path.glob("*.tmp")) == []
+
+        class Failing:
+            def to_netcdf(self, path):
+                Path(path).write_bytes(b"CD")
+                raise RuntimeError("boom")
+
+        target.unlink()
+        with pytest.raises(RuntimeError):
+            worker._save_netcdf(Failing(), target)
+        assert not target.exists()
+        assert list(tmp_path.glob("*.tmp")) == []

@@ -121,11 +121,16 @@ function structuredVisible(tab: SectionTab | EntryTab): boolean {
         class="absolute inset-0"
       />
 
+      <!-- The front grid plus any holding cell edits — `csvTabs`, the same
+           rule as `structuredTabs`. This was a `v-if` on the active tab, and
+           a grid's edits live in its component state: switching away and
+           back reloaded the file, with the dirty dot still on. -->
       <CsvGridEditor
-        v-if="active?.kind === 'file' && active.fileType === 'csv'"
-        :key="active.path"
+        v-for="tab in tabs.csvTabs"
+        v-show="tab.id === tabs.activeId"
+        :key="tab.path"
         :versionId="tabs.versionId"
-        :filePath="active.path"
+        :filePath="tab.path"
         class="absolute inset-0"
       />
 

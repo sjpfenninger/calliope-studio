@@ -3,10 +3,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../api/versions", () => ({
   putFile: vi.fn(),
-  putCsv: vi.fn(),
 }));
 
-import { putCsv, putFile } from "../api/versions";
+import { putFile } from "../api/versions";
 
 import {
   entryTabId,
@@ -737,13 +736,100 @@ describe("useTabsStore", () => {
       );
       expect(putFile).not.toHaveBeenCalled();
     });
-
-    it("rejects a CSV save and issues no request", async () => {
+  });
+  describe("one dirty buffer per file", () => {
+    // Every lost update this app has produced involved two buffers on one
+    // file, the second saving over a baseline the first had already replaced.
+    it("refuses a second buffer on a file another tab holds", () => {
       const tabs = useTabsStore();
-      await expect(
-        tabs.saveCsvFile("t.csv", [{ name: "a", type: "text" }], [["1"]])
-      ).rejects.toThrow(/nothing was saved/);
-      expect(putCsv).not.toHaveBeenCalled();
+      const techs = tabs.openSection("techs", "techs.yaml");
+      const links = tabs.openSection("links", "techs.yaml");
+
+      expect(tabs.markDirty(techs, "form")).toBe(true);
+      expect(tabs.canEdit(links, "form")).toBe(false);
+      expect(tabs.dirtyOwner("techs.yaml")).toMatchObject({ tabId: techs, source: "form" });
+
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      expect(tabs.markDirty(links, "form")).toBe(false);
+      expect(tabs.get(links)?.isDirty).toBe(false);
+      warn.mockRestore();
+    });
+
+    it("treats the raw and structured views of one tab as two buffers", () => {
+      const tabs = useTabsStore();
+      const id = tabs.openSection("techs", "techs.yaml");
+      tabs.markDirty(id, "form");
+      expect(tabs.canEdit(id, "form")).toBe(true);
+      expect(tabs.canEdit(id, "raw")).toBe(false);
+    });
+
+    it("frees the file when the owner's buffer is cleaned", () => {
+      const tabs = useTabsStore();
+      const techs = tabs.openSection("techs", "techs.yaml");
+      const links = tabs.openSection("links", "techs.yaml");
+      tabs.markDirty(techs, "form");
+      tabs.markClean(techs, "form");
+      expect(tabs.get(techs)?.isDirty).toBe(false);
+      expect(tabs.canEdit(links, "form")).toBe(true);
+    });
+
+    it("counts a held file as taken, except by its holder", () => {
+      // A data-table tab edits a CSV beside its YAML section.
+      const tabs = useTabsStore();
+      const table = tabs.openEntry("data_tables", "model.yaml", "t");
+      tabs.markDirty(table, "form");
+      tabs.holdFile(table, "data/t.csv");
+      const csv = tabs.openFile("data/t.csv");
+
+      expect(tabs.canEdit(csv, "csv")).toBe(false);
+      expect(tabs.canEdit(table, "form", "data/t.csv")).toBe(true);
+
+      expect(tabs.discardEdits(table)).toEqual(["model.yaml", "data/t.csv"]);
+      expect(tabs.get(table)?.isDirty).toBe(false);
+      expect(tabs.canEdit(csv, "csv")).toBe(true);
+    });
+
+    it("does not lock a buffer the store has never heard of", () => {
+      const tabs = useTabsStore();
+      expect(tabs.canEdit("nowhere", "form")).toBe(true);
+    });
+  });
+
+  describe("switching model", () => {
+    it("closes every tab of the previous model", () => {
+      // Tabs are keyed by path, and a path means a different file in a
+      // different model: the previous model's buffers used to survive.
+      const tabs = useTabsStore();
+      tabs.setVersion("a");
+      tabs.openFile("model.yaml");
+      tabs.setVersion("b");
+      expect(tabs.ordered).toEqual([]);
+      expect(tabs.activeId).toBeNull();
+    });
+
+    it("leaves the tabs alone when the model has not changed", () => {
+      const tabs = useTabsStore();
+      tabs.setVersion("a");
+      tabs.openFile("model.yaml");
+      tabs.setVersion("a");
+      expect(tabs.ordered).toHaveLength(1);
+    });
+  });
+
+  describe("csvTabs", () => {
+    it("keeps a dirty CSV grid mounted behind the front tab", () => {
+      const tabs = useTabsStore();
+      const csv = tabs.openFile("data/t.csv");
+      tabs.markDirty(csv, "csv");
+      tabs.openFile("b.yaml");
+      expect(tabs.csvTabs.map((tab) => tab.id)).toEqual([csv]);
+    });
+
+    it("drops a clean grid that is not in front", () => {
+      const tabs = useTabsStore();
+      tabs.openFile("data/t.csv");
+      tabs.openFile("b.yaml");
+      expect(tabs.csvTabs).toEqual([]);
     });
   });
 });

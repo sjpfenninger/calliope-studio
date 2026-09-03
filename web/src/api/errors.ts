@@ -35,6 +35,17 @@ interface Axiosish {
  * Returns:
  *     A message fit to put in front of a user.
  */
+/**
+ * Whether a save was refused because the file changed under it.
+ *
+ * The one failure a save surface has to treat differently: the server's 409
+ * means the buffer is *stale*, not broken, so the fix is a reload rather than
+ * a retry — and the message alone cannot carry that distinction to a button.
+ */
+export function isConflict(caught: unknown): boolean {
+  return (caught as Axiosish | null)?.response?.status === 409;
+}
+
 export function errorDetail(caught: unknown, fallback: string): string {
   const err = caught as Axiosish | null;
 

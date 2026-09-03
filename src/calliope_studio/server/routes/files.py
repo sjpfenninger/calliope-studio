@@ -6,11 +6,17 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from calliope_studio.modeldef.paths import is_excluded, walk_files, write_text_atomic
+from calliope_studio.modeldef.paths import (
+    content_revision,
+    is_excluded,
+    walk_files,
+    write_text_atomic,
+)
 from calliope_studio.server.deps import (
+    check_revision,
+    decode_text,
     get_workspace,
     require_file,
-    require_text,
     resolve_path,
     resolve_writable_path,
 )
@@ -21,6 +27,8 @@ router = APIRouter(tags=["files"])
 
 class FileContent(BaseModel):
     content: str = ""
+    #: What the buffer was loaded from; see `deps.check_revision`.
+    revision: str | None = None
 
 
 #: The only content types this server will name. Everything else is served as
@@ -93,7 +101,8 @@ def file_tree(workspace: Workspace = Depends(get_workspace)) -> list[dict]:
 @router.get("/versions/{id}/files/{file_path:path}")
 def read_file(file_path: str, workspace: Workspace = Depends(get_workspace)) -> dict:
     path = require_file(resolve_path(workspace, file_path))
-    return {"content": require_text(path)}
+    content, lossy = decode_text(path)
+    return {"content": content, "lossy": lossy, "revision": content_revision(path)}
 
 
 @router.get("/versions/{id}/raw/{file_path:path}")
@@ -147,6 +156,7 @@ def write_file(
     file_path: str, body: FileContent, workspace: Workspace = Depends(get_workspace)
 ) -> dict:
     path = resolve_writable_path(workspace, file_path)
+    check_revision(path, body.revision)
     # Through `paths.write_text_atomic`: UTF-8, `newline=""`, and atomic.
     #
     # `newline=""` writes the string's bytes untouched. Without it Python
@@ -162,4 +172,4 @@ def write_file(
     # one round trip cannot use different codecs — and atomic because this is the
     # user's model definition and there is no backup of it anywhere.
     write_text_atomic(path, body.content)
-    return {"ok": True}
+    return {"ok": True, "revision": content_revision(path)}

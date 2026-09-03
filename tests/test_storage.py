@@ -56,9 +56,16 @@ class TestRegistry:
         with pytest.raises(NotADirectoryError):
             storage.open(national_scale / "model.yaml")
 
-    def test_deleted_folders_are_pruned_not_raised(
+    def test_missing_folders_are_left_out_but_remembered(
         self, storage, national_scale, urban_scale, tmp_path
     ):
+        """A folder that is not there is not listed, and is not forgotten.
+
+        `list()` runs on nearly every request, and a folder can be absent because
+        the drive holding it is not mounted right now. This used to *persist* the
+        prune, so one launch without the drive erased the model from the recents
+        list for good. Now the entry waits, and comes back when the folder does.
+        """
         storage.open(national_scale)
         gone = tmp_path / "gone"
         gone.mkdir()
@@ -66,8 +73,10 @@ class TestRegistry:
         gone.rmdir()
 
         assert [w.name for w in storage.list()] == ["national_scale"]
-        # The prune is persisted, not merely filtered on read.
-        assert len(json.loads(storage.registry_path.read_text())) == 1
+        assert len(json.loads(storage.registry_path.read_text())) == 2
+
+        gone.mkdir()
+        assert [w.name for w in storage.list()] == ["gone", "national_scale"]
 
     def test_corrupt_registry_is_survivable(self, storage, national_scale):
         storage.registry_path.parent.mkdir(parents=True, exist_ok=True)
@@ -307,3 +316,81 @@ class TestLegacyDataDirectory:
         assert (national_scale / "calliope-studio" / "runs" / "visible-era").is_dir()
         assert (national_scale / ".calligraph" / "runs" / "hidden-era").is_dir()
         assert not (national_scale / "calligraph").exists()
+
+
+class TestRetentionOrder:
+    def _finished_run(self, root, name, requested_at):
+        directory = root / name
+        directory.mkdir(parents=True)
+        (directory / "request.json").write_text(
+            json.dumps({"workspace": "w", "requested_at": requested_at})
+        )
+        (directory / "outcome.json").write_text('{"status": "success"}')
+        return directory
+
+    def test_runs_are_ordered_by_when_they_were_requested(
+        self, storage, national_scale
+    ):
+        """Never by directory mtime, which a copy of the workspace reshuffles.
+
+        Retention ordered by mtime deleted the *newest* results of a model that
+        had just been copied to another machine, and kept the oldest.
+        """
+        import os
+        import time
+
+        workspace = storage.open(national_scale)
+        root = storage.runs_dir(workspace, create=True)
+        for index, day in enumerate(["03", "01", "02"]):
+            self._finished_run(root, f"run-{index}", f"2026-01-{day}T00:00:00+00:00")
+        # The mtimes say the opposite: the newest request is the oldest directory.
+        now = time.time()
+        for index, age in enumerate([300, 200, 100]):
+            os.utime(root / f"run-{index}", (now - age, now - age))
+
+        assert storage.prune_runs(workspace, keep=2) == ["run-1"]
+
+    def test_a_run_made_before_the_timestamp_existed_still_orders(
+        self, storage, national_scale
+    ):
+        workspace = storage.open(national_scale)
+        root = storage.runs_dir(workspace, create=True)
+        old = root / "old"
+        old.mkdir()
+        (old / "request.json").write_text("{}")
+        (old / "outcome.json").write_text('{"status": "success"}')
+        self._finished_run(root, "new", "2030-01-01T00:00:00+00:00")
+
+        assert storage.prune_runs(workspace, keep=1) == ["old"]
+
+
+class TestRegistryEntriesSurviveReopening:
+    def test_a_field_this_version_does_not_know_is_kept(self, storage, national_scale):
+        """`open()` rewrites the entry to move it up the list; it must not shrink it."""
+        storage.open(national_scale)
+        entries = json.loads(storage.registry_path.read_text())
+        entries[0]["colour"] = "red"
+        storage.registry_path.write_text(json.dumps(entries))
+
+        storage.open(national_scale)
+        assert json.loads(storage.registry_path.read_text())[0]["colour"] == "red"
+
+
+class TestLegacyDirectoryMarker:
+    def test_a_folder_that_merely_shares_the_name_is_left_alone(
+        self, storage, national_scale
+    ):
+        """`calligraph` is also this project's predecessor's name.
+
+        A user who kept its plotting scripts beside their model had the folder
+        renamed on open, hidden from the file tree and reported by git as moved.
+        Only a directory holding run outputs is migrated.
+        """
+        scripts = national_scale / "calligraph"
+        scripts.mkdir()
+        (scripts / "plots.py").write_text("print('hi')\n")
+
+        storage.open(national_scale)
+
+        assert (scripts / "plots.py").is_file()
+        assert not (national_scale / "calliope-studio").exists()

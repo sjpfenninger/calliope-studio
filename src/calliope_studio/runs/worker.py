@@ -336,6 +336,26 @@ def _model_root(run_dir: Path, request: protocol.RunRequest) -> Path:
     return Path(request.workspace)
 
 
+def _save_netcdf(model, target: Path) -> None:
+    """Writes the model beside its final name, then renames it into place.
+
+    `to_netcdf` straight onto `results.nc` meant a worker killed during the
+    save stage — `cancel` escalates to SIGKILL after a few seconds, and saving a
+    real model takes longer — left a truncated file under the name that means
+    "this run has results". The `unlink` on the failure path below never sees a
+    kill. A rename is atomic, so the final name exists whole or not at all; a
+    stale temporary from an earlier kill is harmless and is cleared first.
+    """
+    temporary = target.with_name(target.name + ".tmp")
+    temporary.unlink(missing_ok=True)
+    try:
+        model.to_netcdf(str(temporary))
+        protocol.replace_retrying(temporary, target)
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
+
+
 def _execute(
     run_dir: Path,
     request: protocol.RunRequest,
@@ -380,7 +400,7 @@ def _execute(
         # and skipping it is the difference between 4 seconds and rather more
         # on a real model.
         stage("save", "start")
-        model.to_netcdf(str(run_dir / protocol.RESOLVED_FILE))
+        _save_netcdf(model, run_dir / protocol.RESOLVED_FILE)
         stage("save", "done")
         outcome["status"] = "success"
         outcome["termination_condition"] = "not_solved"
@@ -431,7 +451,7 @@ def _execute(
         outcome["termination_condition"] = condition
 
         stage("save", "start")
-        model.to_netcdf(str(run_dir / protocol.RESULTS_FILE))
+        _save_netcdf(model, run_dir / protocol.RESULTS_FILE)
         stage("save", "done")
 
         # A model that solved but was found infeasible is a legitimate,

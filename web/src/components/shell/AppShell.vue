@@ -13,7 +13,7 @@
  * independent slots, and the tab is written with `replace` so that opening and
  * closing tabs does not fill the back button.
  */
-import { computed, onMounted, watch } from "vue";
+import { computed, onMounted, onUnmounted, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
 import AppSidebar from "./AppSidebar.vue";
@@ -40,9 +40,25 @@ const ui = useUiStore();
 const projectId = computed(() => (route.params.projectId as string) ?? null);
 const versionId = computed(() => (route.params.versionId as string) ?? null);
 
+/**
+ * A reload, a closed browser tab or a navigation out of the app discards every
+ * unsaved buffer with nothing on disk. The route guard covers moving within
+ * the app; this is the browser's own last question, and it is only asked while
+ * there is something to lose — a prompt on every reload would be ignored.
+ */
+function guardUnload(event: BeforeUnloadEvent) {
+  if (!tabs.hasDirtyTabs) return;
+  event.preventDefault();
+  // Older browsers need the legacy property set to show anything at all.
+  event.returnValue = "";
+}
+
 onMounted(() => {
   initMonacoYaml();
+  window.addEventListener("beforeunload", guardUnload);
 });
+
+onUnmounted(() => window.removeEventListener("beforeunload", guardUnload));
 
 watch(
   [projectId, versionId],

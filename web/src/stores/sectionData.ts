@@ -31,6 +31,31 @@ export const useSectionDataStore = defineStore("sectionData", () => {
     fileRevisions.set(filePath, (fileRevisions.get(filePath) ?? 0) + 1);
   }
 
+  /**
+   * Asks every clean buffer on `filePath` to re-read the disk.
+   *
+   * The same signal as a write, deliberately: a buffer cannot tell whether the
+   * file changed or its own baseline was discarded, and need not — either way
+   * what it shows is no longer what it should be showing.
+   */
+  const requestReload = noteFileWritten;
+
+  /**
+   * Model-relative path → the file's revision as last read or written here.
+   *
+   * What a save sends back to the server so a stale baseline is refused. Not
+   * reactive: read only inside a save, never rendered.
+   */
+  const revisions = new Map<string, string>();
+
+  function setRevision(filePath: string, revision: string | null | undefined): void {
+    if (revision) revisions.set(filePath, revision);
+  }
+
+  function revisionOf(filePath: string): string | null {
+    return revisions.get(filePath) ?? null;
+  }
+
   function cacheKey(versionId: string, filePath: string, section: string): string {
     return `${versionId}:${filePath}:${section}`;
   }
@@ -65,5 +90,15 @@ export const useSectionDataStore = defineStore("sectionData", () => {
     }
   }
 
-  return { get, set, invalidate, invalidateFile, fileRevisions, noteFileWritten };
+  return {
+    get,
+    set,
+    invalidate,
+    invalidateFile,
+    fileRevisions,
+    noteFileWritten,
+    requestReload,
+    setRevision,
+    revisionOf,
+  };
 });

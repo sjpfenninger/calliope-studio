@@ -18,6 +18,7 @@
  * file this editor did not load, which is drawn but not movable.
  */
 import { ref, computed } from "vue";
+import LockedBanner from "@/components/app/LockedBanner.vue";
 import StateMessage from "@/components/app/StateMessage.vue";
 // `Map` is aliased so it cannot shadow the global `Map` constructor.
 import { List, Map as MapIcon, Plus } from "@lucide/vue";
@@ -171,7 +172,18 @@ function buildPayload(): Record<string, any> {
   return result;
 }
 
-const { isLoading, isSaving, error, saveError, save, markDirty } = useSectionEditor({
+const {
+  isLoading,
+  isSaving,
+  error,
+  saveError,
+  conflict,
+  locked,
+  lockOwner,
+  save,
+  reload,
+  markDirty,
+} = useSectionEditor({
   versionId: () => props.versionId,
   filePath: () => props.filePath,
   tabId: () => props.tabId,
@@ -250,8 +262,22 @@ function openElsewhere() {
     <StateMessage v-else-if="error" variant="block" tone="danger">{{ error }}</StateMessage>
 
     <template v-else>
-      <EditorToolbar :saving="isSaving" :error="saveError" :file="filePath" @save="save">
-        <button v-if="!entryName" type="button" :class="GHOST_BUTTON" @click="addEntry">
+      <EditorToolbar
+        :saving="isSaving"
+        :disabled="locked"
+        :error="saveError"
+        :conflict="conflict"
+        :file="filePath"
+        @save="save"
+        @reload="reload"
+      >
+        <button
+          v-if="!entryName"
+          type="button"
+          :class="GHOST_BUTTON"
+          :disabled="locked"
+          @click="addEntry"
+        >
           <Plus class="size-3.5" />
           Add node
         </button>
@@ -269,6 +295,7 @@ function openElsewhere() {
           {{ showMap ? "List" : "Map" }}
         </button>
       </EditorToolbar>
+      <LockedBanner v-if="lockOwner" :owner="lockOwner" :file="filePath" />
 
       <EditorMapPane
         v-if="showMap"
@@ -276,7 +303,7 @@ function openElsewhere() {
         :selected="activeNode ? [activeNode] : []"
         :missing="missing"
         :error="geoError"
-        draggable-nodes
+        :draggable-nodes="!locked"
         @update:selected="activeNode = $event[0] ?? null"
         @node-moved="onNodeMoved"
         @show-list="ui.setSectionView('nodes', 'structured')"
@@ -284,14 +311,15 @@ function openElsewhere() {
         <template #empty>No nodes yet — add one to place it.</template>
 
         <template #detail>
-          <NodeFields
-            v-if="activeEntry"
-            :key="activeEntry.name"
-            :entry="activeEntry"
-            :templates="templatesData"
-            :data-table-params="dataTableParams[activeEntry.name] ?? {}"
-            @change="onChange"
-          />
+          <fieldset v-if="activeEntry" :disabled="locked" class="contents">
+            <NodeFields
+              :key="activeEntry.name"
+              :entry="activeEntry"
+              :templates="templatesData"
+              :data-table-params="dataTableParams[activeEntry.name] ?? {}"
+              @change="onChange"
+            />
+          </fieldset>
           <div
             v-else-if="activeElsewhere"
             class="flex items-center gap-2 py-1 text-sm text-text-muted"
@@ -313,7 +341,7 @@ function openElsewhere() {
         </template>
       </EditorMapPane>
 
-      <div v-else class="min-h-0 flex-1 overflow-auto">
+      <fieldset v-else :disabled="locked" class="min-h-0 flex-1 overflow-auto">
         <StateMessage v-if="!visibleEntries.length" variant="block">
           {{ entryName ? `No node called "${entryName}".` : "No nodes defined yet." }}
         </StateMessage>
@@ -341,7 +369,7 @@ function openElsewhere() {
               />
           </EntryAccordionRow>
         </Accordion>
-      </div>
+      </fieldset>
     </template>
   </div>
 </template>

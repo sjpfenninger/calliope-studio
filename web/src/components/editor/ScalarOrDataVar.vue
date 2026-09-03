@@ -9,13 +9,21 @@
  *
  * Both shapes have to be editable in place, because a model mixes them freely —
  * `flow_cap_max: 100` next to a `cost_flow_cap` indexed over cost classes.
+ *
+ * **The shape a value arrived in is the shape it leaves in.** A list such as
+ * `carrier_out: [electricity, heat]` is shown comma-separated and goes back as
+ * a list; it used to be `String(array)` — `electricity,heat` — and any edit
+ * wrote that string into the file, which Calliope then read as one carrier
+ * called `electricity,heat`. Likewise the numbers in an indexed parameter's
+ * `data:` are parsed as numbers, where a touched field used to re-emit
+ * `[100, 200]` as `['100', '200']`.
  */
 import { ref, watch } from "vue";
 import { MinusCircle, Table2 } from "@lucide/vue";
 
 import TooltipButton from "@/components/app/TooltipButton.vue";
 import { FIELD } from "@/lib/formClasses";
-import { parseScalar } from "@/lib/entries";
+import { parseScalar, parseScalarList } from "@/lib/entries";
 
 const props = defineProps<{
   modelValue: any;
@@ -32,16 +40,17 @@ function isStructuredValue(v: any): boolean {
 
 const structured = ref(isStructuredValue(props.modelValue));
 
-// Local reactive state — avoid mutating props.
-const scalarText = ref<string>(
-  structured.value ? "" : props.modelValue != null ? String(props.modelValue) : "",
-);
+/** Whether the simple field holds a list, which it then keeps writing as one. */
+const isList = ref(Array.isArray(props.modelValue));
 
 function valueToString(v: any): string {
   if (v === null || v === undefined) return "";
   if (Array.isArray(v)) return v.join(", ");
   return String(v);
 }
+
+// Local reactive state — avoid mutating props.
+const scalarText = ref<string>(structured.value ? "" : valueToString(props.modelValue));
 
 const dataText = ref<string>(
   structured.value ? valueToString(props.modelValue?.data) : "",
@@ -66,13 +75,14 @@ const dimsText = ref<string>(
  */
 function adopt(value: any): void {
   structured.value = isStructuredValue(value);
+  isList.value = Array.isArray(value);
   if (structured.value) {
     dataText.value = valueToString(value?.data);
     indexText.value = valueToString(value?.index);
     dimsText.value = valueToString(value?.dims);
     scalarText.value = "";
   } else {
-    scalarText.value = value != null ? String(value) : "";
+    scalarText.value = valueToString(value);
     dataText.value = "";
     indexText.value = "";
     dimsText.value = "";
@@ -89,7 +99,8 @@ watch(
   },
 );
 
-function parseCommaSep(s: string): string | string[] | null {
+/** Names — dimension names, index labels — stay text. */
+function parseNames(s: string): string | string[] | null {
   const parts = s
     .split(",")
     .map((p) => p.trim())
@@ -99,17 +110,35 @@ function parseCommaSep(s: string): string | string[] | null {
   return parts;
 }
 
+/** Values: a number where it reads as one, one item as a scalar, more as a list. */
+function parseValues(s: string): string | number | (string | number)[] | null {
+  const parts = parseScalarList(s);
+  if (parts.length === 0) return null;
+  if (parts.length === 1) return parts[0];
+  return parts;
+}
+
 function emitScalar() {
-  emitted = parseScalar(scalarText.value);
+  emitted = isList.value ? parseScalarList(scalarText.value) : parseScalar(scalarText.value);
+  if (Array.isArray(emitted) && emitted.length === 0) emitted = null;
   emit("update:modelValue", emitted);
 }
 
 function emitStructured() {
-  const data = parseCommaSep(dataText.value);
-  const index = parseCommaSep(indexText.value);
-  const dims = parseCommaSep(dimsText.value);
-  emitted =
-    data === null && index === null && dims === null ? null : { data, index, dims };
+  const data = parseValues(dataText.value);
+  const index = parseNames(indexText.value);
+  const dims = parseNames(dimsText.value);
+  if (data === null && index === null && dims === null) {
+    emitted = null;
+  } else {
+    // Only the keys that have something in them: a parameter that had no
+    // `dims:` must not gain `dims: null` from an edit to its `data:`.
+    emitted = {
+      ...(data !== null && { data }),
+      ...(index !== null && { index }),
+      ...(dims !== null && { dims }),
+    };
+  }
   emit("update:modelValue", emitted);
 }
 
@@ -118,6 +147,7 @@ function toggleMode() {
     // Switch to simple: use data field as scalar
     scalarText.value = dataText.value.split(",")[0]?.trim() ?? "";
     structured.value = false;
+    isList.value = false;
     emitScalar();
   } else {
     // Switch to structured: put scalar in data field

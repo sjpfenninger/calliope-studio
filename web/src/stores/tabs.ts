@@ -1,8 +1,9 @@
 import { computed, reactive, ref } from "vue";
 import { defineStore } from "pinia";
 
-import { putCsv, putFile } from "../api/versions";
+import { putFile } from "../api/versions";
 import { fileKindOf, isTextFileType, type FileType } from "../lib/fileKind";
+import { useSectionDataStore } from "./sectionData";
 import {
   canGoBack as historyCanGoBack,
   canGoForward as historyCanGoForward,
@@ -35,6 +36,35 @@ export type EditorMode = "raw" | "structured";
 export type FileViewMode = "raw" | "preview";
 export type RunSubView = "results" | "table" | "config" | "log";
 
+/**
+ * Which buffer of a tab holds unsaved edits.
+ *
+ * A section tab has two views of one file — the form and the raw Monaco buffer
+ * — and a data-table tab holds a grid over a *second* file. One boolean served
+ * all of them, so the form's load marked the tab clean while the raw buffer
+ * still held the user's edits, and the tab then closed without asking.
+ */
+export type DirtySource = "raw" | "form" | "csv";
+
+/** Who holds the unsaved changes to a file; see `dirtyOwner`. */
+export interface DirtyOwner {
+  tabId: string;
+  title: string;
+  /** `held` when the file is not the tab's own but one it edits alongside. */
+  source: DirtySource | "held";
+}
+
+interface EditableCommon {
+  /** Every buffer of this tab with unsaved edits. `isDirty` is its emptiness. */
+  dirtySources: Set<DirtySource>;
+  /**
+   * Other files this tab holds unsaved changes to. A data-table tab edits a CSV
+   * beside its YAML section; the single-writer rule has to see that file too.
+   */
+  heldFiles: Set<string>;
+  isDirty: boolean;
+}
+
 interface TabCommon {
   /** Stable, URL-safe identity. See lib/tabId.ts. */
   id: string;
@@ -50,7 +80,7 @@ interface TabCommon {
   mounted: boolean;
 }
 
-export interface FileTab extends TabCommon {
+export interface FileTab extends TabCommon, EditableCommon {
   kind: "file";
   path: string;
   fileType: FileType;
@@ -61,10 +91,9 @@ export interface FileTab extends TabCommon {
    * is meaningless for five of six file types invites a switch that forgets one.
    */
   viewMode: FileViewMode;
-  isDirty: boolean;
 }
 
-export interface SectionTab extends TabCommon {
+export interface SectionTab extends TabCommon, EditableCommon {
   kind: "section";
   section: string;
   filePath: string;
@@ -83,10 +112,9 @@ export interface SectionTab extends TabCommon {
    * view has no business fetching a section for a form nobody has asked for.
    */
   structuredMounted: boolean;
-  isDirty: boolean;
 }
 
-export interface EntryTab extends TabCommon {
+export interface EntryTab extends TabCommon, EditableCommon {
   kind: "entry";
   section: string;
   filePath: string;
@@ -106,7 +134,6 @@ export interface EntryTab extends TabCommon {
    * view has no business fetching a section for a form nobody has asked for.
    */
   structuredMounted: boolean;
-  isDirty: boolean;
 }
 
 export interface RunTab extends TabCommon {
@@ -329,6 +356,25 @@ export const useTabsStore = defineStore("tabs", () => {
   );
 
   /**
+   * The CSV grids that must stay mounted: the front one, and any with edits.
+   *
+   * The same rule as `structuredTabs`, for the same reason: a grid's cell edits
+   * live in `useCsvGrid`'s component state and nowhere else. The tab body used
+   * to `v-if` the grid on the *active* tab, so looking at anything else and
+   * coming back reloaded the file from disk — while the tab kept its dirty
+   * dot, since nothing cleared it, over edits that no longer existed.
+   */
+  const csvTabs = computed(() =>
+    ordered.value.filter(
+      (tab): tab is FileTab =>
+        tab.kind === "file" &&
+        tab.fileType === "csv" &&
+        tab.mounted &&
+        (tab.id === activeId.value || tab.isDirty),
+    ),
+  );
+
+  /**
    * The path of the active tab, but only when it is a *file* tab.
    *
    * Narrowing on the discriminant rather than inspecting the key's prefix, which
@@ -339,9 +385,21 @@ export const useTabsStore = defineStore("tabs", () => {
   );
 
   function setVersion(id: string) {
+    if (versionId.value === id) return;
     // The stack names this model's tabs, so it does not survive a change of
     // model — back would otherwise offer to reopen a file that is not here.
-    if (versionId.value !== id) history.value = emptyHistory();
+    history.value = emptyHistory();
+    // Neither do the tabs. They are keyed by path, and a path means a
+    // different file in a different model: the previous model's `model.yaml`
+    // tab used to survive the switch, and Monaco's buffer for it with it, so
+    // the next model showed the old text under that name and Cmd+S wrote it
+    // there. The route guard has already asked about anything unsaved.
+    if (versionId.value !== null) {
+      openTabs.clear();
+      previewId.value = null;
+      recency.length = 0;
+      activeId.value = null;
+    }
     versionId.value = id;
   }
 
@@ -572,6 +630,8 @@ export const useTabsStore = defineStore("tabs", () => {
         path,
         fileType,
         viewMode: viewModeFor(fileType),
+        dirtySources: new Set(),
+        heldFiles: new Set(),
         isDirty: false,
         mounted: false,
       });
@@ -597,6 +657,8 @@ export const useTabsStore = defineStore("tabs", () => {
         filePath,
         editorMode: "structured",
         structuredMounted: false,
+        dirtySources: new Set(),
+        heldFiles: new Set(),
         isDirty: false,
         mounted: false,
       });
@@ -624,6 +686,8 @@ export const useTabsStore = defineStore("tabs", () => {
         entryName,
         editorMode: "structured",
         structuredMounted: false,
+        dirtySources: new Set(),
+        heldFiles: new Set(),
         isDirty: false,
         mounted: false,
       });
@@ -769,19 +833,106 @@ export const useTabsStore = defineStore("tabs", () => {
 
   // ── Editing state ─────────────────────────────────────────────────────────
 
-  function markDirty(id: string) {
-    const tab = openTabs.get(id);
-    if (isEditableTab(tab)) {
-      tab.isDirty = true;
-      // Editing is intent to keep: a previewed file the user has started typing
-      // in must not be evicted by the next click in the tree.
-      promote(id);
-    }
+  /** The file a tab's own buffer is over. */
+  function fileOf(tab: EditableTab): string {
+    return tab.kind === "file" ? tab.path : tab.filePath;
   }
 
-  function markClean(id: string) {
+  /**
+   * Which buffer, if any, holds unsaved changes to `path`.
+   *
+   * **A file may have unsaved changes in at most one buffer.** Every lost
+   * update this app has produced involved two buffers on one file — Techs and
+   * Links on one `techs:` section, a section tab and an entry tab on `nodes`,
+   * the raw and structured views of one tab — where the second to save merged
+   * against a baseline the first had already replaced and silently reverted
+   * it. A cap on how *many* editors may be dirty would touch none of those; a
+   * second buffer on the same file is what this refuses.
+   */
+  function dirtyOwner(path: string): DirtyOwner | null {
+    for (const tab of openTabs.values()) {
+      if (!isEditableTab(tab)) continue;
+      if (fileOf(tab) === path && tab.dirtySources.size) {
+        const [source] = tab.dirtySources;
+        return { tabId: tab.id, title: tab.title, source: source! };
+      }
+      if (tab.heldFiles.has(path)) {
+        return { tabId: tab.id, title: tab.title, source: "held" };
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Whether `source` of tab `id` may take edits to `path` (its own file if not
+   * given). True when nobody holds the file, or this same buffer already does.
+   */
+  function canEdit(id: string, source: DirtySource, path?: string): boolean {
     const tab = openTabs.get(id);
-    if (isEditableTab(tab)) tab.isDirty = false;
+    // A buffer the store does not know about holds nothing anyone else could
+    // be waiting on, so it is not locked; `markDirty` will still ignore it.
+    if (!isEditableTab(tab)) return true;
+    const owner = dirtyOwner(path ?? fileOf(tab));
+    if (owner === null) return true;
+    return owner.tabId === id && (owner.source === source || owner.source === "held");
+  }
+
+  /**
+   * Returns whether the edit was accepted. A refusal is the backstop for the
+   * rule above — the panes disable themselves before it comes to this — and
+   * is logged, because a form that keeps its edits while the tab stays clean is
+   * exactly the state that loses them.
+   */
+  function markDirty(id: string, source?: DirtySource): boolean {
+    const tab = openTabs.get(id);
+    if (!isEditableTab(tab)) return false;
+    const which = source ?? (tab.kind === "file" ? "raw" : "form");
+    if (!canEdit(id, which)) {
+      console.warn(`Refused to dirty ${id} (${which}): the file is held elsewhere.`);
+      return false;
+    }
+    tab.dirtySources.add(which);
+    tab.isDirty = true;
+    // Editing is intent to keep: a previewed file the user has started typing
+    // in must not be evicted by the next click in the tree.
+    promote(id);
+    return true;
+  }
+
+  /** Clears one buffer's dirtiness, or every buffer's when no source is given. */
+  function markClean(id: string, source?: DirtySource) {
+    const tab = openTabs.get(id);
+    if (!isEditableTab(tab)) return;
+    if (source) tab.dirtySources.delete(source);
+    else tab.dirtySources.clear();
+    tab.isDirty = tab.dirtySources.size > 0;
+  }
+
+  /** Records that tab `id` also holds unsaved changes to `path`. */
+  function holdFile(id: string, path: string) {
+    const tab = openTabs.get(id);
+    if (isEditableTab(tab)) tab.heldFiles.add(path);
+  }
+
+  function releaseFile(id: string, path: string) {
+    const tab = openTabs.get(id);
+    if (isEditableTab(tab)) tab.heldFiles.delete(path);
+  }
+
+  /**
+   * Forgets every unsaved change a tab holds, for a discard the user chose.
+   *
+   * Returns the files affected, so the caller can ask their buffers to reload;
+   * the store only keeps the flags.
+   */
+  function discardEdits(id: string): string[] {
+    const tab = openTabs.get(id);
+    if (!isEditableTab(tab)) return [];
+    const files = [fileOf(tab), ...tab.heldFiles];
+    tab.dirtySources.clear();
+    tab.heldFiles.clear();
+    tab.isDirty = false;
+    return files;
   }
 
   function setEditorMode(id: string, mode: EditorMode) {
@@ -934,25 +1085,25 @@ export const useTabsStore = defineStore("tabs", () => {
 
   // ── Saving ────────────────────────────────────────────────────────────────
 
-  // Both throw rather than return when no model is open: a resolved promise
-  // reads as "saved" to every caller, which then marks the buffer clean over a
-  // file that was never written. `errorDetail` passes `Error.message` through,
-  // so the editors surface this text as their save error.
+  // Throws rather than returns when no model is open: a resolved promise reads
+  // as "saved" to every caller, which then marks the buffer clean over a file
+  // that was never written. `errorDetail` passes `Error.message` through, so
+  // the editors surface this text as their save error.
 
   async function saveYamlFile(path: string, content: string): Promise<void> {
     if (!versionId.value) throw new Error("No model is open — nothing was saved.");
-    await putFile(versionId.value, path, content);
-    markClean(fileTabId(path));
-  }
-
-  async function saveCsvFile(
-    path: string,
-    columns: Array<{ name: string; type: string }>,
-    rows: unknown[][],
-  ): Promise<void> {
-    if (!versionId.value) throw new Error("No model is open — nothing was saved.");
-    await putCsv(versionId.value, path, columns, rows);
-    markClean(fileTabId(path));
+    const sections = useSectionDataStore();
+    const revision = await putFile(
+      versionId.value,
+      path,
+      content,
+      sections.revisionOf(path),
+    );
+    sections.setRevision(path, revision);
+    markClean(fileTabId(path), "raw");
+    // A raw save changes every section of the file, so every clean form on it
+    // has to re-read — the same channel a section save announces itself on.
+    sections.noteFileWritten(path);
   }
 
   return {
@@ -965,6 +1116,7 @@ export const useTabsStore = defineStore("tabs", () => {
     hasDirtyTabs,
     runTabs,
     structuredTabs,
+    csvTabs,
     versionId,
     jumpTarget,
     canGoBack,
@@ -996,7 +1148,12 @@ export const useTabsStore = defineStore("tabs", () => {
     closeTab,
     jumpTo,
     saveYamlFile,
-    saveCsvFile,
+    fileOf,
+    dirtyOwner,
+    canEdit,
+    holdFile,
+    releaseFile,
+    discardEdits,
   };
 });
 

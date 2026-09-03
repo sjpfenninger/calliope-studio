@@ -1,7 +1,8 @@
-[![PyPI](https://img.shields.io/pypi/v/calliope-studio?label=pypi)](https://pypi.org/project/calliope-studio/)
-[![Tests](https://img.shields.io/github/actions/workflow/status/sjpfenninger/calliope-studio/ci.yml?branch=main&label=tests)](https://github.com/sjpfenninger/calliope-studio/actions/workflows/ci.yml)
-[![Python coverage](https://img.shields.io/codecov/c/github/sjpfenninger/calliope-studio?flag=python&label=python%20coverage)](https://app.codecov.io/gh/sjpfenninger/calliope-studio?flags%5B0%5D=python)
-[![Web coverage](https://img.shields.io/codecov/c/github/sjpfenninger/calliope-studio?flag=web&label=web%20coverage)](https://app.codecov.io/gh/sjpfenninger/calliope-studio?flags%5B0%5D=web)
+[![PyPI](https://img.shields.io/pypi/v/calliope-studio?label=pypi&style=flat-square)](https://pypi.org/project/calliope-studio/)
+[![conda-forge](https://img.shields.io/conda/vn/conda-forge/calliope-studio?label=conda-forge&style=flat-square)](https://anaconda.org/conda-forge/calliope-studio)
+[![Tests](https://img.shields.io/github/actions/workflow/status/sjpfenninger/calliope-studio/ci.yml?branch=main&label=tests&style=flat-square)](https://github.com/sjpfenninger/calliope-studio/actions/workflows/ci.yml)
+[![Python coverage](https://img.shields.io/codecov/c/github/sjpfenninger/calliope-studio?flag=python&label=python%20coverage&style=flat-square)](https://app.codecov.io/gh/sjpfenninger/calliope-studio?flags%5B0%5D=python)
+[![Web coverage](https://img.shields.io/codecov/c/github/sjpfenninger/calliope-studio?flag=web&label=web%20coverage&style=flat-square)](https://app.codecov.io/gh/sjpfenninger/calliope-studio?flags%5B0%5D=web)
 
 # Calliope Studio
 
@@ -28,6 +29,13 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 uv tool install calliope-studio
 ```
 
+Or with [conda](https://docs.conda.io/)/[mamba](https://mamba.readthedocs.io/):
+
+```shell
+conda create -n calliope-studio -c conda-forge calliope-studio
+conda activate calliope-studio
+```
+
 Then:
 
 ```shell
@@ -36,9 +44,6 @@ calliope-studio               # no argument opens Calliope Studio with a model p
 ```
 
 To quit Calliope Studio, close its terminal window or press Ctrl+C inside it.
-
-> [!IMPORTANT]
-> Calliope needs a solver to actually solve models. You can still use Studio to edit a model or analyse results that somebody else solved, but pressing **Run** will fail without a solver. Refer to the [Calliope documentation](https://calliope.readthedocs.io/) for solver installation.
 
 ### Development builds
 
@@ -58,7 +63,7 @@ uv tool install --reinstall calliope-studio
 
 ## FAQ
 
-- **Why does "Run" fail with a solver error?** See the note above: you probably have no solver installed.
+- **Why does "Run" fail with a solver error?** Calliope needs a solver to run a model. Calliope 0.7 bundles the HiGHS solver, but some models may refer to other solvers such as CBC or Gurobi. Refer to the [Calliope documentation for the different solver options](https://calliope.readthedocs.io/en/stable/installation/#choosing-a-solver).
 - **Why is the list of models wrong or outdated?** The list of models you have opened lives in a small registry file, separate from the models themselves. Its location is reported as `registry_path` by `http://127.0.0.1:8000/api/health` while Calliope Studio is running. Deleting it resets the list without actually touching any of your models.
 - **Where are model results stored?** When running a model from inside Calliope Studio, results are saved in a `calliope-studio/` folder next to the `model.yaml` file. This folder is created automatically when running a model for the first time and comes with its own `.gitignore` file.
 

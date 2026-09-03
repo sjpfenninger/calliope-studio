@@ -12,6 +12,7 @@
     "confirm-check": "node scripts/confirm-check.mjs",
     "csv-edit-check": "node scripts/csv-edit-check.mjs",
     "design-check": "vitest run design",
+    "editor-edit-check": "node scripts/editor-edit-check.mjs",
     "failure-check": "node scripts/failure-check.mjs",
     "dev": "vite",
     "file-actions": "node scripts/file-actions.mjs",
@@ -22,6 +23,7 @@
     "model-picker": "node scripts/model-picker.mjs",
     "monaco-check": "node scripts/monaco-check.mjs",
     "preview": "vite preview",
+    "run-actions": "node scripts/run-actions.mjs",
     "run-lifecycle": "node scripts/run-lifecycle.mjs",
     "same-file-lock": "node scripts/same-file-lock.mjs",
     "save-check": "node scripts/save-check.mjs",
@@ -37,7 +39,8 @@
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "token-check": "node scripts/token-check.mjs",
-    "tree-search": "node scripts/tree-search.mjs"
+    "tree-search": "node scripts/tree-search.mjs",
+    "validation-check": "node scripts/validation-check.mjs"
   },
   "dependencies": {
     "@fontsource-variable/inter": "^5.3.0",

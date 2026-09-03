@@ -11,8 +11,8 @@ import { results } from "./harness.mjs";
 import { baseFrom, openResults } from "./results-page.mjs";
 
 const BASE = baseFrom(process.argv);
-const { check, finish } = results("map");
-const { browser, page, testId, consoleErrors, frames, settle, framesIdle, mapReady } =
+const { check, skip, finish } = results("map");
+const { browser, page, testId, consoleErrors, frames, settle, framesIdle, mapReady, until } =
   await openResults(BASE);
 
 console.log(`Map at ${BASE}`);
@@ -53,6 +53,35 @@ check(
 );
 check("pies are drawn as markers", (await page.locator(".maplibregl-marker").count()) > 0);
 
+// A donut and a circle are two ways of drawing the same node, and the pie
+// channel used to settle that by hiding the `nodes` layer outright. That takes
+// its features out of `queryRenderedFeatures` too — which is what the
+// layer-scoped hover and click handlers are built on — so under pies a node had
+// no popup, could not be selected, and could not tell a link click that it was
+// sitting on top of it. Which nodes draw a circle is a paint question now.
+const layered = await page.evaluate(() => {
+  const map = window.__cgMap;
+  const visibility = map.getLayoutProperty("nodes", "visibility") ?? null;
+  const { data } = map.getSource("nodes").serialize();
+  let queryable = 0;
+  for (const feature of data.features) {
+    if (feature.geometry?.type !== "Point") continue;
+    const point = map.project(feature.geometry.coordinates);
+    if (map.queryRenderedFeatures(point, { layers: ["nodes"] }).length) queryable += 1;
+  }
+  return { visibility, queryable };
+});
+check(
+  "the node layer stays visible under pies",
+  layered.visibility !== "none",
+  String(layered.visibility),
+);
+check(
+  "so a node wearing a donut is still a rendered feature",
+  layered.queryable > 0,
+  `${layered.queryable} nodes answer a query`,
+);
+
 await pickChannel("pie", "No pie");
 await pickChannel("color", "No colour");
 await pickChannel("size", "No size");
@@ -67,6 +96,58 @@ check(
     (await testId("map-legend").count()) === 0,
 );
 await pickChannel("size", variable);
+
+// ── Selecting a node, and putting the selection back ───────────────────────
+//
+// The selection narrows every chart query, so the only way out of it is the
+// Clear beside the layout bar's summary — the map itself offers no "none".
+// Re-picking a channel re-sets the node source, and until MapLibre has
+// rendered the new data a click on a node's projected point hits nothing —
+// `idle` is the map's own word for "everything asked for is drawn".
+await page.evaluate(
+  () =>
+    new Promise((resolve) => {
+      const map = window.__cgMap;
+      if (map.loaded() && !map.isMoving()) resolve();
+      else map.once("idle", resolve);
+    }),
+);
+const nodePoint = await page.evaluate(() => {
+  const map = window.__cgMap;
+  const { data } = map.getSource("nodes").serialize();
+  const canvas = map.getCanvas();
+  for (const feature of data.features) {
+    if (feature.geometry?.type !== "Point") continue;
+    const point = map.project(feature.geometry.coordinates);
+    const inside =
+      point.x > 4 &&
+      point.y > 4 &&
+      point.x < canvas.clientWidth - 4 &&
+      point.y < canvas.clientHeight - 4;
+    if (inside) return { x: point.x, y: point.y };
+  }
+  return null;
+});
+if (nodePoint) {
+  const canvasBox = await page.locator(".maplibregl-canvas").first().boundingBox();
+  await page.mouse.click(canvasBox.x + nodePoint.x, canvasBox.y + nodePoint.y);
+  const narrowed = await until(
+    async () => (await testId("clear-map-nodes").count()) === 1,
+    { timeout: 15000 },
+  );
+  check("clicking a node narrows the charts to it", narrowed);
+}
+if (nodePoint && (await testId("clear-map-nodes").count()) === 1) {
+  await testId("clear-map-nodes").click();
+  const cleared = await until(
+    async () => (await testId("clear-map-nodes").count()) === 0,
+    { timeout: 15000 },
+  );
+  check("and Clear puts the whole model back", cleared);
+  await framesIdle();
+} else if (!nodePoint) {
+  skip("selecting a node on the map (none of them is in view)");
+}
 
 // ── Both themes ────────────────────────────────────────────────────────────
 //

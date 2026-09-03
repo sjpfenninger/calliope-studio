@@ -153,6 +153,17 @@ async function remove(source: MathSource) {
   });
 }
 
+/**
+ * Opens or closes the new-file form, always on an empty name.
+ *
+ * A name abandoned by closing the form used to still be in the box when it was
+ * reopened, so the next Create made a file the user had already decided against.
+ */
+function toggleAdding() {
+  adding.value = !adding.value;
+  newName.value = "";
+}
+
 /** A skeleton that parses, validates and does nothing until it is edited. */
 const STARTER = `# Custom math for this model. See
 # https://calliope.readthedocs.io/en/v0.7.0.dev7/user_defined_math/
@@ -210,7 +221,7 @@ async function create() {
         :class="GHOST_BUTTON"
         data-testid="math-new-file"
         :disabled="busy"
-        @click="adding = !adding"
+        @click="toggleAdding"
       >
         <FilePlus2 class="size-3.5" />
         New

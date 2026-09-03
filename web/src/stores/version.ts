@@ -31,20 +31,29 @@ export const useVersionStore = defineStore("version", () => {
    *
    * Empty rather than stale, and `error` rather than silence: a model whose
    * files cannot be listed must not look like a model with no files.
+   *
+   * Every assignment is behind the same check that `stores/schemaKinds.ts`
+   * makes: a listing for the model the user has just left arriving after the
+   * one they are now looking at used to win, leaving the file tree showing
+   * another model's files under this model's id — and `isLoading` was cleared
+   * by whichever call finished first rather than by the one that matters.
    */
   async function loadFileTree(versionId: string): Promise<void> {
     currentVersionId.value = versionId;
     isLoading.value = true;
     error.value = null;
     try {
-      files.value = await listFiles(versionId);
-      fileTree.value = buildFileTree(files.value);
+      const listing = await listFiles(versionId);
+      if (currentVersionId.value !== versionId) return;
+      files.value = listing;
+      fileTree.value = buildFileTree(listing);
     } catch (caught) {
+      if (currentVersionId.value !== versionId) return;
       files.value = [];
       fileTree.value = [];
       error.value = errorDetail(caught, "Could not list this model's files.");
     } finally {
-      isLoading.value = false;
+      if (currentVersionId.value === versionId) isLoading.value = false;
     }
   }
 

@@ -25,7 +25,7 @@ import { computed, ref, watch } from "vue";
 
 import { getSchemaKinds } from "../api/versions";
 import { effectiveKind, type FileKind } from "../lib/calliopeSchema";
-import { KEY_PREFIX } from "../lib/storageKeys";
+import { KEY_PREFIX, writeStorage } from "../lib/storageKeys";
 import { setSchemaAssignments } from "../monacoSetup";
 
 const storageKey = (id: string) => `${KEY_PREFIX}schemaKind.${id}`;
@@ -101,14 +101,7 @@ export const useSchemaKindsStore = defineStore("schemaKinds", () => {
 
   function persist() {
     if (!versionId.value) return;
-    try {
-      localStorage.setItem(
-        storageKey(versionId.value),
-        JSON.stringify(overrides.value),
-      );
-    } catch {
-      // A blocked or full localStorage. The overrides still apply this session.
-    }
+    writeStorage(storageKey(versionId.value), JSON.stringify(overrides.value));
   }
 
   // Monaco is told on every change to either input, so an override takes effect

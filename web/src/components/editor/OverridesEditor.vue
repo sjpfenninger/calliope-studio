@@ -20,7 +20,7 @@
 import { computed, ref } from "vue";
 import LockedBanner from "@/components/app/LockedBanner.vue";
 import StateMessage from "@/components/app/StateMessage.vue";
-import { entryKey } from "@/lib/entries";
+import { rowKey } from "@/lib/entries";
 import { Plus, X } from "@lucide/vue";
 
 import { putOverrides, readOverrides } from "@/api/versions";
@@ -56,6 +56,11 @@ interface OverrideEntry {
 }
 
 const entries = ref<OverrideEntry[]>([]);
+/**
+ * Which rows are expanded, by `rowKey`. State rather than Reka's
+ * `:default-value`, which is read once; extended by `addEntry`.
+ */
+const openRows = ref<string[]>([]);
 
 const visibleEntries = computed(() =>
   props.entryName
@@ -125,6 +130,7 @@ const {
         settings: settings.map((setting) => ({ ...setting })),
       }),
     );
+    openRows.value = entries.value.map(rowKey);
   },
   // A path that cannot exist — `config.init.name.deeper`, where `name` holds a
   // string — comes back as a 400 saying so, and nothing was written.
@@ -147,6 +153,10 @@ const {
 
 function addEntry() {
   entries.value.push({ name: "", settings: [] });
+  openRows.value = [
+    ...openRows.value,
+    rowKey(entries.value[entries.value.length - 1]),
+  ];
   onChange();
 }
 
@@ -193,6 +203,7 @@ const onChange = markDirty;
         <button
           v-if="!entryName"
           type="button"
+          data-testid="add-override"
           :class="GHOST_BUTTON"
           :disabled="locked"
           @click="addEntry"
@@ -212,18 +223,14 @@ const onChange = markDirty;
           }}
         </StateMessage>
 
-        <Accordion
-          v-else
-          type="multiple"
-          :default-value="visibleEntries.map((e) => entryKey(e, entries))"
-          class="px-2"
-        >
+        <Accordion v-else v-model="openRows" type="multiple" class="px-2">
           <EntryAccordionRow
             v-for="entry in visibleEntries"
-            :key="entryKey(entry, entries)"
-            :value="entryKey(entry, entries)"
+            :key="rowKey(entry)"
+            :value="rowKey(entry)"
             :name="entry.name || '(unnamed)'"
             remove-label="Remove this override"
+            testid="entry-row"
             @remove="removeEntry(entry)"
           >
             <template #meta>

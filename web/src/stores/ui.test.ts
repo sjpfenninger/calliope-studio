@@ -183,6 +183,56 @@ describe("useUiStore", () => {
       stubMatchMedia(false);
       expect(useUiStore().splitterSizes).toEqual([20, 55, 25]);
     });
+
+    it("survives a localStorage that refuses to be written", () => {
+      /**
+       * Every *read* in this store was already guarded and none of the writes
+       * were, which is the wrong way round: this one is called from the
+       * splitter's `@layout`, so it fires on every frame of a drag, and Safari
+       * in private mode throws from `setItem` for every origin. The drag took
+       * the shell down with it.
+       */
+      stubMatchMedia(false);
+      const ui = useUiStore();
+      const setItem = vi
+        .spyOn(Storage.prototype, "setItem")
+        .mockImplementation(() => {
+          throw new DOMException("QuotaExceededError");
+        });
+
+      try {
+        expect(() => ui.setSplitterSizes([10, 70, 20])).not.toThrow();
+        expect(() => ui.setPreference("dark")).not.toThrow();
+        expect(() => ui.setResultsLayout("beside")).not.toThrow();
+        expect(() => ui.setConfigAdvanced("init", true)).not.toThrow();
+      } finally {
+        setItem.mockRestore();
+      }
+
+      // The setting still applies this session; only its memory of tomorrow is
+      // gone, which is the whole of what these keys are for.
+      expect(ui.splitterSizes).toEqual([10, 70, 20]);
+      expect(ui.preference).toBe("dark");
+      expect(ui.resultsLayout).toBe("beside");
+    });
+
+    it("still constructs when localStorage refuses every write", () => {
+      // The legacy-geometry migration removes two keys at store setup, outside
+      // any `try`, so a blocked `removeItem` threw from `useUiStore()` itself —
+      // there is no shell at all after that.
+      const removeItem = vi
+        .spyOn(Storage.prototype, "removeItem")
+        .mockImplementation(() => {
+          throw new DOMException("SecurityError");
+        });
+      stubMatchMedia(false);
+
+      try {
+        expect(() => useUiStore()).not.toThrow();
+      } finally {
+        removeItem.mockRestore();
+      }
+    });
   });
 
   describe("the results view's layouts", () => {

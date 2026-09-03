@@ -56,7 +56,11 @@ const creating = ref(false);
 
 watch(open, async (isOpen) => {
   if (!isOpen) return;
+  // The name goes with the error: a folder name typed and then abandoned is one
+  // the user decided against, and it would otherwise be sitting in the box —
+  // pointed at whatever folder the browser happens to be showing this time.
   error.value = null;
+  name.value = "";
   if (templates.value.length) return;
   try {
     const body = await getModelTemplates();

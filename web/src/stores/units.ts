@@ -14,7 +14,7 @@
 import { defineStore } from "pinia";
 import { computed, ref, watch } from "vue";
 
-import { KEY_PREFIX } from "../lib/storageKeys";
+import { KEY_PREFIX, writeStorage } from "../lib/storageKeys";
 import { QUANTITIES, type Quantity, type UnitPref, type UnitPrefs } from "../lib/units";
 import { useTabsStore } from "./tabs";
 
@@ -70,15 +70,11 @@ export const useUnitsStore = defineStore("units", () => {
   });
 
   function persist() {
-    try {
-      const id = versionId.value;
-      // An empty set is a removal, so a model reverts to no key at all rather
-      // than accumulating `{}` for every model ever opened.
-      if (!Object.keys(prefs.value).length) localStorage.removeItem(storageKey(id));
-      else localStorage.setItem(storageKey(id), JSON.stringify(prefs.value));
-    } catch {
-      // A blocked or full localStorage. The setting still applies this session.
-    }
+    const id = versionId.value;
+    // An empty set is a removal, so a model reverts to no key at all rather
+    // than accumulating `{}` for every model ever opened.
+    const empty = !Object.keys(prefs.value).length;
+    writeStorage(storageKey(id), empty ? null : JSON.stringify(prefs.value));
   }
 
   /** Sets one quantity's scale and label; clears it when both are empty. */

@@ -35,7 +35,7 @@ const ws = payload.workspace_id;
 const filesUrl = `${BASE}/api/versions/${ws}/files/${TABLE_CSV}`;
 const read = async () => (await (await fetch(filesUrl)).json()).content;
 
-const { browser, page, testId, consoleErrors } = await open();
+const { browser, page, testId, consoleErrors, stable } = await open();
 
 const calls = trackRequests(page, (request) => request.url().includes("/api/"));
 
@@ -120,6 +120,17 @@ try {
   await header.click();
   await header.click(); // asc, then desc
   await until(async () => (await cell(0, "c0").innerText()) !== unsortedKey);
+  // The top cell's text changes at the *start* of AG Grid's row animation, not
+  // the end: for a few hundred milliseconds the rendered rows are the old set
+  // sliding out over the new one, and a click aimed at row 0 lands on whichever
+  // row is passing through. Wait for the row set to stop changing instead.
+  await stable(() =>
+    page.evaluate(() =>
+      Array.from(document.querySelectorAll('[data-testid="csv-grid"] .ag-row')).map(
+        (row) => `${row.getAttribute("row-index")}@${Math.round(row.getBoundingClientRect().top)}`,
+      ),
+    ),
+  );
   const sortedKey = await cell(0, "c0").innerText();
   check("the sort moved a different row to the top", sortedKey !== unsortedKey);
 

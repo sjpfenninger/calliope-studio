@@ -17,7 +17,7 @@ import {
   type NavEntry,
   type NavHistory,
 } from "../lib/navHistory";
-import { KEY_PREFIX } from "../lib/storageKeys";
+import { KEY_PREFIX, writeStorage } from "../lib/storageKeys";
 import {
   entryTabId,
   fileTabId,
@@ -417,7 +417,7 @@ export const useTabsStore = defineStore("tabs", () => {
 
   function persist() {
     if (!versionId.value) return;
-    localStorage.setItem(
+    writeStorage(
       storageKey(versionId.value),
       JSON.stringify({ tabs: [...openTabs.keys()], active: activeId.value }),
     );

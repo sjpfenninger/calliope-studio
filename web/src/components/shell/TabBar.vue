@@ -223,6 +223,21 @@ function onAuxClick(id: string, event: MouseEvent) {
     void closeGuarded(id);
   }
 }
+
+/**
+ * Delete or Backspace on the focused tab closes it.
+ *
+ * The close control is a `span role="button"` nested inside this button — an
+ * element the drag code owns and that cannot take a tabindex of its own without
+ * becoming a second tab stop per tab — so until this there was no keyboard way
+ * to close a tab at all. Both keys, because which one "delete" means is a
+ * keyboard-layout question the user should not have to answer.
+ */
+function onKeydown(id: string, event: KeyboardEvent) {
+  if (event.key !== "Delete" && event.key !== "Backspace") return;
+  event.preventDefault();
+  void closeGuarded(id);
+}
 </script>
 
 <template>
@@ -290,6 +305,7 @@ function onAuxClick(id: string, event: MouseEvent) {
         :title="titleFor(tab)"
         :class="TAB_CLASS"
         @click="tabs.activate(tab.id)"
+        @keydown="onKeydown(tab.id, $event)"
         @dblclick="tabs.promote(tab.id)"
         @auxclick="onAuxClick(tab.id, $event)"
         @dragstart="onDragStart(tab.id, $event)"
@@ -318,13 +334,16 @@ function onAuxClick(id: string, event: MouseEvent) {
         <span
           v-if="tab.isDirty"
           data-testid="tab-dirty"
-          class="size-1.5 shrink-0 rounded-full bg-primary group-hover:hidden"
+          class="size-1.5 shrink-0 rounded-full bg-primary group-hover:hidden group-focus-visible:hidden"
         >
           <span class="sr-only">Unsaved changes</span>
         </span>
+        <!-- `group-focus-visible` as well as `group-hover`: keyboard focus is the
+             other way a tab is singled out, and Delete only reads as available
+             if the glyph it maps onto is on screen. -->
         <span
-          class="-mr-1 grid size-4 shrink-0 place-items-center rounded-xs text-text-faint opacity-0 hover:bg-active hover:text-foreground group-hover:opacity-100"
-          :class="tab.isDirty ? 'hidden group-hover:grid' : ''"
+          class="-mr-1 grid size-4 shrink-0 place-items-center rounded-xs text-text-faint opacity-0 hover:bg-active hover:text-foreground group-hover:opacity-100 group-focus-visible:opacity-100"
+          :class="tab.isDirty ? 'hidden group-hover:grid group-focus-visible:grid' : ''"
           role="button"
           aria-label="Close tab"
           @click="close(tab.id, $event)"

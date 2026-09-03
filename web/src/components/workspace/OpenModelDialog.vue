@@ -7,7 +7,7 @@
  * way out when the answer is "there is nothing here yet", which used to be a
  * dead end telling the user to go and run `calliope new` in a terminal.
  */
-import { ref } from "vue";
+import { ref, watch } from "vue";
 import StateMessage from "@/components/app/StateMessage.vue";
 import {
   IDENTIFIER,
@@ -43,6 +43,16 @@ const emit = defineEmits<{
 
 const error = ref<string | null>(null);
 const opening = ref(false);
+
+// Only `DialogContent` unmounts on close, so both refs outlive it. A stale error
+// is not merely untidy: it wins the `v-if` chain below, so the dialog reopens
+// showing last time's failure *and* with the "Create a model here" way out
+// hidden — which is exactly the offer somebody who failed to open a folder wants.
+watch(open, (isOpen) => {
+  if (!isOpen) return;
+  error.value = null;
+  opening.value = false;
+});
 
 async function openHere() {
   const path = listing.value?.path;

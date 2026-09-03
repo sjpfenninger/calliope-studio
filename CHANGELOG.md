@@ -10,6 +10,7 @@
 - Confine writes to the model definition and reject path traversal
 - Order run retention by request time rather than file dates
 - Make data tables more robust
+- Various UI fixes in the editors and results views
 
 ## 0.1.2 (2026-09-02)
 

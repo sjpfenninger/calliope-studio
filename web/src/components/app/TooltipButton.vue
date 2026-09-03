@@ -73,11 +73,29 @@ const stroke = computed(() =>
 
 <template>
   <InfoTip :label="label" :side="side">
+    <!-- A disabled button fires no pointer events and cannot be focused, so the
+         trigger never opens — in the one state where an icon-only control most
+         needs to say why it is dead (`TabHistory`'s Back and Forward). The
+         focusable wrapper is `Segmented`'s answer to the same problem. Only the
+         disabled branch is wrapped: an enabled button is its own trigger, and an
+         unconditional span would take the trigger's props and reparent every
+         icon button in the app. -->
+    <span v-if="disabled" class="inline-flex" tabindex="0">
+      <button
+        type="button"
+        :aria-label="label"
+        :data-testid="testid"
+        disabled
+        :class="body"
+      >
+        <component :is="icon" :class="glyph" :stroke-width="stroke" />
+      </button>
+    </span>
     <button
+      v-else
       type="button"
       :aria-label="label"
       :data-testid="testid"
-      :disabled="disabled"
       :class="body"
       @click="emit('click', $event)"
     >

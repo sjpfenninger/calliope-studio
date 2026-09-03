@@ -191,9 +191,14 @@
   /* ── Stacking. Only for things portalled out of their parent; a bare z-10 is
         still right for sibling ordering inside one component. ── */
   --cg-z-raised: 1; /* map overlay, sticky header */
-  --cg-z-dropdown: 100; /* popover, dropdown, select, combobox */
   --cg-z-overlay: 200; /* dialog scrim */
   --cg-z-dialog: 210;
+  /* A popup is opened from whatever surface is on top, so it has to clear the
+     dialog: at 100 the template picker in the new-model dialog opened *under*
+     the scrim, which then swallowed every click on an option — reachable by
+     keyboard only, which is why it went unnoticed. Nothing can open a popup
+     from beneath a modal scrim, so above the dialog is always right. */
+  --cg-z-dropdown: 220; /* popover, dropdown, select, combobox */
   --cg-z-tooltip: 300;
 
   /* ── Metrics, only for consumers that cannot use a Tailwind utility: AG Grid

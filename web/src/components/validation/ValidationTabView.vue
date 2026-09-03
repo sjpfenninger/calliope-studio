@@ -24,8 +24,6 @@ import { GHOST_BUTTON, SECONDARY_BUTTON } from "@/lib/formClasses";
 import { useTabsStore } from "@/stores/tabs";
 import { useValidationStore, type ValidationProblem } from "@/stores/validation";
 
-defineProps<{ tab: { id: string } }>();
-
 const tabs = useTabsStore();
 const validation = useValidationStore();
 
@@ -138,6 +136,10 @@ const validatedAt = computed(() =>
         v-for="(problem, index) in validation.problems"
         :key="index"
         :type="locatable(problem) ? 'button' : undefined"
+        data-testid="validation-problem"
+        :data-tier="problem.tier"
+        :data-file="problem.file"
+        :data-line="problem.line ?? undefined"
         class="flex w-full flex-col items-start gap-0.5 border-b border-border-subtle px-2 py-1 text-left"
         :class="locatable(problem) && 'hover:bg-hover'"
         @click="open(problem)"

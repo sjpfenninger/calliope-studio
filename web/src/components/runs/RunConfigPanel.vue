@@ -26,6 +26,7 @@ import Eyebrow from "@/components/app/Eyebrow.vue";
 import { FileWarning } from "@lucide/vue";
 
 import { Tree } from "@/components/ui/tree";
+import { errorDetail } from "@/api/errors";
 import { getSnapshot, getSnapshotCsv, getSnapshotFile, listSnapshotFiles } from "@/api/runs";
 import { fetchSummary } from "@/api/results";
 import { buildFileTree, type FileEntry, type FileTreeNode } from "@/lib/fileTree";
@@ -63,21 +64,38 @@ const content = ref<string | null>(null);
 const csv = ref<{ columns: Array<{ name: string }>; rows: unknown[][] } | null>(null);
 const summary = ref<Summary | null>(null);
 const summaryError = ref<string | null>(null);
+/**
+ * What went wrong reading the frozen tree.
+ *
+ * Every fetch below is awaited inside a watcher, and a watcher holds no
+ * rejection — so a run whose snapshot is missing, or a file the server refuses,
+ * produced an unhandled rejection and a pane that was simply empty, with
+ * nothing anywhere to say the request had failed at all.
+ */
+const error = ref<string | null>(null);
+/** The same, for one file: shown in the content pane, so the tree survives it. */
+const fileError = ref<string | null>(null);
 
 const external = computed(() => manifest.value?.external ?? []);
 
 watch(
   () => props.runId,
   async (runId) => {
-    manifest.value = await getSnapshot<Manifest>(runId);
-    if (!manifest.value?.available) return;
+    error.value = null;
+    try {
+      manifest.value = await getSnapshot<Manifest>(runId);
+      if (!manifest.value?.available) return;
 
-    const files = await listSnapshotFiles(runId);
-    tree.value = buildFileTree(files);
-    // Opening on the model's entry point rather than on nothing: it is the file
-    // anyone reading a frozen configuration starts from.
-    const entry = files.find((file) => file.path === "model.yaml") ?? files[0];
-    if (entry) show(entry.path, entry.type);
+      const files = await listSnapshotFiles(runId);
+      tree.value = buildFileTree(files);
+      // Opening on the model's entry point rather than on nothing: it is the
+      // file anyone reading a frozen configuration starts from.
+      const entry = files.find((file) => file.path === "model.yaml") ?? files[0];
+      if (entry) await show(entry.path, entry.type);
+
+    } catch (caught) {
+      error.value = errorDetail(caught, "Could not read this run's snapshot.");
+    }
   },
   { immediate: true },
 );
@@ -90,21 +108,26 @@ watch([view, () => props.handle], async ([current, handle]) => {
     summary.value = await fetchSummary(handle);
     summaryError.value = null;
   } catch (caught) {
-    summaryError.value = (caught as Error).message ?? String(caught);
+    summaryError.value = errorDetail(caught, "Could not read the solved model.");
   }
 });
 
 watch(selected, (node) => {
-  if (node?.leaf) show(node.key, node.type);
+  if (node?.leaf) void show(node.key, node.type);
 });
 
 async function show(path: string, type: string) {
   content.value = null;
   csv.value = null;
-  if (type === "csv") {
-    csv.value = await getSnapshotCsv(props.runId, path);
-  } else {
-    content.value = await getSnapshotFile(props.runId, path);
+  fileError.value = null;
+  try {
+    if (type === "csv") {
+      csv.value = await getSnapshotCsv(props.runId, path);
+    } else {
+      content.value = await getSnapshotFile(props.runId, path);
+    }
+  } catch (caught) {
+    fileError.value = errorDetail(caught, `Could not read ${path}.`);
   }
 }
 
@@ -163,12 +186,17 @@ const viewSegments = computed(() => [
       >
         <span class="inline-flex items-center gap-1 text-2xs text-warning-text">
           <FileWarning class="size-3" />
-          {{ external.length }} file(s) outside the model folder
+          {{ external.length }} {{ external.length === 1 ? "file" : "files" }} outside
+          the model folder
         </span>
       </InfoTip>
     </PanelHeader>
 
-    <StateMessage v-if="manifest && !manifest.available" variant="inline">
+    <StateMessage v-if="error" variant="inline" tone="danger">
+      {{ error }}
+    </StateMessage>
+
+    <StateMessage v-else-if="manifest && !manifest.available" variant="inline">
       {{ manifest.reason }}
     </StateMessage>
 
@@ -201,8 +229,12 @@ const viewSegments = computed(() => [
       </Tree>
 
       <div class="min-h-0 flex-1 overflow-auto bg-surface">
+        <StateMessage v-if="fileError" variant="inline" tone="danger">
+          {{ fileError }}
+        </StateMessage>
+
         <pre
-          v-if="content !== null"
+          v-else-if="content !== null"
           data-testid="snapshot-content"
           class="p-2 whitespace-pre"
           :class="CODE_BLOCK"

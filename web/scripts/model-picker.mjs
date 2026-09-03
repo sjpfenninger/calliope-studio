@@ -32,7 +32,7 @@ const SCRATCH_NAME = "calliope-studio-check";
 const SCRATCH = join(homedir(), SCRATCH_NAME);
 const MODEL_NAME = "picker-check-model";
 
-const { check, finish } = results();
+const { check, skip, finish } = results();
 
 const payload = requireMode(await health(BASE), "workspace", BASE);
 
@@ -170,7 +170,39 @@ try {
     await testId("new-model-target").innerText(),
   );
 
-  await testId("create-model").click();
+  // The template picker, exercised on the option that is *not* the default:
+  // a picker that is read but never used looks identical to one that is
+  // ignored, and what it names decides which files land on disk.
+  const defaulted = (await testId("new-model-template").innerText()).trim();
+  check(
+    "the template defaults to what `calliope new` uses",
+    defaulted === "national_scale",
+    defaulted,
+  );
+
+  await testId("new-model-template").click();
+  const urban = page.getByRole("option", { name: "urban_scale", exact: true });
+  const offered = await urban
+    .first()
+    .waitFor({ timeout: 5000 })
+    .then(() => true)
+    .catch(() => false);
+  if (offered) {
+    await urban.first().click();
+    check(
+      "picking a template shows it",
+      (await testId("new-model-template").innerText()).trim() === "urban_scale",
+      await testId("new-model-template").innerText(),
+    );
+  } else {
+    skip("choosing a non-default template (this Calliope ships only one)");
+    await page.keyboard.press("Escape");
+  }
+
+  // Enter in the name field, not the button: it is where the hands already are
+  // after typing a name, and the `@keydown.enter` that makes it work is one
+  // deleted line away from a dialog that silently does nothing.
+  await testId("new-model-name").press("Enter");
 
   // Landing in the shell is the assertion: creating and opening are one action.
   // Waited for rather than read once — the shell is *already* on screen, showing
@@ -196,6 +228,17 @@ try {
     "and it is a real model on disk",
     Boolean(await stat(join(SCRATCH, MODEL_NAME, "model.yaml")).catch(() => null)),
   );
+  // The one file that tells the two templates apart: `additional_math.yaml` is
+  // urban_scale's, and national_scale has nothing like it. Without this the
+  // picker could be sending the default every time and nothing would say so.
+  if (offered) {
+    check(
+      "and it is the template that was chosen, not the default",
+      Boolean(
+        await stat(join(SCRATCH, MODEL_NAME, "additional_math.yaml")).catch(() => null),
+      ),
+    );
+  }
 
   await testId("project-switcher").click();
   await testId("switcher-model").first().waitFor({ timeout: 5000 });

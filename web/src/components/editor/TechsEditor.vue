@@ -32,8 +32,8 @@ import { useComponentTreeStore } from "@/stores/componentTree";
 import { useTemplatesStore } from "@/stores/templates";
 import { mergeIntoSection, ownedNames, type RawTech } from "@/lib/techs";
 import {
-  entryKey,
   rawToTech,
+  rowKey,
   techToRaw,
   type TechEntry,
 } from "@/lib/entries";
@@ -51,6 +51,34 @@ const templatesStore = useTemplatesStore();
 const BASE_TECH_OPTIONS = ["supply", "demand", "storage", "transmission", "conversion"];
 
 const entries = ref<TechEntry[]>([]);
+/**
+ * Which rows are expanded, by `rowKey`.
+ *
+ * A `v-model` rather than Reka's `:default-value`, which is read once: with the
+ * rows keyed by identity a re-render no longer resets them, so the open set has
+ * to be state somebody owns. It is also what lets `addEntry` open the row it
+ * just made — a new technology used to arrive collapsed and called `(unnamed)`,
+ * which is the one row whose fields are certainly wanted.
+ */
+const openRows = ref<string[]>([]);
+
+/**
+ * The row whose name field is waiting to take focus, by `rowKey`.
+ *
+ * A new technology is a row called `(unnamed)` with one field that has to be
+ * filled in before any of the others mean anything, so the cursor belongs
+ * there. Set by `addEntry` and cleared by the ref callback below, which is what
+ * makes it fire exactly once rather than stealing focus on every re-render.
+ */
+const focusRow = ref<string | null>(null);
+
+function focusNameField(el: unknown, key: string) {
+  if (focusRow.value !== key || !(el instanceof HTMLInputElement)) return;
+  focusRow.value = null;
+  // The ref fires while Reka's collapsible content is still `hidden` for the
+  // frame it measures its height in, and a hidden input silently refuses focus.
+  requestAnimationFrame(() => el.focus());
+}
 // The section as loaded, so the transmission entries LinksEditor owns survive a
 // save from here.
 const originalSection = ref<Record<string, RawTech>>({});
@@ -136,6 +164,7 @@ const {
     entries.value = Object.entries(originalSection.value)
       .filter(([name]) => owned.value.has(name))
       .map(([name, raw]) => rawToTech(name, raw));
+    openRows.value = entries.value.map(rowKey);
     await loadDataTableParams();
     // The provenance marker on each field links to the template or table that
     // supplies the value, and the tree is what says which file holds it.
@@ -163,7 +192,17 @@ const {
 });
 
 function addEntry() {
-  entries.value.push({ name: "", template: null, base_tech: null, active: true, extraParams: [] });
+  const entry: TechEntry = {
+    name: "",
+    template: null,
+    base_tech: null,
+    active: true,
+    extraParams: [],
+  };
+  entries.value.push(entry);
+  const key = rowKey(entries.value[entries.value.length - 1]);
+  openRows.value = [...openRows.value, key];
+  focusRow.value = key;
   markDirty();
 }
 
@@ -192,7 +231,7 @@ function inheritedFor(entry: TechEntry) {
 </script>
 
 <template>
-  <div class="flex min-h-0 flex-1 flex-col">
+  <div class="flex min-h-0 flex-1 flex-col" data-testid="techs-editor">
     <StateMessage v-if="isLoading" variant="block" loading>
       Loading techs…
     </StateMessage>
@@ -212,6 +251,7 @@ function inheritedFor(entry: TechEntry) {
           v-if="!entryName"
           type="button"
           :class="GHOST_BUTTON"
+          data-testid="add-tech"
           :disabled="locked"
           @click="addEntry"
         >
@@ -226,18 +266,14 @@ function inheritedFor(entry: TechEntry) {
           {{ entryName ? `No tech called "${entryName}".` : "No techs defined yet." }}
         </StateMessage>
 
-        <Accordion
-          v-else
-          type="multiple"
-          :default-value="visibleEntries.map((e) => entryKey(e, entries))"
-          class="px-2"
-        >
+        <Accordion v-else v-model="openRows" type="multiple" class="px-2">
           <EntryAccordionRow
             v-for="entry in visibleEntries"
-            :key="entryKey(entry, entries)"
-            :value="entryKey(entry, entries)"
+            :key="rowKey(entry)"
+            :value="rowKey(entry)"
             :name="entry.name || '(unnamed)'"
             remove-label="Remove this technology"
+            testid="entry-row"
             @remove="removeEntry(entry)"
           >
             <template #meta>
@@ -254,6 +290,8 @@ function inheritedFor(entry: TechEntry) {
               <input
                 v-model="entry.name"
                 type="text"
+                data-testid="entry-name"
+                :ref="(el) => focusNameField(el, rowKey(entry))"
                 :class="FIELD"
                 @input="onChange"
               />
@@ -285,6 +323,7 @@ function inheritedFor(entry: TechEntry) {
             >
               <select
                 :value="entry.base_tech ?? ''"
+                data-testid="entry-base-tech"
                 :class="FIELD"
                 @change="
                   entry.base_tech =

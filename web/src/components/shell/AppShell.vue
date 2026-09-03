@@ -25,16 +25,22 @@ import {
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
 import { initMonacoYaml } from "@/monacoSetup";
+import { useExplorerStore } from "@/stores/explorer";
 import { useProjectStore } from "@/stores/project";
+import { useRunsStore } from "@/stores/runs";
 import { useSchemaKindsStore } from "@/stores/schemaKinds";
 import { useTabsStore } from "@/stores/tabs";
 import { useUiStore } from "@/stores/ui";
+import { useValidationStore } from "@/stores/validation";
 
 const route = useRoute();
 const router = useRouter();
 const tabs = useTabsStore();
 const project = useProjectStore();
 const schemaKinds = useSchemaKindsStore();
+const runs = useRunsStore();
+const validation = useValidationStore();
+const explorer = useExplorerStore();
 const ui = useUiStore();
 
 const projectId = computed(() => (route.params.projectId as string) ?? null);
@@ -67,6 +73,15 @@ watch(
     if (!nextVersion || nextVersion === previous?.[1]) return;
 
     tabs.setVersion(nextVersion);
+    // Everything below is state about the model being left, and this is the one
+    // place a model switch is handled. `RunsSection` used to stop the polls and
+    // log streams from its own watcher, but it unmounts whenever the user is on
+    // Model or Files — so a switch made from either fired that watcher
+    // `immediate`, with nothing to compare against, and the old model's runs
+    // went on polling into the new model's list.
+    runs.stopAll();
+    validation.reset();
+    explorer.reset();
     // Which schema describes which of this model's files. Fetched per model
     // because it depends on the `import:` graph, and before any editor opens so
     // that the first file to be shown is validated against the right one.

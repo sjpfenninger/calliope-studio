@@ -9,6 +9,7 @@ vi.mock("@/api/versions", () => ({
 }));
 
 import { putYamlSection, readYamlSection } from "@/api/versions";
+import { useSectionDataStore } from "@/stores/sectionData";
 import { useTabsStore } from "@/stores/tabs";
 import { useSectionEditor, type SectionEditorOptions } from "./useSectionEditor";
 
@@ -240,6 +241,49 @@ describe("useSectionEditor", () => {
     wrapper.unmount();
   });
 
+  it("commits the focused field before Cmd+S builds the payload", async () => {
+    // Almost every field in these forms writes back on `change`, which a
+    // keystroke never fires — so Cmd+S built the payload from the value before
+    // the one on screen, wrote it, and marked the tab clean over the edit still
+    // in the box. Blurring first fires `change` synchronously.
+    //
+    // Asserted through the blur rather than through a `change` listener:
+    // happy-dom does not dispatch `change` on blur (verified — a focused input
+    // given a new value and blurred fires nothing), so a test written the
+    // obvious way would pass on an implementation that blurs nothing.
+    const tabs = useTabsStore();
+    const id = tabs.openSection("techs", "a.yaml");
+    tabs.activate(id);
+    api.get.mockResolvedValue(read({}, "r1"));
+    api.put.mockResolvedValue("r2");
+
+    const field = document.createElement("input");
+    document.body.appendChild(field);
+    const order: string[] = [];
+    field.addEventListener("blur", () => order.push("blur"));
+
+    const { wrapper } = harness({
+      tabId: () => id,
+      build: () => {
+        order.push("build");
+        return { built: true };
+      },
+    });
+    await flushPromises();
+
+    field.focus();
+    expect(document.activeElement).toBe(field);
+
+    pressSave();
+    await flushPromises();
+
+    expect(order).toEqual(["blur", "build"]);
+    expect(document.activeElement).not.toBe(field);
+
+    field.remove();
+    wrapper.unmount();
+  });
+
   it("clears only the form's own flag after loading", async () => {
     // The raw buffer of the same tab may hold the user's edits; a load that
     // cleared everything let that tab close without asking.
@@ -252,6 +296,26 @@ describe("useSectionEditor", () => {
     await flushPromises();
 
     expect(tabs.get(id)?.isDirty).toBe(true);
+    wrapper.unmount();
+  });
+
+  it("does not load twice when the file path changes", async () => {
+    // The revision watcher keys on `fileRevisions.get(filePath)`, so a path
+    // change moves it to a different file's counter — which reads as "somebody
+    // wrote this section" and fired a second GET on top of the one the path
+    // watcher had already started. Two reads for one tab switch, racing.
+    const cache = useSectionDataStore();
+    cache.noteFileWritten("b.yaml");
+    api.get.mockResolvedValue(read({}));
+
+    const { filePath, wrapper } = harness();
+    await flushPromises();
+    expect(api.get).toHaveBeenCalledTimes(1);
+
+    filePath.value = "b.yaml";
+    await flushPromises();
+    expect(api.get).toHaveBeenCalledTimes(2);
+
     wrapper.unmount();
   });
 });

@@ -19,7 +19,7 @@ import { defineStore } from "pinia";
 import { computed, ref, watch } from "vue";
 
 import { parsePrecision } from "../lib/precision";
-import { KEY_PREFIX } from "../lib/storageKeys";
+import { KEY_PREFIX, writeStorage } from "../lib/storageKeys";
 import { useTabsStore } from "./tabs";
 
 /** Where a `.nc` opened with no workspace keeps its setting. See `units.ts`. */
@@ -64,15 +64,13 @@ export const useRoundingStore = defineStore("rounding", () => {
   });
 
   function persist() {
-    try {
-      const id = versionId.value;
-      // Nothing set is no key at all, rather than a default record accumulating
-      // for every model ever opened.
-      if (isEmpty(pref.value)) localStorage.removeItem(storageKey(id));
-      else localStorage.setItem(storageKey(id), JSON.stringify(pref.value));
-    } catch {
-      // A blocked or full localStorage. The setting still applies this session.
-    }
+    const id = versionId.value;
+    // Nothing set is no key at all, rather than a default record accumulating
+    // for every model ever opened.
+    writeStorage(
+      storageKey(id),
+      isEmpty(pref.value) ? null : JSON.stringify(pref.value),
+    );
   }
 
   function update(next: RoundingPref) {

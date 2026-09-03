@@ -18,13 +18,17 @@ import { Trash2 } from "@lucide/vue";
 import TooltipButton from "../app/TooltipButton.vue";
 
 defineProps<{
-  /** The AccordionItem value; use `entryKey` so it stays stable. */
+  /** The AccordionItem value; use `rowKey` so it stays stable across a rename. */
   value: string;
   /** The entry's name, shown monospace as the row's title. */
   name: string;
   /** Tooltip on the remove button, e.g. "Remove this technology". */
   removeLabel: string;
-  /** For the one editor whose rows a browser check selects. */
+  /**
+   * The row's own testid, on the `AccordionItem` — so Reka's `data-state` and
+   * the `data-name` below sit on the element a check selects, and open-versus-
+   * collapsed is readable without a second selector.
+   */
   testid?: string;
 }>();
 
@@ -32,8 +36,8 @@ defineEmits<{ remove: [] }>();
 </script>
 
 <template>
-  <AccordionItem :value="value">
-    <div class="flex items-center gap-1.5" :data-testid="testid">
+  <AccordionItem :value="value" :data-testid="testid" :data-name="name">
+    <div class="flex items-center gap-1.5">
       <!-- No `py-1.5` and no `hover:no-underline`: AccordionTrigger is already
            `h-7` and has never underlined. All five copies carried both anyway,
            and the padding only squeezed the row's own content. -->
@@ -45,6 +49,7 @@ defineEmits<{ remove: [] }>();
         :label="removeLabel"
         :icon="Trash2"
         tone="danger"
+        testid="entry-remove"
         @click="$emit('remove')"
       />
     </div>

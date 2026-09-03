@@ -190,6 +190,9 @@ export const useRunsStore = defineStore("runs", () => {
   const pollTimers = new Map<string, ReturnType<typeof setTimeout>>();
   const streams = new Map<string, EventSource>();
 
+  /** Which model `load` last asked about; what a late reply is checked against. */
+  let loadedVersionId: string | null = null;
+
   /** Newest first, which is the only order a history list is ever read in. */
   const ordered = computed(() =>
     [...records.values()].sort((a, b) => b.created_at.localeCompare(a.created_at)),
@@ -432,14 +435,36 @@ export const useRunsStore = defineStore("runs", () => {
     retention.value = settings.run_retention;
   }
 
+  /**
+   * The history for one model, and the end of the previous model's.
+   *
+   * `stopAll` belongs here rather than in whichever section happens to be
+   * watching: `RunsSection` unmounts every time the user looks at Model or
+   * Files, so a model switch made from either fired its watcher `immediate`
+   * with no previous value and stopped nothing — the old model's poll and
+   * `EventSource` kept running and its run was absorbed into the new model's
+   * list on the next tick.
+   *
+   * The awaited history is guarded the way `stores/schemaKinds.ts` guards its
+   * reply, because `records.clear()` followed by an absorb of whichever list
+   * lands last is how one model's runs end up under another's id.
+   */
   async function load(versionId: string): Promise<void> {
+    if (loadedVersionId !== null && loadedVersionId !== versionId) stopAll();
+    loadedVersionId = versionId;
     isLoading.value = true;
     error.value = null;
     void loadSettings(versionId);
     void loadScenarios(versionId);
     try {
       const history = await api.listRuns(versionId);
+      if (loadedVersionId !== versionId) return;
       records.clear();
+      // The per-run buffers accumulated for every run ever listed this session,
+      // so a long-lived window held the log of every run of every model it had
+      // visited. Dropping what the new history does not name is the one moment
+      // it is safe to: a run that is gone from it has no pane left to read it.
+      forgetRunsOutside(new Set(history.map((record) => record.id)));
       for (const record of history) absorb(record);
       // A run left behind by a previous session may still be solving; the
       // history list is where we find that out.
@@ -447,9 +472,22 @@ export const useRunsStore = defineStore("runs", () => {
         if (!isTerminal(record.status)) watchRun(record.id);
       }
     } catch (caught) {
+      if (loadedVersionId !== versionId) return;
       error.value = errorDetail(caught, "Could not read the run history.");
     } finally {
-      isLoading.value = false;
+      if (loadedVersionId === versionId) isLoading.value = false;
+    }
+  }
+
+  /** Drops every per-run buffer for a run the given history does not carry. */
+  function forgetRunsOutside(keep: Set<string>) {
+    for (const runId of [...logs.keys()]) {
+      if (keep.has(runId)) continue;
+      logs.delete(runId);
+      trimmed.delete(runId);
+    }
+    for (const runId of [...stages.keys()]) {
+      if (!keep.has(runId)) stages.delete(runId);
     }
   }
 

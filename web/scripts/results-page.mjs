@@ -86,8 +86,8 @@ export const forceTheme = (page, theme) =>
     }
   }, theme);
 
-/** The base URL a check was given, or the dev default. */
-export const baseFrom = (argv) => argv[2] ?? "http://127.0.0.1:8000";
+// Moved to the harness, where the workspace checks can reach it too.
+export { baseFrom } from "./harness.mjs";
 
 /**
  * The figures' geometry, as the one thing worth waiting to stop changing.

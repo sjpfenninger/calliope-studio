@@ -1,5 +1,6 @@
 import { ref, shallowRef, type Ref } from "vue";
 
+import { errorDetail } from "@/api/errors";
 import { getCsv, putCsv } from "@/api/versions";
 
 /**
@@ -67,13 +68,17 @@ export interface CsvGridOptions {
   editable?: () => boolean;
 }
 
-function describe(e: any): string {
-  const status = e?.response?.status;
-  const detail = e?.response?.data?.detail;
-  if (detail) return String(detail);
-  if (status === 404) return "File not found.";
-  if (status) return `Request failed (${status}).`;
-  return e?.message ?? "Failed to load CSV.";
+/**
+ * `errorDetail`, with the one thing this surface knows that it does not.
+ *
+ * `api/errors.ts` answers a bare 404 as "Not found." because it serves every
+ * request in the app; here the only thing that can be missing is the file, and
+ * saying so is what makes the message actionable. This used to be a private
+ * copy of the whole function, which had drifted from it.
+ */
+function describe(caught: unknown): string {
+  const message = errorDetail(caught, "Failed to load CSV.");
+  return message === "Not found." ? "File not found." : message;
 }
 
 export function useCsvGrid(versionId: Ref<string | null>, options: CsvGridOptions = {}) {
@@ -153,13 +158,13 @@ export function useCsvGrid(versionId: Ref<string | null>, options: CsvGridOption
       });
       isDirty.value = false;
       loadedPath.value = path;
-    } catch (e: any) {
+    } catch (caught) {
       if (mine !== token) return;
       columns = [];
       columnDefs.value = [];
       rowData.value = [];
       loadedPath.value = null;
-      error.value = describe(e);
+      error.value = describe(caught);
     } finally {
       if (mine === token) isLoading.value = false;
     }

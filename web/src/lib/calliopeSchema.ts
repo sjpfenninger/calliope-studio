@@ -100,6 +100,31 @@ const MATH_URI = "https://calliope.readthedocs.io/schema/math";
 const VIRTUAL_MATCH = "virtual:///*";
 
 /**
+ * The Monaco URI of a real file on disk, as a string.
+ *
+ * A bare `file:///${path}` is wrong the moment a name contains a character a
+ * URI has to escape, and wrong on *both* sides of a comparison nothing checks:
+ * Monaco percent-encodes in `Uri.toString()`, so the model for `my model.yaml`
+ * is `file:///my%20model.yaml` while a `fileMatch` built from the same path read
+ * `file:///my model.yaml`. No match, no schema, and the only symptom is
+ * completion and validation quietly absent in that one file. A `#` is worse
+ * still: `Uri.parse` takes it as the start of a fragment and truncates the path.
+ *
+ * Encoded per segment so the separators survive, and the five sub-delims
+ * `encodeURIComponent` spares are encoded as well — Monaco's own encoder returns
+ * only the RFC 3986 unreserved set unescaped, and the two spellings have to
+ * agree exactly or the match fails for the same invisible reason.
+ */
+export function fileUri(path: string): string {
+  const encode = (segment: string) =>
+    encodeURIComponent(segment).replace(
+      /[!'()*]/g,
+      (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`,
+    );
+  return `file:///${path.split("/").map(encode).join("/")}`;
+}
+
+/**
  * The effective kind of a file: what the user said, else what we detected.
  *
  * Keyed on path rather than on a detected kind, so that an override survives the
@@ -139,7 +164,7 @@ export function schemaEntries(
   const paths = new Set([...Object.keys(detected), ...Object.keys(overrides)]);
   const byKind: Record<FileKind, string[]> = { model: [], math: [], unknown: [] };
   for (const path of paths) {
-    byKind[effectiveKind(path, detected, overrides)].push(`file:///${path}`);
+    byKind[effectiveKind(path, detected, overrides)].push(fileUri(path));
   }
 
   const entries: SchemaEntry[] = [

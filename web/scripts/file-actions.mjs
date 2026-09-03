@@ -215,6 +215,10 @@ try {
   // ── an image ─────────────────────────────────────────────────────────────
   await openFile(IMAGE);
   await until(async () => (await testId("file-image").count()) > 0);
+  // `complete` is the browser's own word for "loaded, or failed to": the element
+  // is on the page a beat before its bytes are, and a box measured in that beat
+  // is 0×0 whatever the file holds.
+  await until(() => testId("file-image").evaluate((img) => img.complete));
   const drawn = await testId("file-image").evaluate((img) => {
     const box = img.getBoundingClientRect();
     const pane = img.parentElement.getBoundingClientRect();

@@ -49,3 +49,27 @@ export function migrateLegacyStorageKeys(storage: Storage = localStorage): void 
     // A blocked or full localStorage. The app works without any of this.
   }
 }
+
+/**
+ * Writes one key, or removes it when `value` is null, and never throws.
+ *
+ * Every *read* in this application was already guarded and most writes were
+ * not, which is the wrong way round: a read that throws costs a default, while
+ * a write happens from a watcher — the tab set on every tab change, the
+ * splitter geometry on every drag frame — and a reactive effect is not a place
+ * an exception can be caught. Safari's private mode throws on `setItem` for
+ * every origin, and a full quota throws for any of them, so this is the
+ * ordinary failure rather than the exotic one.
+ *
+ * Swallowing is the honest response: everything stored here is a convenience
+ * the session already holds in memory, so the only thing lost is that it is
+ * still there tomorrow.
+ */
+export function writeStorage(key: string, value: string | null): void {
+  try {
+    if (value === null) localStorage.removeItem(key);
+    else localStorage.setItem(key, value);
+  } catch {
+    // A blocked or full localStorage. The value still applies this session.
+  }
+}

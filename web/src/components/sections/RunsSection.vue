@@ -106,15 +106,20 @@ const activeRunId = computed(() =>
  * leaves the list permanently empty. Re-entering the section reloads, which is
  * also how the list picks up a run started from somewhere else.
  *
- * Note what is *not* here: no teardown on unmount. This component unmounts every
- * time the user looks at Model or Files, and a run keeps going regardless — its
- * poll and its log stream belong to the store, not to whichever section happens
- * to be on screen. Only moving to a different model stops them.
+ * Note what is *not* here: no teardown on unmount, and no stopping of the
+ * previous model's polls. This component unmounts every time the user looks at
+ * Model or Files, and a run keeps going regardless — its poll and its log
+ * stream belong to the store, not to whichever section happens to be on
+ * screen. Stopping them on a model switch was here and could not work from
+ * here: a switch made from Model or Files remounts this and fires the watcher
+ * `immediate`, with no previous value to compare against, so nothing was
+ * stopped and the old model's runs kept polling into the new model's list.
+ * `AppShell`'s version watcher does it now, and `runs.load` does it again for
+ * anything that reaches the store by another route.
  */
 watch(
   () => tabs.versionId,
-  (versionId, previous) => {
-    if (previous && previous !== versionId) runs.stopAll();
+  (versionId) => {
     if (versionId) runs.load(versionId);
   },
   { immediate: true },

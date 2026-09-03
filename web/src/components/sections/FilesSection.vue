@@ -38,10 +38,31 @@ const tabs = useTabsStore();
 const version = useVersionStore();
 const explorer = useExplorerStore();
 
-const selected = ref<FileTreeNode>();
 const nodes = computed(() => version.fileTree);
 
+/**
+ * The chosen row, held in the store as a key.
+ *
+ * This section is a lazily-mounted route component with no `<keep-alive>`, so
+ * a local `ref` was thrown away every time the user went to Model or Runs —
+ * and where a new file lands is read off it.
+ */
+const selected = computed<FileTreeNode | undefined>({
+  get: () => nodeAt(nodes.value, explorer.selected.files),
+  set: (node) => explorer.setSelected("files", node?.key ?? null),
+});
+
 const creating = ref<"file" | "folder" | null>(null);
+
+function nodeAt(items: FileTreeNode[], key: string | null): FileTreeNode | undefined {
+  if (key === null) return undefined;
+  for (const node of items) {
+    if (node.key === key) return node;
+    const found = nodeAt(node.children ?? [], key);
+    if (found) return found;
+  }
+  return undefined;
+}
 
 /**
  * Where a new entry goes: the selected folder, or the folder holding the

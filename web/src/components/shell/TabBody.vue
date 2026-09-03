@@ -170,7 +170,6 @@ function structuredVisible(tab: SectionTab | EntryTab): boolean {
 
       <ValidationTabView
         v-if="active?.kind === 'validation'"
-        :tab="active"
         class="absolute inset-0 flex"
       />
 

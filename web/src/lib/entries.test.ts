@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { reactive } from "vue";
 
 import {
   parseScalarList,
-  entryKey,
   linkToRaw,
   nodeToRaw,
   rawToLink,
@@ -246,23 +246,15 @@ describe("parseScalarList", () => {
   });
 });
 
-describe("entryKey", () => {
-  it("uses the name when there is one", () => {
-    const entries = [{ name: "ccgt" }, { name: "battery" }];
-    expect(entryKey(entries[1], entries)).toBe("battery");
-  });
-
-  it("falls back to the position while a name is being typed", () => {
-    const entries = [{ name: "ccgt" }, { name: "" }];
-    expect(entryKey(entries[1], entries)).toBe("1");
-  });
-});
-
 /**
  * A parameter row has no name to key on, so the lists were keyed by index — and
  * removing a row made Vue reuse the component that had been showing the row
  * above it, which reads its value once at setup. The previous row's value then
  * sat under the new row's key, and the next change wrote it there.
+ *
+ * The entry lists now key on this too, for the mirror-image reason: they keyed
+ * on the entry's *name*, which is the one field the form lets you change, so
+ * every keystroke in a name box remounted the row being typed in.
  */
 describe("rowKey", () => {
   it("is stable for one row across calls", () => {
@@ -284,5 +276,35 @@ describe("rowKey", () => {
     const second = rowKey(rows[1]);
     rows.splice(0, 1);
     expect(rowKey(rows[0])).toBe(second);
+  });
+
+  it("does not change when the entry is renamed", () => {
+    // The bug this replaced `entryKey` for. A name key changes per character,
+    // so Vue unmounted the accordion row mid-word: focus went to the document
+    // and the row collapsed, making a five-letter name five clicks of work.
+    const entry = { name: "" };
+    const before = rowKey(entry);
+    entry.name = "solar_x";
+    expect(rowKey(entry)).toBe(before);
+  });
+
+  it("distinguishes two entries that share a name", () => {
+    // Which a file cannot contain, but a form mid-edit certainly can: two rows
+    // both called `(unnamed)` are what "Add tech" twice produces.
+    const a = { name: "" };
+    const b = { name: "" };
+    expect(rowKey(a)).not.toBe(rowKey(b));
+  });
+
+  it("is the same through a Vue reactive proxy as the template sees it", () => {
+    // The editors call this on `entries.value[i]`, which is a proxy rather than
+    // the object pushed in. Vue hands out one proxy per raw object, so the
+    // WeakMap keys on a stable identity — but the whole scheme rests on that,
+    // so it is asserted rather than assumed.
+    const list = reactive([{ name: "ccgt" }]);
+    expect(rowKey(list[0])).toBe(rowKey(list[0]));
+    const captured = list[0];
+    list[0].name = "renamed";
+    expect(rowKey(captured)).toBe(rowKey(list[0]));
   });
 });

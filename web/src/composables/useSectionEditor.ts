@@ -300,6 +300,11 @@ export function useSectionEditor(options: SectionEditorOptions) {
       return;
     }
     event.preventDefault();
+    // Most fields in these forms commit on `change`, which a keystroke never
+    // fires: Cmd+S read the value from before the one on screen, wrote it, and
+    // then marked the tab clean over an edit the box was still showing.
+    // Blurring first fires `change` synchronously, so `build()` sees it.
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
     save();
   }
 
@@ -330,9 +335,19 @@ export function useSectionEditor(options: SectionEditorOptions) {
    * one-buffer-per-file rule this form is dirty only when it is the writer.
    */
   let seenRevision = cache.fileRevisions.get(toValue(options.filePath)) ?? 0;
+  let seenPath = toValue(options.filePath);
   watch(
     () => cache.fileRevisions.get(toValue(options.filePath)) ?? 0,
     (revision) => {
+      // A *different* file's revision is not a write to this one. The watcher
+      // above already reloads on a path change, so without this a section-tab
+      // switch made two GETs for one section — and the second raced the first.
+      const path = toValue(options.filePath);
+      if (path !== seenPath) {
+        seenPath = path;
+        seenRevision = revision;
+        return;
+      }
       if (revision === seenRevision) return;
       seenRevision = revision;
       const tab = tabs.get(toValue(options.tabId));

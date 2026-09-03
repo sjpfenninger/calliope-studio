@@ -43,6 +43,15 @@ export function useModelGeo(versionId: Ref<string>) {
   const error = ref<string | null>(null);
 
   let timer: ReturnType<typeof setTimeout> | null = null;
+  /**
+   * How many times *this* poll sequence has asked again.
+   *
+   * Reset by `reload` rather than only by the version watch, which is what it
+   * counts: a save is a fresh question, not a continuation of the previous
+   * one. Counted across every call it was a budget for the lifetime of the
+   * tab, so on a model slow enough to need a few polls per save the map simply
+   * stopped following saves after forty of them, with nothing to say why.
+   */
   let polls = 0;
   /**
    * Which call owns the answer, and whether this composable is still alive.
@@ -66,8 +75,9 @@ export function useModelGeo(versionId: Ref<string>) {
     timer = null;
   }
 
-  async function reload(): Promise<void> {
+  async function reload(continuing = false): Promise<void> {
     stopPolling();
+    if (!continuing) polls = 0;
     const mine = ++generation;
     error.value = null;
     try {
@@ -80,7 +90,7 @@ export function useModelGeo(versionId: Ref<string>) {
 
       if (resolve_task && polls < MAX_POLLS) {
         polls += 1;
-        timer = setTimeout(reload, POLL_INTERVAL);
+        timer = setTimeout(() => void reload(true), POLL_INTERVAL);
       } else {
         polls = 0;
       }
@@ -91,11 +101,8 @@ export function useModelGeo(versionId: Ref<string>) {
     }
   }
 
-  onMounted(reload);
-  watch(versionId, () => {
-    polls = 0;
-    reload();
-  });
+  onMounted(() => void reload());
+  watch(versionId, () => void reload());
   onScopeDispose(() => {
     alive = false;
     generation += 1;

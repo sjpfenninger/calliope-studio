@@ -147,9 +147,13 @@ function isActive(item: SegmentItem<T>): true | undefined {
         >
           <component :is="item.icon" v-if="item.icon" class="size-3.5 shrink-0" />
           <span class="truncate">{{ item.label }}</span>
+          <!-- Derived from the segment's own testid rather than named
+               separately, so a caller that can find the segment can read its
+               count without every call site inventing a second name. -->
           <Badge
             v-if="item.badge !== undefined"
             :variant="item.badgeVariant ?? 'destructive'"
+            :data-testid="item.testid ? `${item.testid}-badge` : undefined"
             class="h-4 px-1 tabular-nums"
           >
             {{ item.badge }}

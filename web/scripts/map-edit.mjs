@@ -17,14 +17,16 @@
  * cannot reach one. Positions come from `window.__cgMap.project()`, the seam
  * `ModelMap` exposes for exactly this. Everything else selects on `data-testid`.
  *
- * The file it edits is put back as it was on the way out, so the checks that run
- * after this one see the model they expect.
+ * The file it edits is put back as it was on the way out — through
+ * `modelFiles().guard()`, so the restore is the harness's rather than this
+ * script's — because the checks that run after this one see the model they
+ * expect.
  */
 import { parse } from "yaml";
 
-import { api, health, open, quiet, requireMode, results, trackRequests, until } from "./harness.mjs";
+import { api, baseFrom, openWorkspace, quiet, results, until } from "./harness.mjs";
 
-const BASE = process.argv[2] ?? "http://127.0.0.1:8000";
+const BASE = baseFrom(process.argv);
 
 const NODES_FILE = "model_config/locations.yaml";
 
@@ -36,20 +38,11 @@ const LINK_TO = "region1_2";
 /** Whose latitude is taken away, to see the map grey itself out. */
 const UNPLACED = "region1_3";
 
-const { check, finish } = results("map-edit");
+const outcome = results("map-edit");
+const { check } = outcome;
 
-const payload = requireMode(await health(BASE), "workspace", BASE);
-const ws = payload.workspace_id;
-
-const readFile = async (path) =>
-  (await (await api(`${BASE}/api/versions/${ws}/files/${path}`)).json()).content;
-
-const writeFile = (path, content) =>
-  api(`${BASE}/api/versions/${ws}/files/${path}`, {
-    method: "PUT",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ content }),
-  });
+const { browser, page, testId, consoleErrors, mapReady, calls, ws, enter, openEntry, files } =
+  await openWorkspace(BASE);
 
 const comments = (text) =>
   text
@@ -75,12 +68,6 @@ async function nodeCoordinates() {
 }
 
 let coordinates = await nodeCoordinates();
-
-const { browser, page, testId, consoleErrors, mapReady } = await open();
-
-// Every call the editor makes, so opening a section and saving one can be waited
-// on rather than slept after.
-const calls = trackRequests(page, (request) => request.url().includes("/api/"));
 
 /** Where a longitude/latitude pair currently sits on screen. */
 async function screenPoint(lngLat) {
@@ -117,12 +104,7 @@ async function waitForResolvedGeo(timeout = 60000) {
 }
 
 async function openSection(name) {
-  await calls.settle(() =>
-    page
-      .getByRole("treeitem", { name: new RegExp(`^${name}$`, "i") })
-      .first()
-      .click(),
-  );
+  await openEntry(name);
   await testId("editor-map").waitFor({ timeout: 20000 });
   // The element exists before MapLibre has a style, and `map.project()` on a map
   // that has not loaded returns a point for a viewport that is about to change —
@@ -131,13 +113,11 @@ async function openSection(name) {
   await calls.idle();
 }
 
-const before = await readFile(NODES_FILE);
+const before = await files.read(NODES_FILE);
 
-try {
+async function run() {
   console.log(`Editing on the map at ${BASE}`);
-  await page.goto(`${BASE}${payload.landing}`, { waitUntil: "domcontentloaded" });
-  await testId("model-tree").waitFor({ timeout: 20000 });
-  await calls.idle();
+  await enter();
 
   // ---------------------------------------------------------------------------
   // Nodes: the map is there, has a size, and a node can be dragged.
@@ -214,7 +194,7 @@ try {
 
   await calls.settle(() => testId("save").click(), { timeout: 30000 });
 
-  const after = await readFile(NODES_FILE);
+  const after = await files.read(NODES_FILE);
   const saved = parse(after).nodes[DRAGGED];
 
   check("the new position reaches the file", saved.latitude === latitude, String(saved.latitude));
@@ -291,7 +271,7 @@ try {
   // Half a coordinate pair is something Calliope rejects outright, and the map says
   // so in its own words rather than guessing. Worth pinning: the alternative is a
   // map that silently shows the last thing that worked.
-  await writeFile(NODES_FILE, before);
+  await files.write(NODES_FILE, before);
   await reopenNodes((section) => {
     delete section[UNPLACED].latitude;
   }, "map-error");
@@ -307,7 +287,7 @@ try {
     (await testId("map-show-list").count()) === 1,
   );
 
-  await writeFile(NODES_FILE, before);
+  await files.write(NODES_FILE, before);
 
   // Before the reload, not after: the map is greyed out for as long as the model
   // is unresolved, and the scrim deliberately does not set `pointer-events:
@@ -357,6 +337,39 @@ try {
   await testId("pending-link").waitFor({ timeout: 20000 }).catch(() => {});
   check("the first click starts a link", (await testId("pending-link").count()) === 1);
 
+  // The chip has said "Cancel (Esc)" since the two-click flow was written, and
+  // for most of that time nothing listened: the endpoint stayed armed and the
+  // next node click drew a link nobody asked for.
+  const drawnSoFar = await testId("link-name").inputValue();
+  await page.keyboard.press("Escape");
+  check(
+    "Escape cancels the pending link",
+    await until(async () => (await testId("pending-link").count()) === 0, {
+      timeout: 5000,
+    }),
+  );
+
+  // The half a disappearing chip cannot tell you: the *next* click has to start
+  // a fresh link rather than complete the abandoned one.
+  const elsewhere = await screenPoint(coordinates[LINK_TO]);
+  await page.mouse.click(elsewhere.x, elsewhere.y);
+  await until(async () => (await testId("pending-link").count()) === 1, { timeout: 5000 });
+  check(
+    "the next click starts a fresh link",
+    (await testId("pending-link").count()) === 1,
+  );
+  check(
+    "and the cancelled pair drew nothing",
+    (await testId("link-name").inputValue()) === drawnSoFar,
+    await testId("link-name").inputValue(),
+  );
+
+  // Back to where the draw flow below expects to start.
+  await page.keyboard.press("Escape");
+  await until(async () => (await testId("pending-link").count()) === 0, { timeout: 5000 });
+  await page.mouse.click(first.x, first.y);
+  await until(async () => (await testId("pending-link").count()) === 1, { timeout: 5000 });
+
   const second = await screenPoint(coordinates[LINK_TO]);
   await page.mouse.click(second.x, second.y);
   await until(async () => (await testId("pending-link").count()) === 0, { timeout: 20000 });
@@ -383,13 +396,17 @@ try {
 
   // The new link is deliberately never saved: the point was the flow, not another
   // round of the marshalling `save-check` already covers.
-} finally {
-  // Whatever happened above, the model goes back as it was found: the checks
-  // that run after this one expect it, and so does the next attempt at this
-  // one — a half-finished run used to leave a node where it dragged it.
-  await writeFile(NODES_FILE, before);
 }
 
-check("no console errors throughout", consoleErrors.length === 0);
+// Whatever happened above, the model goes back as it was found: the checks that
+// run after this one expect it, and so does the next attempt at this one — a
+// half-finished run used to leave a node where it dragged it.
+const restore = await files.guard(NODES_FILE);
 
-await finish(browser, consoleErrors);
+await outcome.guard(browser, consoleErrors, async () => {
+  try {
+    await run();
+  } finally {
+    await restore();
+  }
+});

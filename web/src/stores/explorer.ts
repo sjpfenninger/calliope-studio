@@ -2,7 +2,8 @@ import { defineStore } from "pinia";
 import { ref } from "vue";
 
 /**
- * What each explorer tree is filtered to, and which of its branches are open.
+ * What each explorer tree is filtered to, which of its branches are open, and
+ * which row is chosen.
  *
  * In a store rather than in the sections, for the reason the project states in
  * general and one specific to these two: `ModelSection` and `FilesSection` are
@@ -35,6 +36,40 @@ export const useExplorerStore = defineStore("explorer", () => {
     files: null,
   });
 
+  /**
+   * The chosen row's key, per tree.
+   *
+   * Here for exactly the reason the expansion sets are: as a local `ref` in
+   * `ModelSection`/`FilesSection` it died on every section switch, so selecting
+   * a folder, glancing at Runs and coming back left "New file" landing in the
+   * model root with the folder still looking selected in the user's memory. The
+   * *key* rather than the node, because the node object is rebuilt whenever the
+   * tree reloads or a filter prunes it, and a stale object would compare equal
+   * to nothing.
+   */
+  const selected = ref<Record<ExplorerTree, string | null>>({
+    model: null,
+    files: null,
+  });
+
+  function setSelected(tree: ExplorerTree, key: string | null) {
+    selected.value[tree] = key;
+  }
+
+  /**
+   * Forgets everything, for a switch to another model.
+   *
+   * A key names a path in the model that has just been left, and nothing about
+   * it carries over — a filter still applied would hide most of the new model
+   * with nothing on screen to blame.
+   */
+  function reset() {
+    query.value = { model: "", files: "" };
+    browseExpanded.value = { model: [], files: [] };
+    searchExpanded.value = { model: null, files: null };
+    selected.value = { model: null, files: null };
+  }
+
   function setQuery(tree: ExplorerTree, next: string) {
     query.value[tree] = next;
     // Dropped here rather than from a watcher on the query: a watcher runs after
@@ -63,5 +98,15 @@ export const useExplorerStore = defineStore("explorer", () => {
     browseExpanded.value[tree] = [...new Set([...browseExpanded.value[tree], ...keys])];
   }
 
-  return { query, browseExpanded, searchExpanded, setQuery, setExpanded, reveal };
+  return {
+    query,
+    browseExpanded,
+    searchExpanded,
+    selected,
+    setQuery,
+    setExpanded,
+    setSelected,
+    reveal,
+    reset,
+  };
 });

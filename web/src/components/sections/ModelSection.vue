@@ -29,19 +29,42 @@ import { sectionIcon } from "@/lib/icons";
 import { buildModelTree, STRUCTURED_SECTIONS, type ModelTreeNode } from "@/lib/modelTree";
 import { openIntent } from "@/lib/openIntent";
 import { useComponentTreeStore } from "@/stores/componentTree";
+import { useExplorerStore } from "@/stores/explorer";
 import { useMathStore } from "@/stores/math";
 import { useTabsStore } from "@/stores/tabs";
 import { useValidationStore } from "@/stores/validation";
 
 const tabs = useTabsStore();
 const componentTree = useComponentTreeStore();
+const explorer = useExplorerStore();
 const validation = useValidationStore();
 const math = useMathStore();
 
 const showImportGraph = ref(false);
-const selected = ref<ModelTreeNode>();
 
 const nodes = computed(() => buildModelTree(componentTree.tree));
+
+function nodeAt(items: ModelTreeNode[], key: string | null): ModelTreeNode | undefined {
+  if (key === null) return undefined;
+  for (const node of items) {
+    if (node.key === key) return node;
+    const found = nodeAt(node.children ?? [], key);
+    if (found) return found;
+  }
+  return undefined;
+}
+
+/**
+ * The chosen row, held in the store as a key.
+ *
+ * A local `ref` here died on every section switch — this is a lazily-mounted
+ * route component with no `<keep-alive>` — which among other things left
+ * `useTreeSearch`'s reveal watch with nothing to reveal.
+ */
+const selected = computed<ModelTreeNode | undefined>({
+  get: () => nodeAt(nodes.value, explorer.selected.model),
+  set: (node) => explorer.setSelected("model", node?.key ?? null),
+});
 
 // Matched on the label, which is the row as it is written: an entry's key is
 // `techs:ccgt`, so matching that would let `s:c` hit a technology.

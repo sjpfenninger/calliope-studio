@@ -213,6 +213,27 @@ try {
     (await order()).join() === settled.join(),
     `${(await order()).join(", ")} vs ${settled.join(", ")}`,
   );
+
+  // ── and `?tab=` beats what it remembered ──────────────────────────────────
+  //
+  // A link to a tab has to win over the last session's active one, which is why
+  // `restore` hands the id back instead of activating it. Nothing else in the
+  // suite covers the losing half of that race.
+  const remembered = await page
+    .locator("[data-tab-id][data-active]")
+    .first()
+    .getAttribute("data-tab-id");
+  const wanted = settled.find((id) => id !== remembered);
+  await page.goto(`${page.url().split("?")[0]}?tab=${encodeURIComponent(wanted)}`, {
+    waitUntil: "domcontentloaded",
+  });
+  await until(async () => (await order()).length === 3);
+  const fronted = await until(
+    async () =>
+      (await page.locator("[data-tab-id][data-active]").first().getAttribute("data-tab-id")) ===
+      wanted,
+  );
+  check("?tab= wins over the remembered active tab", fronted, `wanted ${wanted}`);
 } catch (error) {
   check("the check ran to the end", false, String(error));
 } finally {

@@ -13,7 +13,7 @@
  * (a data-table tab saving the same CSV), through the channel every other
  * buffer listens on, but only while it has nothing of its own to lose.
  */
-import { computed, onMounted, ref, toRef, useTemplateRef, watch } from "vue";
+import { computed, onMounted, onUnmounted, ref, toRef, useTemplateRef, watch } from "vue";
 import LockedBanner from "@/components/app/LockedBanner.vue";
 import StateMessage from "@/components/app/StateMessage.vue";
 
@@ -118,20 +118,34 @@ async function reload(): Promise<void> {
   await csv.load(props.filePath);
 }
 
-// Keyboard shortcut: Ctrl/Cmd+S. `save` reports its own failures, so the
-// promise can be discarded.
+/**
+ * Ctrl/Cmd+S, on `window` and gated on this tab being in front.
+ *
+ * It used to be bound on the container below, so it only answered while focus
+ * was inside the grid: click the tab strip, press Cmd+S, and the browser's own
+ * Save dialog opened over an unsaved CSV. Every structured editor listens this
+ * way (`useSectionEditor`), and a CSV tab has no reason to be the exception —
+ * the gate is what keeps one keystroke from saving every mounted grid, since a
+ * dirty one stays mounted while another tab is looked at.
+ *
+ * `save` commits the open cell editor and reports its own failures, so the
+ * promise can be discarded.
+ */
 function onKeyDown(e: KeyboardEvent) {
-  if ((e.ctrlKey || e.metaKey) && e.key === "s") {
-    e.preventDefault();
-    void save();
-  }
+  if (!(e.ctrlKey || e.metaKey) || e.key !== "s") return;
+  if (tabsStore.activeId !== tabId.value) return;
+  e.preventDefault();
+  void save();
 }
+
+onMounted(() => window.addEventListener("keydown", onKeyDown));
+onUnmounted(() => window.removeEventListener("keydown", onKeyDown));
 </script>
 
 <template>
   <!-- design-check: allow focus — a focus *container*, not a control: it takes
        focus so the grid can receive keys, and a ring round a whole pane says nothing. -->
-  <div class="flex min-h-0 flex-1 flex-col outline-none" tabindex="-1" @keydown="onKeyDown">
+  <div class="flex min-h-0 flex-1 flex-col outline-none" tabindex="-1">
     <StateMessage v-if="isLoading" variant="block" loading>Loading…</StateMessage>
     <StateMessage v-else-if="error" variant="block" tone="danger">{{ error }}</StateMessage>
 

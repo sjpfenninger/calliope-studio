@@ -228,8 +228,10 @@ export function results(label = "") {
   const failures = [];
   let passed = 0;
   let skipped = 0;
-  return {
-    check(description, condition, detail) {
+  // Plain functions rather than methods, so a script can destructure them —
+  // `guard` calls `check` and `finish`, and a method reached through `this`
+  // would throw the moment someone wrote `const { guard } = results()`.
+  function check(description, condition, detail) {
       if (condition) {
         passed += 1;
         console.log(`  ok    ${description}`);
@@ -237,14 +239,12 @@ export function results(label = "") {
         console.log(`  FAIL  ${description}${detail ? `\n        ${detail}` : ""}`);
         failures.push(description);
       }
-    },
-    skip(description) {
+    }
+    function skip(description) {
       skipped += 1;
       console.log(`  skip  ${description}`);
-    },
-    /** How many checks have failed so far. */
-    failed: () => failures.length,
-    async finish(browser, consoleErrors = []) {
+    }
+    async function finish(browser, consoleErrors = []) {
       if (consoleErrors.length) {
         console.log("console errors:");
         consoleErrors.slice(0, 10).forEach((line) => console.log(`  ${line}`));
@@ -253,6 +253,31 @@ export function results(label = "") {
       console.log(`  ── ${label ? `${label}: ` : ""}${tally}`);
       await browser?.close();
       process.exit(failures.length ? 1 : 0);
+    }
+  return {
+    check,
+    skip,
+    finish,
+    /** How many checks have failed so far. */
+    failed: () => failures.length,
+    /**
+     * Runs the body of a check inside the envelope every check needs.
+     *
+     * A throw anywhere in the body is recorded as one failed check rather than
+     * taking the process down mid-run with no tally, and `finish` runs whatever
+     * happened — so the browser is closed and the exit code is right. Nine
+     * scripts wrote this `try`/`catch`/`finally` by hand, and one of them had
+     * forgotten the `finally`.
+     */
+    async guard(browser, consoleErrors, body) {
+      try {
+        await body();
+      } catch (error) {
+        check("the check ran to the end", false, String(error?.stack ?? error));
+      } finally {
+        check("no console errors throughout", consoleErrors.length === 0);
+        await finish(browser, consoleErrors);
+      }
     },
   };
 }
@@ -297,4 +322,84 @@ export function requireMode(payload, mode, base) {
     process.exit(2);
   }
   return payload;
+}
+
+/** The base URL a check was given, or the dev default. */
+export const baseFrom = (argv) => argv[2] ?? "http://127.0.0.1:8000";
+
+/** The modifier the app's own shortcuts use: Cmd on macOS, Ctrl elsewhere. */
+export const MOD = process.platform === "darwin" ? "Meta" : "Control";
+
+/**
+ * Reads and writes a model's files over the API, and puts them back.
+ *
+ * `guard` is the part that matters. Every check that edits the model has to
+ * restore it on the way out — the checks after it assert against the model they
+ * expect, and `save-check` asserts byte identity on files other checks touch —
+ * and eight scripts wrote that `finally` by hand, each capturing `before` in its
+ * own way. Snapshot first, then a `restore` that writes each file back exactly,
+ * whether or not the check got as far as changing it.
+ */
+export function modelFiles(base, ws) {
+  const url = (path) => `${base}/api/versions/${ws}/files/${path}`;
+  const read = async (path) => (await (await api(url(path))).json()).content;
+  const write = (path, content) =>
+    api(url(path), {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ content }),
+    });
+  async function guard(...paths) {
+    const before = await Promise.all(paths.map(async (path) => [path, await read(path)]));
+    return async function restore() {
+      for (const [path, content] of before) await write(path, content);
+    };
+  }
+  return { read, write, guard };
+}
+
+/**
+ * A page on a workspace server, with the things every editor check then does.
+ *
+ * Fourteen scripts began with the same four lines — `health`, `requireMode`,
+ * `open`, `trackRequests` on `/api/` — and then re-wrote the landing `goto`, the
+ * sidebar click and the tree-row click each in their own words. The helpers
+ * returned here are those, once. `calls` counts every API request, so opening a
+ * section or saving one can be waited on rather than slept after.
+ */
+export async function openWorkspace(base, { viewport, wait = "model-tree" } = {}) {
+  const payload = requireMode(await health(base), "workspace", base);
+  const harness = await open({ viewport });
+  const { page, testId } = harness;
+  const calls = trackRequests(page, (request) => request.url().includes("/api/"));
+
+  /** Lands on the model and waits for the tree named by `wait` and the calls it makes. */
+  async function enter({ wait: tree = wait } = {}) {
+    await page.goto(`${base}${payload.landing}`, { waitUntil: "domcontentloaded" });
+    await testId(tree).waitFor({ timeout: 20000 });
+    await calls.idle();
+  }
+
+  /** Clicks a sidebar section: "Model", "Files" or "Runs". */
+  const goSection = (name) => page.getByRole("link", { name }).click();
+
+  /** A row in whichever explorer tree is on screen, matched on its whole name. */
+  const treeRow = (name) =>
+    page.getByRole("treeitem", { name: new RegExp(`^${name}$`, "i") }).first();
+
+  /** Clicks a tree row and waits for what it fetched. */
+  const openEntry = (name, { expect = 1 } = {}) =>
+    calls.settle(() => treeRow(name).click(), { expect });
+
+  return {
+    ...harness,
+    payload,
+    ws: payload.workspace_id,
+    calls,
+    enter,
+    goSection,
+    treeRow,
+    openEntry,
+    files: modelFiles(base, payload.workspace_id),
+  };
 }

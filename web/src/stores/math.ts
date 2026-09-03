@@ -85,6 +85,8 @@ export const useMathStore = defineStore("math", () => {
   const selectedKey = ref<string | null>(null);
 
   let pollTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Which model `loadSources` last asked about. */
+  let sourcesVersionId: string | null = null;
   /**
    * Bumped on every start and cancel, so a reply already in flight when the
    * user re-renders cannot land in the new run's results.
@@ -162,18 +164,35 @@ export const useMathStore = defineStore("math", () => {
     }
   }
 
+  /**
+   * What the model's math files declare.
+   *
+   * Guarded on the same `generation` as `render` and `poll`, which it was not:
+   * `reset()` bumps it for a switch to another model, so a sources reply still
+   * in flight landed under the new model — and since it carries the *model
+   * fingerprint*, `isStale` was then comparing one model's fingerprint against
+   * another's and reported the notation on screen as out of date for ever.
+   *
+   * The model id is checked as well, since two loads can overlap without a
+   * `reset()` between them — the Model tree asks on every entry to the section.
+   */
   async function loadSources(versionId: string): Promise<void> {
+    const mine = generation;
+    sourcesVersionId = versionId;
+    const current = () => mine === generation && sourcesVersionId === versionId;
     isLoadingSources.value = true;
     sourcesError.value = null;
     try {
       const data = await getMathSources(versionId);
+      if (!current()) return;
       sources.value = data.sources;
       locations.value = data.components;
       currentFingerprint.value = data.fingerprint;
     } catch (err) {
+      if (!current()) return;
       sourcesError.value = errorDetail(err, "Could not read this model's math.");
     } finally {
-      isLoadingSources.value = false;
+      if (current()) isLoadingSources.value = false;
     }
   }
 
@@ -307,6 +326,10 @@ export const useMathStore = defineStore("math", () => {
   function reset() {
     generation += 1;
     stopPolling();
+    // A load still in flight declines to touch this once its generation is
+    // stale, so if the reset did not clear it the sources pane would spin for
+    // the rest of the session on a model that had loaded perfectly well.
+    isLoadingSources.value = false;
     sources.value = [];
     locations.value = {};
     payload.value = null;

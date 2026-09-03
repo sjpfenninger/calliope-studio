@@ -31,14 +31,12 @@
  * buffer without leaving the shell. Middle-click shares the code path, so the
  * X is the one exercised here.
  */
-import { health, open, quiet, requireMode, results, trackRequests } from "./harness.mjs";
+import { baseFrom, openWorkspace, quiet, results } from "./harness.mjs";
 
-const BASE = process.argv[2] ?? "http://127.0.0.1:8000";
-const payload = requireMode(await health(BASE), "workspace", BASE);
+const BASE = baseFrom(process.argv);
 
 const { check, finish } = results("confirm");
-const { browser, page, testId, consoleErrors } = await open();
-const calls = trackRequests(page, (request) => request.url().includes("/api/"));
+const { browser, page, testId, consoleErrors, calls, enter } = await openWorkspace(BASE);
 
 // If the native dialog ever comes back, this records it rather than letting
 // Playwright auto-dismiss it and the check pass on a prompt nobody saw.
@@ -57,17 +55,11 @@ const leave = async () => {
   await page.getByRole("menuitem", { name: /Recent models/ }).click();
 };
 
-const enterShell = async () => {
-  await page.goto(`${BASE}${payload.landing}`, { waitUntil: "domcontentloaded" });
-  await testId("model-tree").waitFor({ timeout: 20000 });
-  await calls.idle();
-};
-
 console.log(`Unsaved-changes guard at ${BASE}`);
 
 try {
   // -- a clean model leaves without asking ----------------------------------
-  await enterShell();
+  await enter();
   await leave();
   await testId("recent-models").waitFor({ timeout: 10000 });
   check("a clean model leaves without asking", true);
@@ -76,7 +68,7 @@ try {
   check("and no dialog was raised", !(await testId("confirm-dialog").isVisible()));
 
   // -- dirty a tab -----------------------------------------------------------
-  await enterShell();
+  await enter();
   await calls.settle(() =>
     page.getByRole("treeitem", { name: /^scenarios$/i }).first().click(),
   );

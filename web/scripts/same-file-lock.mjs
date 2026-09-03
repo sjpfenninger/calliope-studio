@@ -22,15 +22,21 @@
  * `beforeunload` is armed only while something is unsaved, and a CSV tab keeps
  * its cell edits across a look at another tab — the grid used to be remounted,
  * reloading the file under a dirty dot that then lied.
+ *
+ * And one that needs the lock itself: the Links map is opened *while* its file
+ * is locked, and its lines have to come alive when the lock clears. They did
+ * not — `ModelMap` read `interactiveLinks` once, when it added its layers — so
+ * a map mounted under a lock stayed dead for the life of that map, which looks
+ * exactly like a link nobody can click.
  */
-import { health, open, quiet, requireMode, results, trackRequests, until } from "./harness.mjs";
+import { api, baseFrom, openWorkspace, quiet, results, until } from "./harness.mjs";
 
-const BASE = process.argv[2] ?? "http://127.0.0.1:8000";
-const payload = requireMode(await health(BASE), "workspace", BASE);
+const BASE = baseFrom(process.argv);
 
-const { check, finish } = results("same-file-lock");
-const { browser, page, testId, consoleErrors } = await open();
-const calls = trackRequests(page, (request) => request.url().includes("/api/"));
+const outcome = results("same-file-lock");
+const { check } = outcome;
+const { browser, page, testId, consoleErrors, mapReady, ws, enter, goSection, openEntry } =
+  await openWorkspace(BASE);
 
 const sectionTab = (name) =>
   page.locator('[data-testid="tab-section"]', { hasText: name }).first();
@@ -46,22 +52,44 @@ const unloadGuarded = () =>
   });
 
 const openSection = async (name) => {
-  await page.getByRole("link", { name: "Model" }).click();
-  await calls.settle(() =>
-    page.getByRole("treeitem", { name: new RegExp(`^${name}$`, "i") }).first().click(),
-  );
+  await goSection("Model");
+  await openEntry(name);
   // Promoted out of the preview slot, or the next tree click evicts it.
   await sectionTab(name).dblclick();
+};
+
+/**
+ * Halfway along one of the model's links, for the one thing a testid cannot reach.
+ *
+ * MapLibre draws links to a canvas, so a line has no element to select: clicking
+ * one means projecting a point that is on it. Read from the server rather than
+ * named, since nothing here moves a node and any link will do.
+ */
+const linkMidpoint = async () => {
+  const geo = await (await api(`${BASE}/api/versions/${ws}/geo/`)).json();
+  const line = geo.links.features.find(
+    (feature) => feature.geometry?.coordinates?.length === 2,
+  );
+  if (!line) return null;
+  const [[fromLng, fromLat], [toLng, toLat]] = line.geometry.coordinates;
+  return [(fromLng + toLng) / 2, (fromLat + toLat) / 2];
+};
+
+const screenPoint = async (lngLat) => {
+  const box = await page.locator(".maplibregl-canvas").first().boundingBox();
+  const point = await page.evaluate((pair) => {
+    const projected = window.__cgMap.project(pair);
+    return { x: projected.x, y: projected.y };
+  }, lngLat);
+  return { x: box.x + point.x, y: box.y + point.y };
 };
 
 const scenarioName = () => testId("scenario").first().locator("input").first();
 
 console.log(`One buffer per file at ${BASE}`);
 
-try {
-  await page.goto(`${BASE}${payload.landing}`, { waitUntil: "domcontentloaded" });
-  await testId("model-tree").waitFor({ timeout: 20000 });
-  await calls.idle();
+async function run() {
+  await enter();
   check("a clean model does not arm beforeunload", !(await unloadGuarded()));
 
   // ── two section tabs on one file ────────────────────────────────────────────
@@ -120,7 +148,7 @@ try {
   check("a discarded buffer disarms beforeunload", !(await unloadGuarded()));
 
   // ── a raw file tab against a section tab of the same file ───────────────────
-  await page.getByRole("link", { name: "Files" }).click();
+  await goSection("Files");
   await testId("file-tree").waitFor({ timeout: 20000 });
   await page.getByText("scenarios.yaml", { exact: true }).first().click();
   const fileTab = page
@@ -154,8 +182,69 @@ try {
   });
   check("discarding reloads the raw buffer from disk", true);
 
+  // ── the links map, opened under a lock ─────────────────────────────────────
+  //
+  // The map is built while the file is locked, so `interactiveLinks` is false at
+  // the moment its layers go in; the discard then reloads the section, which
+  // rebuilds the map from scratch. So what this pins is that a links map opened
+  // locked answers a click once the lock is gone — through the route a user
+  // actually takes — and it has to wait for the *new* map to be up before it
+  // clicks, because the old one is gone the moment the banner is.
+  await goSection("Files");
+  await testId("file-tree").waitFor({ timeout: 20000 });
+  await page.getByRole("treeitem", { name: /^model_config$/ }).first().click();
+  await page.getByText("techs.yaml", { exact: true }).first().click();
+  const techsFileTab = page
+    .locator('[data-testid="tab-file"]', { hasText: "techs.yaml" })
+    .first();
+  await techsFileTab.dblclick();
+  await until(async () => ((await lines.textContent()) ?? "").includes("techs"), {
+    timeout: 20000,
+  });
+  await lines.click();
+  await page.keyboard.press(process.platform === "darwin" ? "Meta+End" : "Control+End");
+  await page.keyboard.type("\n# scratch\n");
+  await testId("tab-dirty").first().waitFor({ timeout: 5000 });
+
+  await openSection("links");
+  await testId("editor-map").waitFor({ timeout: 20000 });
+  await mapReady();
+  await banner.waitFor({ timeout: 8000 });
+  check("the links map opens locked while its file has unsaved edits", true);
+
+  await testId("locked-discard").click();
+  await testId("confirm-dialog").waitFor({ timeout: 8000 });
+  await testId("confirm-accept").click();
+  await banner.waitFor({ state: "hidden", timeout: 8000 });
+  await testId("editor-map").waitFor({ timeout: 20000 });
+  await mapReady();
+  // `idle` is MapLibre's own word for "everything asked for is drawn"; a click
+  // on a line the map has not rendered yet hits nothing.
+  await page.evaluate(
+    () =>
+      new Promise((resolve) => {
+        const map = window.__cgMap;
+        if (map.loaded()) resolve();
+        else map.once("idle", resolve);
+      }),
+  );
+
+  const midpoint = await linkMidpoint();
+  if (midpoint) {
+    const middle = await screenPoint(midpoint);
+    await page.mouse.click(middle.x, middle.y);
+    check(
+      "and its lines answer a click once the lock clears",
+      await until(async () => (await testId("link-name").count()) === 1, {
+        timeout: 10000,
+      }),
+    );
+  } else {
+    outcome.skip("clicking a link line (this model draws none)");
+  }
+
   // ── a CSV tab keeps its cells across a look elsewhere ──────────────────────
-  await page.getByRole("link", { name: "Files" }).click();
+  await goSection("Files");
   await testId("file-tree").waitFor({ timeout: 20000 });
   await page.getByRole("treeitem", { name: /^data_tables$/ }).first().click();
   await page.getByText("costs.csv", { exact: true }).first().click();
@@ -185,8 +274,6 @@ try {
   await testId("confirm-dialog").waitFor({ timeout: 8000 });
   await testId("confirm-accept").click();
   await until(async () => (await dirtyDots()) === 0, { timeout: 5000 });
-} catch (error) {
-  check("the check ran to completion", false, error.message.split("\n")[0]);
-} finally {
-  await finish(browser, consoleErrors);
 }
+
+await outcome.guard(browser, consoleErrors, run);

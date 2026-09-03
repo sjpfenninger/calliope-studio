@@ -269,6 +269,13 @@ jobs:
         continue-on-error: true
         run: pixi run -- pnpm --dir web run confirm-check http://127.0.0.1:8791 || { touch .check-failed/confirm-check; exit 1; }
 
+      # One buffer per file: the lock, its banner, and the discard. Every lost
+      # update this app produced came from two buffers on one file, and whether the
+      # second pane is *actually* disabled is something only a rendered page shows.
+      - name: One buffer per file
+        continue-on-error: true
+        run: pixi run -- pnpm --dir web run same-file-lock http://127.0.0.1:8791 || { touch .check-failed/same-file-lock; exit 1; }
+
       # The explorer filters. A search borrows Reka's expansion model and has to
       # give it back exactly as it was, which nothing but a rendered tree shows:
       # with the two sets confused, collapsing a branch mid-search silently does
@@ -288,6 +295,21 @@ jobs:
       - name: Map editing
         continue-on-error: true
         run: pixi run -- pnpm --dir web run map-edit http://127.0.0.1:8791 || { touch .check-failed/map-edit; exit 1; }
+
+      # Both validation tiers, the jump to the offending line, and cancel. Writes
+      # an unparsable `model.yaml` for a moment and restores it, so it runs before
+      # anything that solves.
+      - name: Validation
+        continue-on-error: true
+        run: pixi run -- pnpm --dir web run validation-check http://127.0.0.1:8791 || { touch .check-failed/validation-check; exit 1; }
+
+      # Adding, typing into, renaming and removing an entry in a structured editor,
+      # and Cmd+S with a field still focused. `save-check` only ever saves a model
+      # it has not touched, which is how an accordion keyed by name — remounting
+      # the row on every keystroke — survived for as long as it did.
+      - name: Structured editing
+        continue-on-error: true
+        run: pixi run -- pnpm --dir web run editor-edit-check http://127.0.0.1:8791 || { touch .check-failed/editor-edit-check; exit 1; }
 
       # Where an inherited value comes from, and that clicking it goes there. A
       # source that fails to resolve renders as plain text, which is
@@ -328,6 +350,12 @@ jobs:
       - name: Tab reordering
         continue-on-error: true
         run: pixi run -- pnpm --dir web run tab-drag http://127.0.0.1:8791 || { touch .check-failed/tab-drag; exit 1; }
+
+      # Cancel, rename, delete and retention. Starts a run and cancels it during
+      # the build, so it never waits for a solve; deletes only the run it started.
+      - name: Run actions
+        continue-on-error: true
+        run: pixi run -- pnpm --dir web run run-actions http://127.0.0.1:8791 || { touch .check-failed/run-actions; exit 1; }
 
       # Really solves, with CBC, and drives the run tab from log to charts.
       - name: Run lifecycle

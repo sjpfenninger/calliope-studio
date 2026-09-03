@@ -17,7 +17,7 @@
 import { computed, ref } from "vue";
 import LockedBanner from "@/components/app/LockedBanner.vue";
 import StateMessage from "@/components/app/StateMessage.vue";
-import { entryKey } from "@/lib/entries";
+import { rowKey } from "@/lib/entries";
 import { ChevronDown, ChevronUp, Plus, TriangleAlert, Trash2, X } from "@lucide/vue";
 
 import { useSectionEditor } from "@/composables/useSectionEditor";
@@ -166,6 +166,7 @@ const onChange = markDirty;
         <button
           v-if="!entryName"
           type="button"
+          data-testid="add-scenario"
           :class="GHOST_BUTTON"
           :disabled="locked"
           @click="addEntry"
@@ -187,7 +188,7 @@ const onChange = markDirty;
 
         <section
           v-for="entry in visibleEntries"
-          :key="entryKey(entry, entries)"
+          :key="rowKey(entry)"
           class="mb-2 flex flex-col gap-1.5 rounded-sm border border-border p-2"
           data-testid="scenario"
         >

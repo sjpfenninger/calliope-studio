@@ -159,6 +159,33 @@ export const useValidationStore = defineStore("validation", () => {
     }
   }
 
+  /**
+   * Forgets this validation entirely, for a switch to another model.
+   *
+   * Without it every part of the surface went on describing the model the user
+   * had left: the sidebar badge, the problem list, and a `jumpTo(file, line)`
+   * naming a file that need not exist in the model now open. Worse, `validate`
+   * returns early while a build is in flight, so with model A's build still
+   * running the button was simply dead on model B until somebody thought to
+   * press Cancel — hence the phase reset here, which is what makes an
+   * immediately following `validate()` be accepted.
+   *
+   * The task is killed fire-and-forget: the generation bump has already made
+   * its result unreachable, so nothing here has to wait for the server to
+   * confirm, and a failure means it was gone anyway.
+   */
+  function reset(): void {
+    const id = taskId.value;
+    generation += 1;
+    stopPolling();
+    problems.value = [];
+    phase.value = "idle";
+    error.value = null;
+    taskId.value = null;
+    lastValidatedAt.value = null;
+    if (id) void cancelTask(id).catch(() => {});
+  }
+
   return {
     problems,
     phase,
@@ -167,6 +194,7 @@ export const useValidationStore = defineStore("validation", () => {
     taskId,
     validate,
     cancel,
+    reset,
   };
 });
 

@@ -154,6 +154,9 @@ const UNIFORM_RADIUS = 7;
 /** How thick a donut's ring is, as a fraction of its radius. */
 const DONUT_THICKNESS = 0.55;
 
+/** How solid a node's circle is when it is drawn as a circle at all. */
+const NODE_FILL_OPACITY = 0.85;
+
 /** How many pie slices a hover names before it says "and more". */
 const PIE_TOOLTIP_ROWS = 5;
 
@@ -312,6 +315,33 @@ function clearDonuts() {
   donuts.clear();
 }
 
+/**
+ * Tells the circle layer which nodes are already drawn as a donut.
+ *
+ * The circle and the donut are two ways of drawing the same node, so only one of
+ * them may be *visible* — but the layer stays up either way. Hiding it, which is
+ * what this used to do, takes its features out of `queryRenderedFeatures` as
+ * well, and the layer-scoped `mousemove`/`click` handlers and `overNode` are all
+ * built on that: under pies there was no hover on a node, no selection from the
+ * circle, and no way for a link click to tell a node was sitting on top of it.
+ * Feature-state carries the fact instead, read by the opacity expressions in
+ * `applyNodePaint`, so a node the pie variable has no data for still draws its
+ * circle and every node stays a rendered feature.
+ */
+function markPies(instance: maplibregl.Map, pied: Set<string>) {
+  if (!instance.getSource("nodes")) return;
+  for (const feature of props.geo?.nodes.features ?? []) {
+    const id = String(feature.id ?? "");
+    if (!id) continue;
+    instance.setFeatureState({ source: "nodes", id }, { pie: pied.has(id) });
+  }
+}
+
+/** An opacity that falls to zero on a node wearing a donut. */
+function pieAware(opacity: number): maplibregl.ExpressionSpecification {
+  return ["case", ["boolean", ["feature-state", "pie"], false], 0, opacity];
+}
+
 function donutElement(node: string, slices: PieSlice[], radius: number): string {
   const paint = layerPaint();
   return donutSvg(slices, {
@@ -331,6 +361,7 @@ function syncDonuts() {
   const pies = props.pies;
   if (!pies) {
     clearDonuts();
+    markPies(instance, new Set());
     return;
   }
 
@@ -373,6 +404,8 @@ function syncDonuts() {
     marker.remove();
     donuts.delete(node);
   }
+
+  markPies(instance, seen);
 }
 
 /**
@@ -422,17 +455,10 @@ function setData() {
   (instance.getSource("links") as maplibregl.GeoJSONSource)?.setData(links);
   (instance.getSource("links-hit") as maplibregl.GeoJSONSource)?.setData(links);
 
-  // The circle layer and the donuts are two ways of drawing the same node, so
-  // exactly one of them is up at a time. Hiding the layer rather than emptying
-  // its source keeps `queryRenderedFeatures` honest: `overNode` uses it to stop a
-  // click on a node also reaching the link underneath.
-  if (instance.getLayer("nodes")) {
-    instance.setLayoutProperty(
-      "nodes",
-      "visibility",
-      props.pies ? "none" : "visible",
-    );
-  }
+  // The node layer is never hidden, whatever the pie channel is doing: which
+  // nodes draw a circle is a paint question, answered per feature in
+  // `markPies`, because `queryRenderedFeatures` — and so hover, click and
+  // `overNode` — only sees a layer that is visible.
   syncDonuts();
   applyNodePaint(instance);
 }
@@ -571,6 +597,11 @@ function applyNodePaint(instance: maplibregl.Map) {
     paint.nodeStrokeSelected,
     paint.nodeStroke,
   ]);
+  // Set here rather than only at `addLayer` time so the pie expression cannot be
+  // dropped by a later repaint: this is the one function that owns the node
+  // layer's paint.
+  instance.setPaintProperty("nodes", "circle-opacity", pieAware(NODE_FILL_OPACITY));
+  instance.setPaintProperty("nodes", "circle-stroke-opacity", pieAware(1));
 }
 
 /**
@@ -651,7 +682,8 @@ function addLayers(instance: maplibregl.Map) {
     paint: {
       "circle-radius": ["get", "radius"],
       "circle-color": paint.nodeColor,
-      "circle-opacity": 0.85,
+      "circle-opacity": pieAware(NODE_FILL_OPACITY),
+      "circle-stroke-opacity": pieAware(1),
       "circle-stroke-width": ["case", ["get", "selected"], 3, 1.5],
       "circle-stroke-color": [
         "case",
@@ -737,9 +769,13 @@ function addLayers(instance: maplibregl.Map) {
 
   instance.on("mouseup", endDrag);
 
-  if (!props.interactiveLinks) return;
-
+  // Registered whatever `interactiveLinks` says right now, and tested inside
+  // each handler, exactly as `draggableNodes` is above. `addLayers` runs once,
+  // at map load, so returning out here left a Links tab that was opened while
+  // its file was locked with dead link lines for the life of the map — the lock
+  // clearing changed the prop and nothing read it again.
   instance.on("mousemove", "links-hit", (event) => {
+    if (!props.interactiveLinks) return;
     if (dragging || overNode(instance, event.point)) return;
     instance.getCanvas().style.cursor = "pointer";
     const feature = event.features?.[0];
@@ -752,12 +788,13 @@ function addLayers(instance: maplibregl.Map) {
   });
 
   instance.on("mouseleave", "links-hit", () => {
-    if (dragging) return;
+    if (!props.interactiveLinks || dragging) return;
     instance.getCanvas().style.cursor = "";
     popup.remove();
   });
 
   instance.on("click", "links-hit", (event) => {
+    if (!props.interactiveLinks) return;
     // A layer-scoped handler fires even when another layer covers the point, so
     // a click on a node sitting on one of its own links would hit both.
     if (overNode(instance, event.point)) return;

@@ -14,9 +14,17 @@
  */
 import * as monaco from "monaco-editor";
 
-/** Where `MonacoYamlEditor` puts the model for a real file on disk. */
+import { fileUri } from "./calliopeSchema";
+
+/**
+ * Where `MonacoYamlEditor` puts the model for a real file on disk.
+ *
+ * The string comes from `calliopeSchema` because that is where the same
+ * spelling is used to build monaco-yaml's `fileMatch` lists, and a file whose
+ * two spellings differ gets no schema at all with nothing logged.
+ */
 export function fileModelUri(path: string): monaco.Uri {
-  return monaco.Uri.parse(`file:///${path}`);
+  return monaco.Uri.parse(fileUri(path));
 }
 
 /**

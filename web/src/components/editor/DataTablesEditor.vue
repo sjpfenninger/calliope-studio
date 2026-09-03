@@ -120,6 +120,19 @@ function tableRef(entry: { data: Record<string, any> }): unknown {
   return entry.data?.table ?? entry.data?.data;
 }
 
+/**
+ * Which of the two spellings this entry actually uses.
+ *
+ * The reload banner named `data:` unconditionally while every other message
+ * here says `table:` — so a model on the current spelling was told its `data:`
+ * had moved, and `data:` is a key it does not contain.
+ */
+const tableKey = computed(() =>
+  activeEntry.value?.data?.table === undefined && activeEntry.value?.data?.data !== undefined
+    ? "data"
+    : "table",
+);
+
 /** Where `table:` points, workspace-relative, or null if there is nothing to open. */
 const csvPath = computed(() =>
   activeEntry.value
@@ -451,8 +464,8 @@ onUnmounted(() => clearTimeout(reloadTimer));
               class="flex shrink-0 items-center gap-2 border-b border-border px-2 py-1 text-2xs text-text-dim"
             >
               <span class="truncate">
-                data: now points at <span :class="IDENTIFIER">{{ pendingPath }}</span
-                >.
+                {{ tableKey }}: now points at
+                <span :class="IDENTIFIER">{{ pendingPath }}</span>.
               </span>
               <button type="button" :class="GHOST_BUTTON" @click="reloadCsv">
                 Reload grid

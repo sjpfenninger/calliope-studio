@@ -222,27 +222,19 @@ export function nodeToRaw(entry: NodeEntry): Record<string, any> {
 }
 
 /**
- * A stable key for one entry in an editor's list.
- *
- * The five structured editors each spelled this out three times — in
- * `:default-value`, `:key` and `:value` — which is fifteen copies of an
- * expression that has to agree everywhere or an accordion row desyncs from the
- * data underneath it. An unnamed entry falls back to its position, which is the
- * best available answer while someone is still typing the name.
- */
-export function entryKey(
-  entry: { name?: string },
-  all: readonly { name?: string }[],
-): string {
-  return entry.name || String(all.indexOf(entry as never));
-}
-
-/**
  * A stable key for one row of a list edited in place.
  *
- * `entryKey` keys on the name, which every entity form has. A parameter row has
- * no name until somebody types one, and the lists were keyed by array index
- * instead — so removing a row made Vue *reuse* the component that had been
+ * This used to have a sibling, `entryKey`, which keyed an *entry* on its name
+ * and fell back to its index — and the name is the one field of an entry the
+ * form lets you change. Every keystroke in a name box therefore changed the key
+ * of the row being typed in: Vue unmounted it, focus went to the document, and
+ * the accordion row collapsed, so naming a technology took one click per
+ * character. Identity is the only thing about a row that does not change while
+ * it is being edited, so it is the only honest key.
+ *
+ * A parameter row has the same problem for a different reason: it has no name
+ * to key on at all until somebody types one, so those lists were keyed by array
+ * index — and removing a row made Vue *reuse* the component that had been
  * showing the row above it. `ScalarOrDataVar` reads its props once at setup, so
  * the reused instance kept the removed row's value while the key input showed
  * the new one's, and the next change wrote that value under the new key: a
@@ -250,7 +242,9 @@ export function entryKey(
  *
  * A `WeakMap` rather than a field on the row, so the identity is invisible to
  * `paramsToObject` and cannot be written into anybody's YAML, and so a removed
- * row's entry is collected with it.
+ * row's entry is collected with it. Vue hands out one reactive proxy per raw
+ * object, so a row reached through `entries.value[i]` is the same object on
+ * every render and keys to the same string.
  */
 const rowKeys = new WeakMap<object, string>();
 let nextRowKey = 0;

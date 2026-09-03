@@ -1,6 +1,7 @@
 import { computed, ref, watch, type InjectionKey } from "vue";
 import { defineStore } from "pinia";
 
+import { errorDetail } from "../api/errors";
 import {
   fetchCatalog,
   fetchGeo,
@@ -459,7 +460,7 @@ function defineRunSelection(handle: string) {
         );
         revalidateVariables();
       } catch (caught) {
-        error.value = (caught as Error).message ?? String(caught);
+        error.value = errorDetail(caught, "Could not read the results catalogue.");
         catalog.value = null;
       } finally {
         isLoading.value = false;

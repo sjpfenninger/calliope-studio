@@ -16,6 +16,7 @@ import InfoTip from "@/components/app/InfoTip.vue";
 import { RefreshCw } from "@lucide/vue";
 import { VueFlow, type Node, type Edge, Position } from "@vue-flow/core";
 
+import { errorDetail } from "@/api/errors";
 import { getImportGraph } from "@/api/versions";
 import {
   Dialog,
@@ -56,8 +57,8 @@ async function load() {
   error.value = null;
   try {
     graphData.value = await getImportGraph<GraphData>(props.versionId);
-  } catch {
-    error.value = "Failed to load import graph.";
+  } catch (caught) {
+    error.value = errorDetail(caught, "Failed to load import graph.");
   } finally {
     isLoading.value = false;
   }
@@ -66,7 +67,20 @@ async function load() {
 watch(
   () => props.visible,
   (v) => {
-    if (v && !graphData.value) load();
+    if (v && !graphData.value) void load();
+  },
+);
+
+// The graph is one model's import chain and nothing about it carries over.
+// Dropped rather than reloaded: this only ever fetches on open, so reopening
+// on the new model is what asks again — and a dialog that is not showing has
+// no business making a request.
+watch(
+  () => props.versionId,
+  () => {
+    graphData.value = null;
+    error.value = null;
+    if (props.visible) void load();
   },
 );
 

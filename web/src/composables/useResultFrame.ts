@@ -1,4 +1,5 @@
 import { computed, ref, shallowRef, watch, onScopeDispose, type Ref } from "vue";
+import { errorDetail } from "../api/errors";
 import { streamFrame, type ResultFrame, type ResultQuery } from "../api/results";
 import { resolveUnit, scaleFrame, type DisplayUnit } from "../lib/units";
 import { useUnitsStore } from "../stores/units";
@@ -36,6 +37,13 @@ export function useResultFrame(
     cancelInFlight();
     if (!handle.value || !query.value) {
       frame.value = null;
+      // The abort above nulls `controller`, so the aborted request's `finally`
+      // no longer recognises itself and leaves `loading` true — for ever, since
+      // nothing else will run. Pick a map colour variable and then a pie one
+      // before the first frame lands (the colour query goes null) and the
+      // spinner never stopped.
+      loading.value = false;
+      error.value = null;
       return;
     }
 
@@ -57,7 +65,7 @@ export function useResultFrame(
       }
     } catch (caught) {
       if ((caught as Error)?.name === "AbortError") return;
-      error.value = (caught as Error).message ?? String(caught);
+      error.value = errorDetail(caught, "Could not read the results.");
       frame.value = null;
     } finally {
       if (controller === request) {

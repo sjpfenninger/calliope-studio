@@ -197,11 +197,15 @@ function commitRename() {
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" class="min-w-40">
-            <DropdownMenuItem @select="startRename">
+            <DropdownMenuItem data-testid="run-rename-action" @select="startRename">
               <Pencil />
               Rename
             </DropdownMenuItem>
-            <DropdownMenuItem v-if="running" @select="emit('cancel')">
+            <DropdownMenuItem
+              v-if="running"
+              data-testid="run-cancel-action"
+              @select="emit('cancel')"
+            >
               <Square />
               Cancel run
             </DropdownMenuItem>

@@ -552,6 +552,33 @@ describe("useTabsStore", () => {
       expect([...store.openTabs.keys()]).toEqual([fileTabId("a.yaml")]);
     });
 
+    it("survives a localStorage that refuses to be written", () => {
+      /**
+       * `persist` is driven from a watcher on the open tab set, so it runs on
+       * every open, close and reorder — and a watcher holds no `catch`. Safari
+       * in private mode throws from `setItem` for every origin and a full quota
+       * throws for any of them, so an unguarded write took the whole tab bar
+       * down at the moment the user opened one file too many.
+       */
+      const store = useTabsStore();
+      store.setVersion("v1");
+      store.openFile("a.yaml");
+
+      const setItem = vi
+        .spyOn(Storage.prototype, "setItem")
+        .mockImplementation(() => {
+          throw new DOMException("QuotaExceededError");
+        });
+      try {
+        expect(() => store.persist()).not.toThrow();
+      } finally {
+        setItem.mockRestore();
+      }
+
+      // And the session is unharmed: only tomorrow's memory of it was lost.
+      expect([...store.openTabs.keys()]).toEqual([fileTabId("a.yaml")]);
+    });
+
     it("does not resurrect a tab that was closed", () => {
       const store = useTabsStore();
       store.setVersion("v1");

@@ -86,6 +86,73 @@ await settle(() =>
   testId("static-sum-by").getByText("Sum nodes", { exact: true }).click(),
 );
 
+// ── Display units, on the charts side ──────────────────────────────────────
+//
+// The scale is applied once, in `useResultFrame`, so the chart cannot disagree
+// with the table about what a number means — and the factor joins the chart's
+// own merge key, because a rescale leaves every series *name* identical while
+// changing every value, and a merge keyed on names alone would go on drawing the
+// old numbers. That reads exactly like the setting doing nothing.
+const unitField = (name) =>
+  page.locator(`[data-testid="run-results"] [data-testid="units-power-${name}"]`);
+
+/** The axis label and the largest value the totals chart is actually drawing. */
+const chartScale = () =>
+  page.evaluate(() => {
+    const option = window.__cgCharts?.static?.getOption();
+    if (!option) return null;
+    const value = (point) => {
+      if (typeof point === "number") return point;
+      if (Array.isArray(point)) return typeof point[1] === "number" ? point[1] : null;
+      if (point && typeof point.value === "number") return point.value;
+      return null;
+    };
+    let max = 0;
+    for (const series of option.series ?? []) {
+      for (const point of series.data ?? []) {
+        const number = value(point);
+        if (number !== null) max = Math.max(max, Math.abs(number));
+      }
+    }
+    return { axis: option.yAxis?.[0]?.name ?? "", max };
+  });
+
+const beforeUnits =
+  (await unitField("scale").count()) === 1 ? await stable(chartScale) : null;
+
+// Only a chart whose variable is measured in power can be rescaled by the power
+// setting, and which variable that is belongs to the model, not to this check.
+if (beforeUnits?.axis === "power" && beforeUnits.max > 0) {
+  const before = beforeUnits;
+  const asked = await settle(
+    async () => {
+      await unitField("scale").fill("/1000");
+      await unitField("label").fill("GW");
+    },
+    // The frame is already in the browser; a unit is not a query.
+    { expect: 0 },
+  );
+  const after = await stable(chartScale);
+
+  check("naming a unit renames the chart's axis", after.axis === "GW", after.axis);
+  check(
+    "and rescales the series it draws",
+    before.max > 0 && Math.abs(before.max / after.max - 1000) < 1e-6,
+    `${before.max} → ${after.max}`,
+  );
+  check("changing a unit asks the server for nothing", asked === 0, `${asked} frames`);
+
+  await page.locator('[data-testid="run-results"] [data-testid="units-reset"]').click();
+  const reset = await stable(chartScale);
+  check(
+    "resetting puts the model's own numbers back",
+    Math.abs(reset.max - before.max) < 1e-6,
+    `${reset.max} vs ${before.max}`,
+  );
+} else {
+  skip("display units on a chart measured in power");
+}
+
 // An option a variable cannot honour is locked and says why — never removed. A
 // toggle group that loses buttons as the variable changes reads as a broken
 // control, which is exactly how the first version of this was read.

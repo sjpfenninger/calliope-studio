@@ -1,7 +1,7 @@
 import { computed, ref, watch } from "vue";
 import { defineStore } from "pinia";
 
-import { KEY_PREFIX } from "../lib/storageKeys";
+import { KEY_PREFIX, writeStorage } from "../lib/storageKeys";
 import {
   DEFAULT_RESULTS_LAYOUT,
   RESULTS_FIGURES,
@@ -94,7 +94,7 @@ export const useUiStore = defineStore("ui", () => {
 
   function setPreference(next: ThemePreference) {
     preference.value = next;
-    localStorage.setItem(THEME_KEY, next);
+    writeStorage(THEME_KEY, next);
   }
 
   /** light → dark → system → light. What a single toolbar button cycles. */
@@ -149,7 +149,7 @@ export const useUiStore = defineStore("ui", () => {
 
   function setSplitterSizes(sizes: number[]) {
     splitterSizes.value = sizes;
-    localStorage.setItem(SPLITTER_KEY, JSON.stringify(sizes));
+    writeStorage(SPLITTER_KEY, JSON.stringify(sizes));
   }
 
   /**
@@ -175,7 +175,7 @@ export const useUiStore = defineStore("ui", () => {
 
   function setDataTableSplit(sizes: number[]) {
     dataTableSplit.value = sizes;
-    localStorage.setItem(DATA_TABLE_SPLIT_KEY, JSON.stringify(sizes));
+    writeStorage(DATA_TABLE_SPLIT_KEY, JSON.stringify(sizes));
   }
 
   // ── Geographic editors ───────────────────────────────────────────────────
@@ -206,7 +206,7 @@ export const useUiStore = defineStore("ui", () => {
 
   function setMapSplit(sizes: number[]) {
     mapSplit.value = sizes;
-    localStorage.setItem(MAP_SPLIT_KEY, JSON.stringify(sizes));
+    writeStorage(MAP_SPLIT_KEY, JSON.stringify(sizes));
   }
 
   // ── The results view's layouts ───────────────────────────────────────────
@@ -229,7 +229,7 @@ export const useUiStore = defineStore("ui", () => {
   function setResultsLayout(id: ResultsLayoutId) {
     if (!isLayoutId(id) || resultsLayout.value === id) return;
     resultsLayout.value = id;
-    localStorage.setItem(RESULTS_LAYOUT_KEY, id);
+    writeStorage(RESULTS_LAYOUT_KEY, id);
   }
 
   /**
@@ -305,8 +305,8 @@ export const useUiStore = defineStore("ui", () => {
     } catch {
       // A corrupt legacy value is not worth reporting: the defaults are right.
     }
-    localStorage.removeItem(LEGACY_RESULTS_SPLIT_KEY);
-    localStorage.removeItem(LEGACY_RESULTS_COLLAPSED_KEY);
+    writeStorage(LEGACY_RESULTS_SPLIT_KEY, null);
+    writeStorage(LEGACY_RESULTS_COLLAPSED_KEY, null);
     return geometries;
   }
 
@@ -322,7 +322,7 @@ export const useUiStore = defineStore("ui", () => {
 
   function writeResultsGeometry(next: ResultsGeometry) {
     resultsGeometry.value = { ...resultsGeometry.value, [resultsLayout.value]: next };
-    localStorage.setItem(RESULTS_GEOMETRY_KEY, JSON.stringify(resultsGeometry.value));
+    writeStorage(RESULTS_GEOMETRY_KEY, JSON.stringify(resultsGeometry.value));
   }
 
   /** Records a drag, against the current layout alone. */
@@ -423,7 +423,7 @@ export const useUiStore = defineStore("ui", () => {
 
   function setConfigAdvanced(section: string, open: boolean) {
     configAdvanced.value = { ...configAdvanced.value, [section]: open };
-    localStorage.setItem(CONFIG_ADVANCED_KEY, JSON.stringify(configAdvanced.value));
+    writeStorage(CONFIG_ADVANCED_KEY, JSON.stringify(configAdvanced.value));
   }
 
   return {

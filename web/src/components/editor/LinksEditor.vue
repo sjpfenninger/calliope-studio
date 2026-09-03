@@ -17,7 +17,7 @@
  * the lines are built from the entries in hand, so a link that exists only in the
  * form is already on the map.
  */
-import { ref, computed } from "vue";
+import { computed, onMounted, onUnmounted, ref, shallowRef } from "vue";
 import LockedBanner from "@/components/app/LockedBanner.vue";
 import StateMessage from "@/components/app/StateMessage.vue";
 import TooltipButton from "@/components/app/TooltipButton.vue";
@@ -52,9 +52,9 @@ import {
   type MapLink,
 } from "@/lib/mapGeo";
 import {
-  entryKey,
   linkToRaw,
   rawToLink,
+  rowKey,
   type LinkEntry,
 } from "@/lib/entries";
 
@@ -73,6 +73,11 @@ const ui = useUiStore();
 
 
 const entries = ref<LinkEntry[]>([]);
+/**
+ * Which rows are expanded, by `rowKey`. State rather than Reka's
+ * `:default-value`, which is read once; extended by `addEntry`.
+ */
+const openRows = ref<string[]>([]);
 /** The section as loaded, so entries owned by TechsEditor survive a save. */
 const originalSection = ref<Record<string, RawTech>>({});
 const templatesData = computed(() => templatesStore.templates);
@@ -81,8 +86,23 @@ const { geo: savedGeo, error: geoError, reload: reloadGeo } = useModelGeo(
   computed(() => props.versionId),
 );
 
-/** Which link the map has selected, and so whose form is shown below it. */
-const activeLink = ref<string | null>(null);
+/**
+ * Which link the map has selected: the entry itself, not its name.
+ *
+ * By identity, because the detail form can rename the link it is showing — and
+ * a name lookup then matched nothing on the first keystroke, so the form the
+ * user was typing in vanished mid-word. `activeName` survives alongside it for
+ * a link this file does not define, where the pane names the file that does.
+ */
+const activeEntry = shallowRef<LinkEntry | null>(null);
+const activeName = ref<string | null>(null);
+
+function select(name: string | null) {
+  activeName.value = name;
+  activeEntry.value = name
+    ? (entries.value.find((entry) => entry.name === name) ?? null)
+    : null;
+}
 
 /** First endpoint of a link being drawn, waiting for its second click. */
 const pendingFrom = ref<string | null>(null);
@@ -148,15 +168,11 @@ const missing = computed(() => {
   return nodeNames.value.filter((name) => !placed.has(name));
 });
 
-const activeEntry = computed(
-  () => entries.value.find((entry) => entry.name === activeLink.value) ?? null,
-);
-
 /** Where a link the map shows but this editor does not own is defined. */
 const activeElsewhere = computed(() => {
-  if (!activeLink.value || activeEntry.value) return null;
+  if (!activeName.value || activeEntry.value) return null;
   const found = (componentTreeStore.tree?.links?.entries ?? []).find(
-    (entry) => typeof entry !== "string" && entry.name === activeLink.value,
+    (entry) => typeof entry !== "string" && entry.name === activeName.value,
   );
   return typeof found === "string" || !found ? null : found;
 });
@@ -245,6 +261,10 @@ const {
     entries.value = Object.entries(originalSection.value)
       .filter(([name]) => ownedHere.value.has(name))
       .map(([name, raw]) => rawToLink(name, raw));
+    openRows.value = entries.value.map(rowKey);
+    // The entries are new objects, so a selection held against the old ones is
+    // none of them; re-resolve it by name, which is all a reload can do.
+    select(activeName.value);
     // The provenance marker on each field links to the template or table that
     // supplies the value, and the tree is what says which file holds it.
     await componentTreeStore.load(props.versionId);
@@ -279,6 +299,10 @@ function addEntry() {
     active: true,
     params: [],
   });
+  openRows.value = [
+    ...openRows.value,
+    rowKey(entries.value[entries.value.length - 1]),
+  ];
   // An unnamed link with no endpoints cannot be drawn, so adding one this way is
   // also a request to see the list.
   ui.setSectionView("links", "structured");
@@ -288,7 +312,8 @@ function addEntry() {
 function removeEntry(entry: LinkEntry) {
   const index = entries.value.indexOf(entry);
   if (index !== -1) entries.value.splice(index, 1);
-  if (activeLink.value === entry.name) activeLink.value = null;
+  // By identity: the entry may have been renamed since it was selected.
+  if (activeEntry.value === entry) select(null);
   onChange();
 }
 
@@ -329,10 +354,31 @@ function onNodeClick(node: string) {
     params: [],
   };
   entries.value.push(entry);
-  activeLink.value = entry.name;
+  activeEntry.value = entries.value[entries.value.length - 1];
+  activeName.value = entry.name;
   pendingFrom.value = null;
   onChange();
 }
+
+/**
+ * Escape abandons a half-drawn link.
+ *
+ * The chip beside the map has said "Cancel (Esc)" since the two-click flow was
+ * written, and nothing listened for it — so the one key everyone reaches for
+ * left the pending endpoint armed and the next node click drew a link nobody
+ * asked for. On `window`, because the click that started this went to a canvas
+ * and focus is wherever it was; gated on the tab in front for the same reason
+ * `useSectionEditor` gates Cmd+S, and a no-op when nothing is pending so it
+ * never swallows an Escape a dialog wants.
+ */
+function onEscape(event: KeyboardEvent) {
+  if (event.key !== "Escape" || !pendingFrom.value) return;
+  if (tabsStore.activeId !== props.tabId) return;
+  pendingFrom.value = null;
+}
+
+onMounted(() => window.addEventListener("keydown", onEscape));
+onUnmounted(() => window.removeEventListener("keydown", onEscape));
 
 function openElsewhere() {
   const target = activeElsewhere.value;
@@ -344,7 +390,7 @@ function openElsewhere() {
 </script>
 
 <template>
-  <div class="flex min-h-0 flex-1 flex-col">
+  <div class="flex min-h-0 flex-1 flex-col" data-testid="links-editor">
     <StateMessage v-if="isLoading" variant="block" loading>
       Loading transmission technologies…
     </StateMessage>
@@ -363,6 +409,7 @@ function openElsewhere() {
         <button
           v-if="!entryName"
           type="button"
+          data-testid="add-link"
           :class="GHOST_BUTTON"
           :disabled="locked"
           @click="addEntry"
@@ -395,7 +442,7 @@ function openElsewhere() {
         :pending-link-from="pendingFrom"
         :interactive-links="!locked"
         @node-click="onNodeClick"
-        @link-click="activeLink = $event"
+        @link-click="select($event)"
         @show-list="ui.setSectionView('links', 'structured')"
       >
         <template #empty>
@@ -452,7 +499,7 @@ function openElsewhere() {
               />
             </div>
             <LinkFields
-              :key="activeEntry.name"
+              :key="rowKey(activeEntry)"
               :entry="activeEntry"
               :templates="templatesData"
               @change="onChange"
@@ -463,7 +510,7 @@ function openElsewhere() {
             class="flex items-center gap-2 py-1 text-sm text-text-muted"
           >
             <span>
-              <code :class="IDENTIFIER">{{ activeLink }}</code> is defined in
+              <code :class="IDENTIFIER">{{ activeName }}</code> is defined in
               <code :class="IDENTIFIER">{{ activeElsewhere.file }}</code>.
             </span>
             <button type="button" :class="GHOST_BUTTON" @click="openElsewhere">
@@ -488,18 +535,14 @@ function openElsewhere() {
           }}
         </StateMessage>
 
-        <Accordion
-          v-else
-          type="multiple"
-          :default-value="visibleEntries.map((e) => entryKey(e, entries))"
-          class="px-2"
-        >
+        <Accordion v-else v-model="openRows" type="multiple" class="px-2">
           <EntryAccordionRow
             v-for="entry in visibleEntries"
-            :key="entryKey(entry, entries)"
-            :value="entryKey(entry, entries)"
+            :key="rowKey(entry)"
+            :value="rowKey(entry)"
             :name="entry.name || '(unnamed)'"
             remove-label="Remove this link"
+            testid="entry-row"
             @remove="removeEntry(entry)"
           >
             <template #meta>

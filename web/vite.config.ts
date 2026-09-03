@@ -8,6 +8,9 @@ import { collectPackages, writeLicenseNotice } from "./scripts/licensePlugin";
 
 const here = (path: string) => fileURLToPath(new URL(path, import.meta.url));
 
+/** Set by `pnpm run build:coverage`; see `build` below. */
+const COVERAGE = Boolean(process.env.WEB_COVERAGE);
+
 /**
  * Source copied into the tree rather than installed, so no module graph and no
  * `node_modules` entry can find it: `src/components/ui/` is shadcn-vue, added
@@ -51,6 +54,14 @@ export default defineConfig({
     // the same process as the API. See `pixi run web-build`.
     outDir: here("../src/calliope_studio/server/static"),
     emptyOutDir: true,
+    // A coverage build is what the browser checks run against in CI: V8's
+    // ranges are remapped through these source maps by
+    // `scripts/coverage-report.mjs`, and unminified output is what makes the
+    // remapping exact — the same input vitest's own provider sees. Neither
+    // belongs in a wheel, which is why `pixi run web-build-cov` is a separate
+    // task and `emptyOutDir` above wipes it on the next ordinary build.
+    sourcemap: COVERAGE,
+    minify: COVERAGE ? false : "esbuild",
   },
   worker: {
     // A `?worker` import is bundled by its own Rollup build, and the main
@@ -86,10 +97,12 @@ export default defineConfig({
       // person who ran it.
       reporter: ["text", "lcov"],
       // Everything the app ships, including the components no unit test
-      // reaches. The browser checks in `scripts/` exercise a great many of them
-      // and contribute nothing here, so this number reads low on purpose —
-      // narrowing the denominator to the layers that are unit-tested by design
-      // would be a flattering measurement of a different thing.
+      // reaches, so this number alone reads low on purpose — narrowing the
+      // denominator to the layers that are unit-tested by design would be a
+      // flattering measurement of a different thing. The browser checks in
+      // `scripts/` cover most of those components and report separately
+      // (`scripts/coverage-report.mjs`, with the same include/exclude as here);
+      // Codecov unions the two uploads per line.
       include: ["src/**/*.{ts,vue}"],
       exclude: ["src/**/*.d.ts", "src/**/*.test.ts", "src/test-setup.ts", "src/test-stubs/**"],
     },

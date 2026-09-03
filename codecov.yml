@@ -24,6 +24,10 @@ flags:
     # routine rather than exceptional, and without this the flag would read as
     # a total loss of coverage every time one is superseded.
     carryforward: true
+  # Two uploads per commit: vitest's from the `web` job and the browser checks'
+  # from the `browser` job, both against `web/src/`. Codecov unions them per
+  # line, so a component no unit test reaches is still counted when a check
+  # drives it — which is most of them.
   web:
     paths:
       - web/src/

@@ -147,6 +147,10 @@ jobs:
   browser:
     name: Browser
     runs-on: ubuntu-latest
+    env:
+      # Every check's harness records what the bundle executed into here; the
+      # steps after the gate turn it into a Codecov upload.
+      WEB_COVERAGE_DIR: ${{ github.workspace }}/web/coverage/browser
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -155,8 +159,11 @@ jobs:
         with:
           cache: true
 
+      # The coverage build: source-mapped and unminified, so the checks'
+      # coverage remaps to exact lines. Same code, same behaviour; only the
+      # `package` job's build ships.
       - name: Install the frontend and build it into the package
-        run: pixi run web-build
+        run: pixi run web-build-cov
 
       - name: Install Chromium
         # The scripts use playwright-core, which ships no browsers. Matching the
@@ -394,6 +401,28 @@ jobs:
             exit 1
           fi
           echo "every browser check passed"
+
+      # The checks ran against a source-mapped build and recorded what the
+      # bundle executed; this remaps it to `src/` and uploads it under the same
+      # flag as the vitest report, which Codecov unions per line. `always()`
+      # because coverage from a run with one failed check is still coverage,
+      # and the report script exits non-zero on an empty directory, so a
+      # plumbing failure shows up here rather than as a quietly lower number.
+      - name: Browser coverage report
+        if: always()
+        run: pixi run -- pnpm --dir web run coverage:browser
+
+      - name: Upload browser coverage
+        if: always()
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
+        with:
+          files: web/coverage/browser/lcov.info
+          flags: web
+          name: web-browser
+          network_filter: web/
+          disable_search: true
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
 
       - name: Keep the screenshots when something fails
         if: failure()

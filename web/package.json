@@ -8,7 +8,9 @@
   },
   "scripts": {
     "build": "vue-tsc && vite build",
+    "build:coverage": "WEB_COVERAGE=1 vite build",
     "config-check": "node scripts/config-check.mjs",
+    "coverage:browser": "node scripts/coverage-report.mjs",
     "confirm-check": "node scripts/confirm-check.mjs",
     "csv-edit-check": "node scripts/csv-edit-check.mjs",
     "design-check": "vitest run design",
@@ -68,12 +70,17 @@
     "yaml": "^2.0.0"
   },
   "devDependencies": {
+    "@bcoe/v8-coverage": "^1.0.2",
     "@tailwindcss/vite": "^4.3.3",
     "@types/geojson": "^7946.0.16",
     "@vitejs/plugin-vue": "^6.0.8",
     "@vitest/coverage-v8": "^4.1.11",
     "@vue/test-utils": "^2.4.11",
+    "ast-v8-to-istanbul": "^1.0.5",
     "happy-dom": "^20.11.6",
+    "istanbul-lib-coverage": "^3.2.2",
+    "istanbul-lib-report": "^3.0.1",
+    "istanbul-reports": "^3.2.0",
     "oxlint": "^1.79.0",
     "playwright-core": "^1.62.1",
     "tailwindcss": "^4.3.3",

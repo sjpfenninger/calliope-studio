@@ -82,6 +82,9 @@ importers:
         specifier: ^2.0.0
         version: 2.9.0
     devDependencies:
+      '@bcoe/v8-coverage':
+        specifier: ^1.0.2
+        version: 1.0.2
       '@tailwindcss/vite':
         specifier: ^4.3.3
         version: 4.3.3(vite@7.3.6(@types/node@26.3.0)(jiti@2.7.0)(lightningcss@1.32.0)(yaml@2.9.0))
@@ -97,9 +100,21 @@ importers:
       '@vue/test-utils':
         specifier: ^2.4.11
         version: 2.4.11(@vue/compiler-dom@3.5.41)(@vue/server-renderer@3.5.41)(vue@3.5.41(typescript@5.9.3))
+      ast-v8-to-istanbul:
+        specifier: ^1.0.5
+        version: 1.0.5
       happy-dom:
         specifier: ^20.11.6
         version: 20.11.6
+      istanbul-lib-coverage:
+        specifier: ^3.2.2
+        version: 3.2.2
+      istanbul-lib-report:
+        specifier: ^3.0.1
+        version: 3.0.1
+      istanbul-reports:
+        specifier: ^3.2.0
+        version: 3.2.0
       oxlint:
         specifier: ^1.79.0
         version: 1.79.0

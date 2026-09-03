@@ -19,6 +19,9 @@
  * still counts milliseconds is `quiet`, which exists precisely for asserting
  * that *nothing* happens.
  */
+import { mkdirSync, writeFileSync } from "node:fs";
+import { basename, join } from "node:path";
+
 import { chromium } from "playwright-core";
 
 /**
@@ -117,6 +120,53 @@ export function trackRequests(page, match, describe = (request) => request.url()
 const EXECUTABLE =
   process.env.CHROMIUM ?? "/Applications/Chromium.app/Contents/MacOS/Chromium";
 
+/** Where a check's coverage goes; unset, nothing about a check changes. */
+const COVERAGE_DIR = process.env.WEB_COVERAGE_DIR;
+let dumps = 0;
+
+/**
+ * Records what the bundle executed, when `WEB_COVERAGE_DIR` names a directory.
+ *
+ * Chromium's own V8 coverage rather than an instrumented build, so the checks
+ * drive the bundle the user gets, plus source maps. It starts here because this
+ * is the one place every check gets its page, and it is written by wrapping
+ * `browser.close` because that is the one call every check makes: `finish`
+ * closes and exits in the same breath, `source-link` closes in its own
+ * `finally`, and `screenshots` opens a browser per theme — none of them has to
+ * know. `resetOnNavigation: false` is what survives a `page.goto`, and every
+ * check does at least one.
+ *
+ * One file per browser, named after the script, so `smoke`'s five children
+ * cannot overwrite each other. The dump keeps the ranges and drops the script
+ * source, which the report reads back from disk; kept, each dump is megabytes.
+ * `scripts/coverage-report.mjs` turns the directory into lcov. A dump that
+ * cannot be written is reported and does not fail the check: that would turn a
+ * coverage plumbing problem into a red check about something else.
+ */
+async function recordCoverage(browser, page) {
+  if (!COVERAGE_DIR) return;
+  await page.coverage.startJSCoverage({ resetOnNavigation: false });
+  const close = browser.close.bind(browser);
+  browser.close = async (...args) => {
+    try {
+      if (!page.isClosed()) {
+        const entries = await page.coverage.stopJSCoverage();
+        const kept = entries
+          .filter((entry) => entry.url.includes("/assets/"))
+          .map(({ url, functions }) => ({ url, functions }));
+        mkdirSync(COVERAGE_DIR, { recursive: true });
+        dumps += 1;
+        const script = basename(process.argv[1] ?? "check", ".mjs");
+        const file = join(COVERAGE_DIR, `${script}-${process.pid}-${dumps}.json`);
+        writeFileSync(file, JSON.stringify(kept));
+      }
+    } catch (error) {
+      console.error(`coverage not recorded: ${error.message}`);
+    }
+    return close(...args);
+  };
+}
+
 /**
  * Opens a page, and wires up the two things every check wants to know about:
  * console errors, and which frame requests went out.
@@ -137,6 +187,7 @@ export async function open({
 } = {}) {
   const browser = await chromium.launch({ executablePath: EXECUTABLE, headless: true });
   const page = await browser.newPage({ viewport, deviceScaleFactor });
+  await recordCoverage(browser, page);
 
   const consoleErrors = [];
   page.on("console", (message) => {

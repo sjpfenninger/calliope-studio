@@ -12,8 +12,18 @@ import { baseFrom, openResults } from "./results-page.mjs";
 
 const BASE = baseFrom(process.argv);
 const { check, skip, finish } = results("map");
-const { browser, page, testId, consoleErrors, frames, settle, framesIdle, mapReady, until } =
-  await openResults(BASE);
+const {
+  browser,
+  page,
+  testId,
+  consoleErrors,
+  frames,
+  settle,
+  framesIdle,
+  mapReady,
+  until,
+  stable,
+} = await openResults(BASE);
 
 console.log(`Map at ${BASE}`);
 
@@ -112,29 +122,48 @@ await page.evaluate(
       else map.once("idle", resolve);
     }),
 );
-const nodePoint = await page.evaluate(() => {
-  const map = window.__cgMap;
-  const { data } = map.getSource("nodes").serialize();
-  const canvas = map.getCanvas();
-  for (const feature of data.features) {
-    if (feature.geometry?.type !== "Point") continue;
-    const point = map.project(feature.geometry.coordinates);
-    const inside =
-      point.x > 4 &&
-      point.y > 4 &&
-      point.x < canvas.clientWidth - 4 &&
-      point.y < canvas.clientHeight - 4;
-    if (inside) return { x: point.x, y: point.y };
-  }
-  return null;
-});
+// `idle` answers only for data the map has already been handed, and the
+// payload lands *after* `settle` returns: the request is done, but the Arrow
+// batches are parsed and applied in later tasks, and `setData` empties the
+// layer until the worker has re-tiled it. A click inside that window queries
+// nothing. So the click waits for a node to be rendered under its point, and a
+// click that still finds nothing — the payload arriving between that test and
+// the press — is taken again. Under coverage recording the window was wide
+// enough to hit on every parallel run; nothing about it is specific to the
+// recording.
+const projectNode = () =>
+  page.evaluate(() => {
+    const map = window.__cgMap;
+    const { data } = map.getSource("nodes").serialize();
+    const canvas = map.getCanvas();
+    for (const feature of data.features) {
+      if (feature.geometry?.type !== "Point") continue;
+      const point = map.project(feature.geometry.coordinates);
+      const inside =
+        point.x > 4 &&
+        point.y > 4 &&
+        point.x < canvas.clientWidth - 4 &&
+        point.y < canvas.clientHeight - 4;
+      if (inside) return { x: point.x, y: point.y };
+    }
+    return null;
+  });
+const nodeRenderedAt = (point) =>
+  page.evaluate(
+    ({ x, y }) => window.__cgMap.queryRenderedFeatures([x, y], { layers: ["nodes"] }).length > 0,
+    point,
+  );
+const nodePoint = await stable(projectNode);
 if (nodePoint) {
   const canvasBox = await page.locator(".maplibregl-canvas").first().boundingBox();
-  await page.mouse.click(canvasBox.x + nodePoint.x, canvasBox.y + nodePoint.y);
-  const narrowed = await until(
-    async () => (await testId("clear-map-nodes").count()) === 1,
-    { timeout: 15000 },
-  );
+  let narrowed = false;
+  for (let attempt = 0; attempt < 3 && !narrowed; attempt += 1) {
+    await until(() => nodeRenderedAt(nodePoint));
+    await page.mouse.click(canvasBox.x + nodePoint.x, canvasBox.y + nodePoint.y);
+    narrowed = await until(async () => (await testId("clear-map-nodes").count()) === 1, {
+      timeout: 5000,
+    });
+  }
   check("clicking a node narrows the charts to it", narrowed);
 }
 if (nodePoint && (await testId("clear-map-nodes").count()) === 1) {

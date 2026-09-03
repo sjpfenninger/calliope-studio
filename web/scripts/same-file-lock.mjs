@@ -150,7 +150,11 @@ async function run() {
   // ── a raw file tab against a section tab of the same file ───────────────────
   await goSection("Files");
   await testId("file-tree").waitFor({ timeout: 20000 });
-  await page.getByText("scenarios.yaml", { exact: true }).first().click();
+  // Scoped to the tree: the section editor's toolbar shows the same file name,
+  // and a page-wide `getByText` resolves to whichever exists first. The tree
+  // rows arrive with the listing, so on a slow enough page — under coverage
+  // recording, every time — that was the toolbar label, which opens nothing.
+  await testId("file-tree").getByText("scenarios.yaml", { exact: true }).first().click();
   const fileTab = page
     .locator('[data-testid="tab-file"]', { hasText: "scenarios.yaml" })
     .first();
@@ -193,7 +197,7 @@ async function run() {
   await goSection("Files");
   await testId("file-tree").waitFor({ timeout: 20000 });
   await page.getByRole("treeitem", { name: /^model_config$/ }).first().click();
-  await page.getByText("techs.yaml", { exact: true }).first().click();
+  await testId("file-tree").getByText("techs.yaml", { exact: true }).first().click();
   const techsFileTab = page
     .locator('[data-testid="tab-file"]', { hasText: "techs.yaml" })
     .first();
@@ -247,7 +251,7 @@ async function run() {
   await goSection("Files");
   await testId("file-tree").waitFor({ timeout: 20000 });
   await page.getByRole("treeitem", { name: /^data_tables$/ }).first().click();
-  await page.getByText("costs.csv", { exact: true }).first().click();
+  await testId("file-tree").getByText("costs.csv", { exact: true }).first().click();
   const csvTab = page.locator('[data-testid="tab-file"]', { hasText: "costs.csv" }).first();
   await csvTab.dblclick();
   const cell = page.locator(

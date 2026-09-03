@@ -228,6 +228,11 @@ test-cov = { cmd = "pytest --cov --cov-report=xml --cov-report=term-missing", de
 web-install = { cmd = "pnpm install --frozen-lockfile", cwd = "web", description = "Install frontend dependencies from the lockfile" }
 web-update = { cmd = "pnpm update --latest", cwd = "web", description = "Update frontend dependencies to their latest versions" }
 web-build = { cmd = "pnpm run build", cwd = "web", depends-on = ["web-install"], description = "Compile the Vue bundle into the Python package" }
+# Source-mapped and unminified, so the browser checks' V8 coverage remaps to
+# exact source lines. It lands in the same directory as the shipping bundle and
+# `check_dist.py` bounds that directory from below only, so run `web-build`
+# again before packaging; the next ordinary build empties it anyway.
+web-build-cov = { cmd = "pnpm run build:coverage", cwd = "web", depends-on = ["web-install"], description = "Compile a source-mapped bundle for browser-check coverage; run web-build again before packaging" }
 web-dev = { cmd = "pnpm dev", cwd = "web", depends-on = ["web-install"], description = "Vite dev server, proxying /api to port 8000" }
 web-typecheck = { cmd = "pnpm exec vue-tsc --noEmit", cwd = "web", depends-on = ["web-install"], description = "Type-check the frontend with vue-tsc" }
 web-lint = { cmd = "pnpm run lint", cwd = "web", depends-on = ["web-install"], description = "Lint the frontend with oxlint" }

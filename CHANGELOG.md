@@ -3,6 +3,13 @@
 ## 0.1.3 (unreleased)
 
 - Improved config model and schema widgets
+- Prevent loss of unsaved edits on tab switching, closing, reload and model switch
+- Refuse saving if a file changed on disk since having been loaded
+- Any file can be edited in only one pane at a time
+- Section writes better preserve anchors, number spellings, comments, line endings, byte-order marks, indentation and integer keys
+- Confine writes to the model definition and reject path traversal
+- Order run retention by request time rather than file dates
+- Make data tables more robust
 
 ## 0.1.2 (2026-09-02)
 

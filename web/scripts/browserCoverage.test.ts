@@ -57,6 +57,7 @@ describe("keepSource", () => {
     expect(keepSource(`${WEB}/src/env.d.ts`, WEB)).toBe(false);
     expect(keepSource(`${WEB}/src/test-setup.ts`, WEB)).toBe(false);
     expect(keepSource(`${WEB}/src/test-stubs/browserOnly.ts`, WEB)).toBe(false);
+    expect(keepSource(`${WEB}/src/test-helpers/editors.ts`, WEB)).toBe(false);
   });
 
   it("drops dependencies, styles and anything outside src/", () => {

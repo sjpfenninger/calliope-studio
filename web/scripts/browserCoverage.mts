@@ -50,5 +50,6 @@ export function keepSource(absPath: string, webDir: string): boolean {
   if (rel.endsWith(".d.ts") || rel.endsWith(".test.ts")) return false;
   if (rel === "src/test-setup.ts") return false;
   if (rel.startsWith("src/test-stubs/")) return false;
+  if (rel.startsWith("src/test-helpers/")) return false;
   return true;
 }

@@ -11,7 +11,7 @@
 - Order run retention by request time rather than file dates
 - Make data tables more robust
 - Various UI fixes in the editors and results views
-- The browser checks now count toward frontend test coverage
+- Better UI testing, browser checks included in frontend test coverage
 
 ## 0.1.2 (2026-09-02)
 

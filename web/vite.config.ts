@@ -104,7 +104,7 @@ export default defineConfig({
       // (`scripts/coverage-report.mjs`, with the same include/exclude as here);
       // Codecov unions the two uploads per line.
       include: ["src/**/*.{ts,vue}"],
-      exclude: ["src/**/*.d.ts", "src/**/*.test.ts", "src/test-setup.ts", "src/test-stubs/**"],
+      exclude: ["src/**/*.d.ts", "src/**/*.test.ts", "src/test-setup.ts", "src/test-stubs/**", "src/test-helpers/**"],
     },
   },
   server: {

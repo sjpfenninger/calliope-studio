@@ -362,6 +362,20 @@ watch(
             >, so it is not part of this model's formulation.
           </StateMessage>
 
+          <!-- The other reason there is no equation. Neutral rather than a
+               warning: in a small model this is the resting state of most of
+               `base.yaml`, and the reader wants the `where:` below, not alarm. -->
+          <StateMessage
+            v-if="selected.unmatched"
+            variant="inline"
+            data-testid="math-unmatched-note"
+          >
+            Applies to nothing in this model: its
+            <span :class="IDENTIFIER">where</span> condition matches no node,
+            technology, carrier or timestep here, so it adds nothing to the
+            formulation. The definition below says what it looks for.
+          </StateMessage>
+
           <div v-if="equation" class="cg-math" data-testid="math-equation" v-html="equation.html" />
           <StateMessage v-if="equation && hasRenderError(equation)" variant="inline" tone="warning">
             This equation could not be typeset.

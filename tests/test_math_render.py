@@ -74,11 +74,34 @@ class TestParity:
 
         assert not missing, f"not found verbatim in Calliope's own document: {missing}"
 
+    def test_no_notation_is_an_empty_array(self, components):
+        """The string that used to reach the browser for a `where` matching nothing.
+
+        Calliope stores a bare NaN array for such a component and, asked for
+        `include="all"`, renders its template over that — which is a valid
+        LaTeX array of zero rows, so KaTeX draws nothing, reports nothing, and
+        the tab shows a blank where the equation goes. `_component` has to mark
+        the component `unmatched` and carry no `latex` instead.
+        """
+        empty = "\\begin{array}{l}\n\\end{array}"
+        blank = [
+            name
+            for name, component in components.items()
+            if component.get("latex", "").strip() == empty
+        ]
+
+        assert not blank
+
     def test_there_is_something_to_compare(self, components):
-        """A parity test that compares nothing passes, and means nothing."""
+        """A parity test that compares nothing passes, and means nothing.
+
+        urban_scale renders 38: the components whose `where` matches nothing
+        there are listed `unmatched` and carry no `latex`, so they are not
+        compared — there is nothing of Calliope's to compare them to.
+        """
         with_latex = [c for c in components.values() if c.get("latex")]
 
-        assert len(with_latex) > 40
+        assert len(with_latex) > 30
 
     def test_the_groups_calliope_documents_are_all_present(self, rendered):
         keys = [group["key"] for group in rendered["payload"]["groups"]]
@@ -287,3 +310,47 @@ class TestDeactivatedComponents:
         marked = [key for key, value in dispatch.items() if value.get("deactivated")]
 
         assert marked == ["variables:flow_cap"]
+
+
+class TestUnmatchedComponents:
+    """A `where` that matches nothing here: the other reason for no notation.
+
+    `balance_conversion` is in every model's math and national_scale has no
+    conversion technology, so it binds to nothing there. It is still part of
+    the formulation as declared — `include="all"` is asked for precisely so a
+    constraint the user just wrote does not vanish — but the notation Calliope
+    produces for it is an empty array block, and shipping that drew a blank
+    the user could not tell from a rendering failure.
+    """
+
+    def test_a_constraint_nothing_binds_to_is_listed_without_notation(self, dispatch):
+        component = dispatch["constraints:balance_conversion"]
+
+        assert component["unmatched"] is True
+        assert "latex" not in component
+        assert not component.get("deactivated")
+        # What the reader wants next is the condition that matched nothing,
+        # and the YAML is where it is.
+        assert "where:" in component["yaml"]
+        assert "base_tech" in component["uses"]
+
+    def test_a_constraint_that_binds_is_untouched(self, dispatch):
+        component = dispatch["constraints:system_balance"]
+
+        assert component["latex"].startswith("\\begin{array}")
+        assert "unmatched" not in component
+
+    def test_a_symbol_is_never_marked(self, dispatch):
+        """A parameter has no `where`; an all-NaN one is "no data", not "no match".
+
+        That case is already answered by the `references` rule, and a second
+        answer would mark every default Calliope declares and nobody set.
+        """
+        symbols = [
+            component
+            for key, component in dispatch.items()
+            if key.startswith(("parameters:", "lookups:"))
+        ]
+
+        assert symbols
+        assert not any(component.get("unmatched") for component in symbols)

@@ -101,7 +101,9 @@ def render(model: Any) -> dict:
     # "all" rather than "valid": a component whose `where` matches nothing in
     # *this* model is still part of the formulation, and hiding it would make a
     # constraint the user just wrote vanish with no explanation — which reads as
-    # the file not having been picked up.
+    # the file not having been picked up. What "all" hands back for such a
+    # component is an empty array block, though, and `_component` marks it
+    # `unmatched` rather than passing that on as notation.
     #
     # `active: false` is the opposite case and is handled by `_build_math`
     # instead: there the user has said the component is *not* in the
@@ -235,10 +237,27 @@ def _component(
     title, unit, default — from the pydantic definition in `backend.math`, which
     is where `generate_math_doc` reads it too. Before 0.7.0 both lived in the
     arrays' attrs; only `references` still does.
+
+    A component whose `where` matched nothing in this model is listed and
+    marked `unmatched`, with no `latex` key. Calliope stores a bare NaN array
+    for it and, asked for `include="all"`, renders its template over that —
+    `\\begin{array}{l}\\end{array}`, which KaTeX typesets as nothing at all.
+    Nineteen of a small dispatch model's forty-seven components came out that
+    way, and a blank where the equation goes reads as a rendering failure. The
+    test is Calliope's own `valid` predicate, verbatim, so what is marked here
+    is exactly what `include="valid"` would have dropped — which also takes in
+    a variable declared over an empty set, four more on that model, whose
+    domain-and-bounds line drew without a `\\forall` because there was nothing
+    to range over. Unlike dropping it, this keeps a constraint the user just
+    wrote on screen with the reason the model has nothing for it to bind to.
     """
-    latex = backend.math_strings[group][name] or None
+    symbol = group in ("parameters", "lookups")
     references = array.attrs.get("references") or set()
-    if not latex and not (group in ("parameters", "lookups") and references):
+    # Symbols have no `where`: an all-NaN parameter is "no data supplied",
+    # which the `references` rule below already answers for.
+    applies = symbol or bool(array.fillna(0).astype(bool).any())
+    latex = (backend.math_strings[group][name] or None) if applies else None
+    if applies and not latex and not (symbol and references):
         return None
 
     definition = _definition_fields(backend, group, name)
@@ -263,6 +282,8 @@ def _component(
 
     if latex:
         component["latex"] = backend._render(_ESCAPE, x=latex)
+    if not applies:
+        component["unmatched"] = True
     default = _plain(definition.get("default"))
     if default is not None:
         component["default"] = default

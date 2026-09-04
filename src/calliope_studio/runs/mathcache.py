@@ -63,7 +63,9 @@ SUFFIX = ".json"
 #: 2: components the math deactivates are listed rather than rendered.
 #: 3: Calliope 0.7.0 — LaTeX read from `backend.math_strings`, metadata from
 #:    the pydantic definitions, and the `postprocessed` group added.
-PAYLOAD_VERSION = 3
+#: 4: a component whose `where` matches nothing is marked `unmatched` instead
+#:    of carrying an empty array block as its notation.
+PAYLOAD_VERSION = 4
 
 
 def fingerprint(model: Any) -> str:

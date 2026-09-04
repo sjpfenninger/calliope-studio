@@ -36,10 +36,16 @@ const isSelected = computed(() => key.value === math.selectedKey);
  * heading above them already says, in the densest part of the app. A resting
  * row is `text-text-dim`, the tone a tree row rests at, so the two lists a
  * sidebar-width apart read as one kind of thing.
+ *
+ * An unmatched row takes the same muted tone, so a scan of the list shows what
+ * is inert — but it *is* badged, because it sits among the live rows with no
+ * heading of its own to say so.
  */
 const tone = computed(() => {
   if (isSelected.value) return "bg-accent-soft text-accent-text";
-  if (props.component.deactivated) return "text-text-muted hover:bg-hover";
+  if (props.component.deactivated || props.component.unmatched) {
+    return "text-text-muted hover:bg-hover";
+  }
   return "text-text-dim hover:bg-hover";
 });
 </script>
@@ -54,6 +60,11 @@ const tone = computed(() => {
   >
     <span class="truncate">{{ component.name }}</span>
     <span class="flex-1" />
+    <!-- Independent of the pair below: a base constraint a user's file
+         overrides can also match nothing, and both facts should show. -->
+    <Badge v-if="component.unmatched" variant="outline" data-testid="math-unmatched">
+      not applied
+    </Badge>
     <Badge
       v-if="component.overridden"
       variant="outline"

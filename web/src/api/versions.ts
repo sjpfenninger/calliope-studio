@@ -422,7 +422,10 @@ export interface MathComponent {
   title: string;
   description: string;
   unit: string;
-  /** KaTeX-ready. Absent for a parameter, which is a symbol with no equation. */
+  /**
+   * KaTeX-ready. Absent for a parameter, which is a symbol with no equation,
+   * and for a `deactivated` or `unmatched` component, which has none to show.
+   */
   latex?: string;
   /** The definition as written, defaults omitted. */
   yaml?: string;
@@ -445,6 +448,15 @@ export interface MathComponent {
    * this existed reads as `false`.
    */
   deactivated?: boolean;
+  /**
+   * Its `where` matched no index item in this model, so Calliope produced no
+   * notation for it — an empty array block, which KaTeX draws as nothing at
+   * all. Listed rather than dropped for the same reason as `deactivated`: a
+   * constraint the user just wrote must not vanish because the model has
+   * nothing yet for it to bind to. Optional so an older payload reads as
+   * `false`.
+   */
+  unmatched?: boolean;
 }
 
 export interface MathGroup {

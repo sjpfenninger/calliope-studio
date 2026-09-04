@@ -216,6 +216,23 @@ try {
     (await page.locator('[data-testid^="tab-"]').count()) === openTabs,
   );
 
+  // ── A component the model has nothing for ────────────────────────────────
+  // national_scale has no conversion technology, so `balance_conversion`'s
+  // `where` matches nothing and Calliope's notation for it is an empty array
+  // block — which KaTeX draws as nothing, with no `.katex-error` to find. That
+  // was a blank where the equation goes, indistinguishable from a render that
+  // failed; the tab has to say why instead.
+  await calls.settle(() => componentRow("balance_conversion").click());
+  check(
+    "a constraint nothing binds to says so",
+    await until(async () => (await testId("math-unmatched-note").count()) === 1),
+  );
+  check("…and draws no empty equation", (await testId("math-equation").count()) === 0);
+  check(
+    "…and is badged in the list",
+    (await componentRow("balance_conversion").locator('[data-testid="math-unmatched"]').count()) === 1,
+  );
+
   // ── Now the wire-up: create a math file and enable it ────────────────────
   check("there is no custom math to begin with", (await testId("math-files").innerText()).includes("No custom math"));
 

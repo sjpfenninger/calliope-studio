@@ -37,7 +37,7 @@ import FieldRow from "@/components/app/FieldRow.vue";
 import InfoTip from "@/components/app/InfoTip.vue";
 import PanelDisclosure from "@/components/app/PanelDisclosure.vue";
 import TooltipButton from "@/components/app/TooltipButton.vue";
-import { rowKey } from "@/lib/entries";
+import { parseScalar, rowKey } from "@/lib/entries";
 import {
   FIELD,
   FIELD_WIDTH,
@@ -381,10 +381,7 @@ function update(key: string, value: unknown) {
  * into the model. The text is kept instead, for the schema validation to flag.
  */
 function updateNumber(key: string, raw: string) {
-  const trimmed = raw.trim();
-  if (trimmed === "") return update(key, null);
-  const asNumber = Number(trimmed);
-  update(key, Number.isFinite(asNumber) ? asNumber : trimmed);
+  update(key, parseScalar(raw));
 }
 
 function setText(key: string, value: string) {

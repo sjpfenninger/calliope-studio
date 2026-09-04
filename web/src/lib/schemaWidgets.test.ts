@@ -251,6 +251,16 @@ describe("parseValue", () => {
     expect(parseValue(CONFIG.zero_threshold, "1e-10")).toBe(1e-10);
     expect(parseValue(CONFIG.datetime_format, "%Y-%m-%d")).toBe("%Y-%m-%d");
   });
+
+  it("reads only a YAML number as a number in a numeric property", () => {
+    // `Number()` accepts all three; JSON carries the first as `null`, and the
+    // second would be rewritten as 26. `.inf` is the spelling the server
+    // turns back into infinity, so it must reach it as text.
+    expect(parseValue(CONFIG.zero_threshold, "Infinity")).toBe("Infinity");
+    expect(parseValue(CONFIG.zero_threshold, "0x1A")).toBe("0x1A");
+    expect(parseValue(CONFIG.zero_threshold, ".inf")).toBe(".inf");
+    expect(parseValue(CONFIG.zero_threshold, "-3.5")).toBe(-3.5);
+  });
 });
 
 describe("format/parse round trip", () => {

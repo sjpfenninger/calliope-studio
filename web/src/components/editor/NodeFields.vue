@@ -28,7 +28,7 @@ import Eyebrow from "@/components/app/Eyebrow.vue";
 import { FIELD, SECTION } from "@/lib/formClasses";
 import { focusNextFrame, useFocusNew } from "./focusNew";
 
-import { rowKey, type NodeEntry } from "@/lib/entries";
+import { parseScalar, rowKey, type NodeEntry } from "@/lib/entries";
 import { collectInherited, nodeSetsKey } from "@/lib/inherited";
 import type { DataTableParam } from "@/lib/dataTableParams";
 
@@ -70,10 +70,17 @@ function sets(key: string): boolean {
   return nodeSetsKey(props.entry, key);
 }
 
-/** A coordinate field writes a number, or null — never the DOM's string. */
+/**
+ * A coordinate field writes a number, or null — never the DOM's string.
+ *
+ * Read by `parseScalar` like every other value the forms take, rather than a
+ * bare `Number()`: that accepts `Infinity` and `0x1A`, and JSON carries the
+ * first as `null`. Text that is not a YAML number is dropped to null here
+ * because the field is `type="number"` and a browser already refuses it.
+ */
 function setCoordinate(key: "latitude" | "longitude", raw: string) {
-  const trimmed = raw.trim();
-  props.entry[key] = trimmed === "" ? null : Number(trimmed);
+  const value = parseScalar(raw);
+  props.entry[key] = typeof value === "number" ? value : null;
   onChange();
 }
 

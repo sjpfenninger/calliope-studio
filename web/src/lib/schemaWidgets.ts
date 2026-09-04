@@ -16,6 +16,8 @@
  * displayed `a,b` and wrote the *string* `"a,b"` back.
  */
 
+import { parseScalar } from "./entries";
+
 export type WidgetType =
   | "text"
   | "select"
@@ -206,8 +208,11 @@ export function parseValue(fieldSchema: Schema, text: string): unknown {
   }
   if (isOpen(fieldSchema)) return inferScalar(trimmed);
   if (branches.some((b) => b.type === "number" || b.type === "integer")) {
-    const asNumber = Number(trimmed);
-    return Number.isNaN(asNumber) ? trimmed : asNumber;
+    // `entries.parseScalar` rather than `Number()`: only a YAML number is read
+    // as one, so `Infinity` stays text for the schema to flag instead of
+    // crossing JSON as `null`, and `.inf` stays the spelling the server turns
+    // back into infinity.
+    return parseScalar(trimmed);
   }
   if (branches.some((b) => b.type === "boolean")) return trimmed === "true";
   return trimmed;

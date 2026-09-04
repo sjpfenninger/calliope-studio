@@ -15,6 +15,14 @@
  * point — this is the one hand-rolled strip in the app, and importing the classes
  * is what stops it drifting.
  *
+ * The one line that does run under a tab is not selection but *activity*: a run
+ * still solving, a validation still building, a math render still in flight
+ * gets the same travelling sliver a refetching figure does (`ProgressHairline`),
+ * along its bottom edge. Those three carry on while the user looks at something
+ * else, and a tab that went quiet the moment it was left read as finished. The
+ * predicate is composed here, from the three stores that own the work, because
+ * `stores/runs` already imports the tabs store and the reverse would be a cycle.
+ *
  * It scrolls with no scrollbar: the global one is 10px, a third of the strip's
  * height, drawn straight across the tabs. The wheel and the auto-reveal below
  * are what replace it.
@@ -43,14 +51,21 @@ import {
   SEGMENT_NAV_SEAM,
   SEGMENT_STRIP_LINE_SCROLLED,
 } from "@/components/app/segmented";
+import ProgressHairline from "@/components/app/ProgressHairline.vue";
 import TabHistory from "./TabHistory.vue";
 import { ICON_BUTTON_XS } from "@/lib/formClasses";
 import { fileIcon, ICON_STROKE_WIDTH_TIGHT, MathIcon, sectionIcon } from "@/lib/icons";
 import { cn } from "@/lib/utils";
 import { useConfirmStore } from "@/stores/confirm";
+import { useMathStore } from "@/stores/math";
+import { isTerminal, useRunsStore } from "@/stores/runs";
 import { useTabsStore, type TabEntry } from "@/stores/tabs";
+import { useValidationStore } from "@/stores/validation";
 
 const tabs = useTabsStore();
+const runs = useRunsStore();
+const validation = useValidationStore();
+const math = useMathStore();
 
 /** The shared segment shape, plus the few things only a document tab needs. */
 const TAB_CLASS = cn(
@@ -174,6 +189,24 @@ function iconFor(tab: TabEntry) {
   return sectionIcon(tab.section);
 }
 
+/**
+ * Whether the tab's own background task is still going.
+ *
+ * A run tab with no record — a bare `.nc`, or a history not yet fetched — is
+ * not busy: the indicator claims work is happening, and "unknown" is not that.
+ * `pending` does count, since the tab opens before the worker exists.
+ */
+function busy(tab: TabEntry): boolean {
+  if (tab.kind === "run") {
+    if (tab.runId === null) return false;
+    const record = runs.get(tab.runId);
+    return record !== undefined && !isTerminal(record.status);
+  }
+  if (tab.kind === "validation") return validation.isRunning;
+  if (tab.kind === "math") return math.isRendering;
+  return false;
+}
+
 function label(tab: TabEntry): string {
   if (tab.kind === "section") {
     return tab.section.replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase());
@@ -198,7 +231,9 @@ function titleFor(tab: TabEntry): string {
   if (tab.kind === "entry") {
     return `${tab.entryName} · ${tab.section} — ${tab.filePath}`;
   }
-  return tab.title;
+  // The one place the moving line is explained: it is gone by the time the
+  // task is, so the title is what a pointer resting on it finds.
+  return busy(tab) ? `${tab.title} · running` : tab.title;
 }
 
 /**
@@ -321,6 +356,8 @@ function onCloseKeydown(id: string, event: KeyboardEvent) {
         :data-active="tab.id === tabs.activeId || undefined"
         :data-preview="tab.id === tabs.previewId || undefined"
         :data-dragging="tab.id === draggingId || undefined"
+        :data-busy="busy(tab) || undefined"
+        :aria-busy="busy(tab) || undefined"
         :title="titleFor(tab)"
         :class="TAB_CLASS"
         @click="tabs.activate(tab.id)"
@@ -370,6 +407,15 @@ function onCloseKeydown(id: string, event: KeyboardEvent) {
         >
           <X class="size-3" :stroke-width="ICON_STROKE_WIDTH_TIGHT" />
         </span>
+
+        <!-- Along the bottom edge, where an inactive tab's strip line is and
+             where the active tab meets its pane. Absolute, so the tab keeps its
+             width; the button is `relative` through SEGMENT_BASE. -->
+        <ProgressHairline
+          :active="busy(tab)"
+          data-testid="tab-busy"
+          class="absolute inset-x-0 bottom-0"
+        />
       </button>
     </div>
   </div>

@@ -179,9 +179,7 @@ function mathNote(
   return null;
 }
 
-const validating = computed(
-  () => validation.phase === "syntax" || validation.phase === "build",
-);
+const validating = computed(() => validation.isRunning);
 
 const canValidate = computed(() => !validating.value && !!tabs.versionId);
 

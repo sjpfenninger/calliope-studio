@@ -56,7 +56,7 @@ const props = defineProps<{ versionId: string }>();
 const math = useMathStore();
 const tabs = useTabsStore();
 
-const rendering = computed(() => math.phase === "rendering");
+const rendering = computed(() => math.isRendering);
 
 /** Everything the list is narrowed by, undone at once. */
 function clearFilters() {

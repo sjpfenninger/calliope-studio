@@ -156,9 +156,13 @@ async function run() {
       skip("the clean parse escalates to a Calliope build (it finished too fast)");
     } else {
       check("a clean parse escalates to a Calliope build", true);
+      const busyTab = () => page.locator('[data-testid="tab-validation"][data-busy]').count();
+      check("and the validation tab shows it is running", (await busyTab()) === 1);
       await testId("validation-cancel").click();
       await testId("validation-revalidate").waitFor({ timeout: 15000 });
       check("cancelling gives the Validate button back", true);
+      await until(async () => (await busyTab()) === 0, { timeout: 10000, interval: 100 });
+      check("and takes the running mark off the tab", (await busyTab()) === 0);
       await until(async () => (await status()).includes("Not yet validated"), {
         timeout: 10000,
       });

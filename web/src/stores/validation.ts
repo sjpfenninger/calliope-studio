@@ -67,6 +67,15 @@ export const useValidationStore = defineStore("validation", () => {
   const taskId = ref<string | null>(null);
 
   /**
+   * Whether either tier is still going. One definition, because the tab bar,
+   * the tab and the Validate button all need it and three spellings of
+   * "syntax or build" is how one of them comes to forget a phase.
+   */
+  const isRunning = computed(
+    () => phase.value === "syntax" || phase.value === "build",
+  );
+
+  /**
    * The problems, split by severity.
    *
    * `severity` was declared and then never read: every row was painted as an
@@ -207,6 +216,7 @@ export const useValidationStore = defineStore("validation", () => {
     lastValidatedAt,
     error,
     taskId,
+    isRunning,
     errorCount,
     warningCount,
     validate,

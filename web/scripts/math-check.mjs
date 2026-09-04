@@ -94,13 +94,27 @@ const calls = trackRequests(page, (request) => request.url().includes("/api/"));
  */
 async function rendered({ starts = false } = {}) {
   const status = () => testId("math-status").innerText();
-  if (starts && !(await until(async () => /Rendering/.test(await status()), { timeout: 20000 }))) {
-    return false;
+  const busyTab = () => page.locator('[data-testid="tab-math"][data-busy]').count();
+  if (starts) {
+    if (!(await until(async () => /Rendering/.test(await status()), { timeout: 20000 }))) {
+      return false;
+    }
+    // The tab bar's running mark is read off the same phase the status is, in
+    // another component; a render is the one background task long enough
+    // (seconds) to be certain of catching in flight.
+    check("the math tab shows it is rendering", (await busyTab()) === 1);
   }
-  return until(async () => /\d+ components/.test(await status()), {
+  const done = await until(async () => /\d+ components/.test(await status()), {
     timeout: 120000,
     interval: 200,
   });
+  // Only where it was seen to appear: the first render can be a cache hit,
+  // over before anything could look, and "gone" proves nothing then.
+  if (done && starts) {
+    await until(async () => (await busyTab()) === 0, { timeout: 5000, interval: 100 });
+    check("and the running mark leaves with it", (await busyTab()) === 0);
+  }
+  return done;
 }
 
 /** Clicks the Math group in the model tree and waits for the tab. */

@@ -73,6 +73,9 @@ export const useMathStore = defineStore("math", () => {
   const renderError = ref<string | null>(null);
   const taskId = ref<string | null>(null);
 
+  /** Whether a render is in flight — read by the tab bar as well as the tab. */
+  const isRendering = computed(() => phase.value === "rendering");
+
   /** The model fingerprint `payload` was rendered from, and the current one. */
   const renderedFingerprint = ref<string | null>(null);
   const currentFingerprint = ref<string | null>(null);
@@ -354,6 +357,7 @@ export const useMathStore = defineStore("math", () => {
     phase,
     renderError,
     taskId,
+    isRendering,
     isStale,
     unappliedSources,
     componentsByKey,

@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/resizable";
 import { initMonacoYaml } from "@/monacoSetup";
 import { useExplorerStore } from "@/stores/explorer";
+import { useMathStore } from "@/stores/math";
 import { useProjectStore } from "@/stores/project";
 import { useRunsStore } from "@/stores/runs";
 import { useSchemaKindsStore } from "@/stores/schemaKinds";
@@ -40,6 +41,7 @@ const project = useProjectStore();
 const schemaKinds = useSchemaKindsStore();
 const runs = useRunsStore();
 const validation = useValidationStore();
+const math = useMathStore();
 const explorer = useExplorerStore();
 const ui = useUiStore();
 
@@ -81,6 +83,10 @@ watch(
     // went on polling into the new model's list.
     runs.stopAll();
     validation.reset();
+    // The math tab's own `versionId` watcher resets this too, but only while
+    // that tab is mounted — switched away from, the old model's render kept
+    // its phase and payload, and the tab bar now shows the phase.
+    math.reset();
     explorer.reset();
     // Which schema describes which of this model's files. Fetched per model
     // because it depends on the `import:` graph, and before any editor opens so

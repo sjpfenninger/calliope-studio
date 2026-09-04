@@ -2,7 +2,13 @@
 
 ## 0.2.0 (unreleased)
 
+New features:
+
 - Improved config model and schema widgets
+- Tabs visibly show if they are running a background task
+
+Fixes:
+
 - Prevent loss of unsaved edits on tab switching, closing, reload and model switch
 - Refuse saving if a file changed on disk since having been loaded
 - Saving is disabled on a clean form

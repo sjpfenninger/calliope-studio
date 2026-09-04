@@ -29,9 +29,7 @@ import { useValidationStore, type ValidationProblem } from "@/stores/validation"
 const tabs = useTabsStore();
 const validation = useValidationStore();
 
-const running = computed(
-  () => validation.phase === "syntax" || validation.phase === "build",
-);
+const running = computed(() => validation.isRunning);
 
 const status = computed(() => {
   if (validation.phase === "syntax") return "Checking syntax…";

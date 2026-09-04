@@ -3,10 +3,14 @@ import { createPinia, setActivePinia } from "pinia";
 import { beforeEach, describe, expect, it } from "vitest";
 import { h, nextTick } from "vue";
 
+import type { RunRecord, RunStatus } from "@/api/runs";
 import TooltipProvider from "@/components/ui/tooltip/TooltipProvider.vue";
 import TabBar from "./TabBar.vue";
 import { useConfirmStore } from "@/stores/confirm";
+import { useMathStore } from "@/stores/math";
+import { useRunsStore } from "@/stores/runs";
 import { useTabsStore } from "@/stores/tabs";
+import { useValidationStore } from "@/stores/validation";
 
 /**
  * Closing a tab from the keyboard, and the guard that stands in the way.
@@ -117,5 +121,108 @@ describe("TabBar", () => {
     const wrapper = render();
     const close = tabButton(wrapper, id).find('[aria-label="Close tab"]');
     expect(close.exists()).toBe(true);
+  });
+});
+
+/**
+ * The running indicator.
+ *
+ * A run, a validation build and a math render all carry on after the user
+ * clicks to another tab, and a tab that goes quiet the moment it is left reads
+ * as finished — so the user goes back to check, which is the round trip the
+ * indicator exists to remove. What these pin is the predicate in each direction:
+ * the line shows while the store says the work is going, and *only* then. A
+ * false positive is the worse failure, because a line that never goes away says
+ * nothing, and a run tab with no record behind it is exactly where one would
+ * come from.
+ */
+describe("TabBar running indicator", () => {
+  let tabs: ReturnType<typeof useTabsStore>;
+
+  beforeEach(() => {
+    setActivePinia(createPinia());
+    tabs = useTabsStore();
+    tabs.setVersion("ws1");
+  });
+
+  const busyOn = (wrapper: ReturnType<typeof render>, id: string) =>
+    tabButton(wrapper, id).find('[data-testid="tab-busy"]').exists();
+
+  const record = (status: RunStatus): RunRecord =>
+    ({ id: "run-1", label: "Run 1", status, results_handle: null }) as RunRecord;
+
+  it("shows on a run tab while its run is pending or running, and not after", async () => {
+    const runs = useRunsStore();
+    runs.records.set("run-1", record("pending"));
+    const id = tabs.openRun({ id: "run-1" });
+    const wrapper = render();
+
+    expect(busyOn(wrapper, id)).toBe(true);
+    expect(tabButton(wrapper, id).attributes("data-busy")).toBe("true");
+    expect(tabButton(wrapper, id).attributes("title")).toContain("running");
+
+    runs.records.set("run-1", record("running"));
+    await nextTick();
+    expect(busyOn(wrapper, id)).toBe(true);
+
+    for (const status of ["success", "infeasible", "failed", "cancelled"] as const) {
+      runs.records.set("run-1", record(status));
+      await nextTick();
+      expect(busyOn(wrapper, id), status).toBe(false);
+      expect(tabButton(wrapper, id).attributes("data-busy")).toBeUndefined();
+    }
+  });
+
+  it("never shows on a run tab with no record behind it", () => {
+    // A history not yet fetched, or a bare `.nc` opened directly: "unknown" is
+    // not "working", and this is the one case that would otherwise stick.
+    const orphan = tabs.openRun({ id: "run-unfetched" });
+    const bare = tabs.openRun({ id: null, handle: "abc123" });
+    const wrapper = render();
+    expect(busyOn(wrapper, orphan)).toBe(false);
+    expect(busyOn(wrapper, bare)).toBe(false);
+  });
+
+  it("follows the validation phase on the validation tab", async () => {
+    const validation = useValidationStore();
+    const id = tabs.openValidation();
+    const wrapper = render();
+    expect(busyOn(wrapper, id)).toBe(false);
+
+    for (const phase of ["syntax", "build"] as const) {
+      validation.phase = phase;
+      await nextTick();
+      expect(busyOn(wrapper, id), phase).toBe(true);
+    }
+    validation.phase = "done";
+    await nextTick();
+    expect(busyOn(wrapper, id)).toBe(false);
+  });
+
+  it("follows the render phase on the math tab", async () => {
+    const math = useMathStore();
+    const id = tabs.openMath();
+    const wrapper = render();
+    expect(busyOn(wrapper, id)).toBe(false);
+
+    math.phase = "rendering";
+    await nextTick();
+    expect(busyOn(wrapper, id)).toBe(true);
+
+    math.phase = "done";
+    await nextTick();
+    expect(busyOn(wrapper, id)).toBe(false);
+  });
+
+  it("never shows on a file tab, dirty or not", async () => {
+    // Dirty is the other per-tab mark, and the two must stay distinct: one is
+    // the user's unsaved work, the other is the machine's.
+    const id = tabs.openFile("model.yaml");
+    const wrapper = render();
+    expect(busyOn(wrapper, id)).toBe(false);
+    tabs.markDirty(id, "raw");
+    await nextTick();
+    expect(busyOn(wrapper, id)).toBe(false);
+    expect(tabButton(wrapper, id).find('[data-testid="tab-dirty"]').exists()).toBe(true);
   });
 });

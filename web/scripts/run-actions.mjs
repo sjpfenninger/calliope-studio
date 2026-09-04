@@ -89,6 +89,13 @@ async function run() {
   if (!started && !["pending", "running"].includes(await statusOf())) {
     skip(`the run was over before it could be interrupted (${await statusOf()})`);
   } else {
+    // The tab bar says the run is going, from the moment it is. Tested here,
+    // where a run is provably still in flight, rather than in run-lifecycle,
+    // whose solve can be over before anything looks.
+    check(
+      "the run tab shows it is running",
+      (await page.locator('[data-testid="tab-run"][data-busy]').count()) >= 1,
+    );
     await openMenu();
     check(
       "a run that is still going cannot be deleted",
@@ -107,6 +114,16 @@ async function run() {
     } else {
       check("cancelling stops the run", true);
       check("and reports no error", (await testId("run-action-error").count()) === 0);
+      // The indicator is derived from the same record the status pill reads,
+      // but through a different component — so it is checked in its own right.
+      await until(
+        async () => (await page.locator('[data-testid="tab-run"][data-busy]').count()) === 0,
+        { timeout: 10000, interval: 100 },
+      );
+      check(
+        "and the run tab stops showing it is running",
+        (await page.locator('[data-testid="tab-run"][data-busy]').count()) === 0,
+      );
       // A killed process group writes nothing more. There is no event for that,
       // but there is a line count that stops moving.
       const settledAt = await stable(logLines, { same: 4, interval: 100 });

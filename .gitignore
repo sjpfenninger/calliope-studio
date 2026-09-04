@@ -19,6 +19,9 @@ site/
 # `pnpm run test:coverage` the third; the pattern above does not catch them,
 # since none of the three has "cache" in its name.
 .coverage
+# The per-process files `parallel = true` writes; pytest-cov combines them, but
+# the main process saves one more at interpreter exit, after the combine.
+.coverage.*
 coverage.xml
 web/coverage/
 

@@ -103,7 +103,15 @@ class TestTheWholeGroupDies:
         process.kill_group(child.pid, GROUP)
 
 
+@pytest.mark.skipif(process.IS_WINDOWS, reason="POSIX process groups only")
 class TestSignalGroup:
+    """The POSIX primitive both tiers of the kill are built on.
+
+    On Windows `terminate_group` and `kill_group` never reach it — a job
+    object is terminated outright — so calling it there is an `AttributeError`
+    on `os.killpg`, not a test of anything.
+    """
+
     def test_a_signal_reaches_the_grandchild(self, spawned):
         """`signal_group` is what both tiers of the kill are built on.
 

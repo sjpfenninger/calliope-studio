@@ -1,6 +1,4 @@
 [build-system]
-# 77 is the floor for PEP 639: the `license` expression and a project-level
-# `license-files` are both errors on anything older.
 requires = ["setuptools>=77", "setuptools-scm>=8"]
 build-backend = "setuptools.build_meta"
 
@@ -14,33 +12,9 @@ maintainers = [
 ]
 description = "Web UI for defining, running and analysing Calliope models."
 readme = "README.md"
-# The floor tracks Calliope, which declares `requires-python = ">=3.12"`. There
-# is no reason for this project to support an interpreter the framework it wraps
-# has dropped.
-#
-# The ceiling is capped rather than open-ended: `uv tool install` otherwise
-# picks the newest interpreter on the machine, and a floor-only bound means
-# every new Python is claimed as supported before anything has run on it.
-# Lifting it is a deliberate act, taken when Calliope's own matrix moves —
-# last done for 0.7.0, whose matrix runs 3.12 and 3.13 on Linux and 3.14
-# everywhere including the release smoke test. The `interpreters` job in
-# `ci.yml` covers the same three against the built wheel.
-#
-# This is *not* the floor the run worker requires, and the two must not be
-# conflated when the environment registry lands: this bound is about the
-# interpreter running the studio and its own dependency chain, while the
-# worker's floor is a property of the worker's own source and applies to a
-# foreign interpreter the studio never installs into.
 requires-python = ">=3.12,<3.15"
 keywords = ["energy systems", "visualisation", "optimisation"]
 license = "AGPL-3.0-or-later"
-# `THIRD_PARTY_LICENSES.md` is not decoration. The Vue bundle in
-# `server/static/` is redistributed inside every wheel, sdist and conda
-# package, minification strips the `@license` banners its sources carry, and
-# BSD-3, Apache-2.0, OFL-1.1 and CC-BY-4.0 material in it all require the
-# notice to travel with the copy. Naming it here is what puts it at the top of
-# the sdist, where conda-forge's `license_file` can reach it, and in the
-# wheel's `dist-info/licenses/`. `pixi run web-build` writes it.
 license-files = ["LICENSE", "THIRD_PARTY_LICENSES.md"]
 classifiers = [
   "Development Status :: 3 - Alpha",
@@ -64,11 +38,8 @@ dependencies = [
   "ruamel.yaml>=0.18",
   "click>=8.2",
   "platformdirs>=4",
-  # Imported directly, not merely inherited. They do arrive transitively through
-  # calliope and fastapi, so leaving them out worked — but an undeclared
-  # dependency is a manifest that is fiction. Floors only: calliope's own
-  # bounds (xarray>=2026.4, numpy>=2, pandas>=2.1.3 as of 0.7.0) govern the
-  # actual resolution.
+  # Imported directly, not merely inherited. Floors only: calliope's own
+  # bounds (xarray>=2026.4, numpy>=2, pandas>=2.1.3 as of 0.7.0) govern resolution.
   "pandas>=2.1.3",
   "xarray>=2024.1",
   "numpy>=1.26",
@@ -91,9 +62,7 @@ issues = "https://github.com/sjpfenninger/calliope-studio/issues"
 changelog = "https://github.com/sjpfenninger/calliope-studio/blob/main/CHANGELOG.md"
 
 [tool.setuptools_scm]
-# What the version is with no tags at all, which is this repository until
-# the first release is tagged. Without it setuptools-scm falls back to
-# 0.1.dev1.
+# What the version is with no tags at all
 fallback_version = "0.1.0.dev0"
 
 [tool.setuptools.packages.find]
@@ -107,15 +76,9 @@ calliope_studio = ["server/static/**"]
 
 [tool.pixi.workspace]
 channels = ["conda-forge"]
-# Who can *develop* and what CI can run, not who can install: the wheel is
-# `py3-none-any` and the conda package is `noarch`, so both already reach every
-# platform. `coin-or-cbc` is on conda-forge for all four, so the development
-# environment really does solve on each.
 platforms = ["linux-64", "osx-64", "osx-arm64", "win-64"]
 
 [tool.pixi.dependencies]
-# Binary dependencies come from conda-forge; calliope (pre-release, PyPI-only)
-# and pure-Python deps are resolved by uv via the editable self-install below.
 python = ">=3.12,<3.15"
 fastapi = ">=0.115"
 uvicorn = ">=0.34"
@@ -125,9 +88,6 @@ click = ">=8.2"
 netcdf4 = "*"
 # Frontend toolchain, so `pixi run web-*` works without a separate Node install.
 nodejs = ">=22"
-# Solver for local runs: CBC is Calliope's default (`config.solve.solver`) and
-# is not pip-installable, so it has to come from conda-forge. Gurobi is the
-# `gurobi` feature below; CPLEX is used if the user has it on PATH.
 coin-or-cbc = "*"
 
 [tool.pixi.pypi-dependencies]
@@ -141,48 +101,21 @@ gurobi = { features = ["dev", "gurobi"] }
 [tool.pixi.feature.dev.dependencies]
 ruff = "*"
 pytest = "*"
-# What starlette's `TestClient` speaks HTTP through. Newer starlette refuses
-# to run without it (the old `httpx` path was removed), so a fresh resolution
-# fails collection without this line. Test-only: nothing in `src/` uses it.
+# What starlette's `TestClient` speaks HTTP through.
 httpx2 = "*"
-# Only the `test-cov` task uses it; `test` stays uninstrumented. See the note
-# on that task below for why the two are separate.
 pytest-cov = "*"
-# `tests/test_schema.py` validates Calliope's own example models against the
-# schema we serve. It resolves transitively today, which is not a reason to
-# leave it unnamed. Test-only: nothing in `src/` uses it.
 jsonschema = "*"
-# Pins the frontend toolchain into pixi.lock alongside everything else. The
-# conda package depends on nodejs, so this one line fixes both the package
-# manager and the Node version — which were previously pinned only inside CI,
-# leaving every local build to use whatever was on PATH.
+# Fixes both the package manager and the Node version
 pnpm = "11.*"
 
 [tool.pixi.feature.build.dependencies]
 python-build = "*"
-# The `build` task depends on `web-build` → `web-install`, which is pnpm — so
-# without this the task cannot run in this environment at all, and never could.
-# It is not only a red CI job: `release.yml` runs this same
-# `pixi run -e build build`, so the first tag would have failed here.
 # Pinned to match the `dev` feature; two pnpm versions across environments would
 # be two lockfile resolutions of the same `web/pnpm-lock.yaml`.
 pnpm = "11.*"
-# For `publish-check`. The README is the PyPI long description, and it contains
-# GitHub-flavoured `> [!IMPORTANT]` callouts that PyPI renders as plain block
-# quotes — harmless, but worth seeing before the page is public rather than
-# after, since a release cannot be re-uploaded under the same version.
+# For `publish-check`
 twine = "*"
 
-# Gurobi is not on conda-forge; it ships from its own anaconda.org channel,
-# which hosts nothing else, so this cannot shadow a conda-forge package. Kept
-# out of the default environment because it is ~45 MB and only useful with a
-# licence: work with it as `pixi run -e gurobi serve`. The environment is
-# deliberately not in the `default` solve-group — sharing one would add this
-# channel to every other environment's lock entry for no gain.
-#
-# The package ships gurobipy but no `gurobi.sh`, which is fine: Pyomo 6.10
-# resolves `solver: gurobi` to GUROBIFILE, which drives gurobipy directly, so
-# both that and `config.build.backend: gurobi` work with nothing else on PATH.
 [tool.pixi.feature.gurobi]
 channels = ["gurobi"]
 
@@ -194,37 +127,38 @@ testpaths = ["tests"]
 
 [tool.coverage.run]
 source = ["src/calliope_studio"]
-# Paths in the report are written relative to the repository root rather than
-# absolute into the pixi environment, which is what lets Codecov attribute a
-# line to a file in the tree. Without it every path is `/home/runner/work/...`
-# and the report matches nothing.
+# Paths in the report are written relative to the repository root
 relative_files = true
+# The run worker is a subprocess. `parallel` gives each process its own
+# data file for pytest-cov to combine; `sigterm` saves the worker's data when a
+# cancel kills it, which is the path the cancel tests exist for.
+patch = ["subprocess"]
+parallel = true
+sigterm = true
 
 [tool.coverage.report]
-# Neither is reachable at runtime, and both otherwise read as a genuine miss.
-exclude_also = ["if TYPE_CHECKING:", "raise NotImplementedError"]
+# The first two are unreachable at runtime. The rest is Windows-only code, which
+# the job that measures cannot execute: only Linux runs `test-cov`, deliberately,
+# so without these `runs/process.py` reads 78% and `runs/worker.py` 90% while
+# both are as tested as the measuring platform allows. `tests/test_process.py`
+# covers the Windows halves by asserting on their source instead. The named
+# functions are the ones that do not wear the `_windows_` prefix.
+exclude_also = [
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "if IS_WINDOWS:",
+    "def _windows_",
+    "def _kernel32",
+    "def _redirect_native_stdio",
+    "def _restore_native_stdio",
+]
 
 [tool.pixi.tasks]
 lint = { cmd = "ruff check src/ tests/", description = "Lint the Python sources with ruff" }
 format = { cmd = "ruff format src/ tests/", description = "Format the Python sources with ruff" }
 format-check = { cmd = "ruff format --check src/ tests/", description = "Check Python formatting without writing; what CI runs" }
 test = { cmd = "pytest", description = "Run the Python test suite" }
-# Separate from `test` rather than `--cov` in `addopts`, which would apply to
-# every invocation. The Windows CI job runs `test` with eleven `--ignore=`
-# paths, so instrumenting it there would produce a partial report that Codecov
-# would then merge into the complete one from Linux — a coverage number that
-# drops whenever a deliberately-excluded file changes. Only the Linux job
-# measures, and it measures the whole suite.
 test-cov = { cmd = "pytest --cov --cov-report=xml --cov-report=term-missing", description = "Run the Python test suite with coverage; writes coverage.xml" }
-
-# Frontend. `web-build` compiles the Vue bundle into the Python package so that
-# a wheel serves the UI from the same process as the API.
-#
-# `--frozen-lockfile` is what makes the lockfile authoritative. This task used
-# to run `npm install`, which *rewrites* the lockfile as a side effect, so every
-# local build and two of three CI jobs resolved floated versions instead of the
-# committed ones — which is how the tree drifted to axios 1.13 while
-# package.json still said ^1.8. Use `web-update` to move versions deliberately.
 web-install = { cmd = "pnpm install --frozen-lockfile", cwd = "web", description = "Install frontend dependencies from the lockfile" }
 web-update = { cmd = "pnpm update --latest", cwd = "web", description = "Update frontend dependencies to their latest versions" }
 web-build = { cmd = "pnpm run build", cwd = "web", depends-on = ["web-install"], description = "Compile the Vue bundle into the Python package" }
@@ -236,14 +170,10 @@ web-build-cov = { cmd = "pnpm run build:coverage", cwd = "web", depends-on = ["w
 web-dev = { cmd = "pnpm dev", cwd = "web", depends-on = ["web-install"], description = "Vite dev server, proxying /api to port 8000" }
 web-typecheck = { cmd = "pnpm exec vue-tsc --noEmit", cwd = "web", depends-on = ["web-install"], description = "Type-check the frontend with vue-tsc" }
 web-lint = { cmd = "pnpm run lint", cwd = "web", depends-on = ["web-install"], description = "Lint the frontend with oxlint" }
-# Blocking, so a newly disclosed advisory fails the build rather than sitting
-# unnoticed. `--audit-level=high` because moderate findings in build-only
-# dependencies would otherwise make this a gate nobody reads.
+# Blocking, so a newly disclosed advisory fails the build
 web-audit = { cmd = "pnpm audit --audit-level=high", cwd = "web", description = "Audit frontend dependencies for high-severity advisories" }
 
-# A scratch model to develop against, so `serve` opens something real rather
-# than whatever directory it happened to start in. Gitignored; delete it to get
-# a clean one.
+# A scratch model to develop against. Gitignored; delete it to get a clean one.
 example = { cmd = "test -d example-model || calliope new example-model --template national_scale", description = "Scaffold ./example-model from Calliope's national_scale template" }
 
 # The solved models the oracle tests and the results smoke check read. Distinct
@@ -269,24 +199,13 @@ build = { cmd = "python -m build && python scripts/check_dist.py", description =
 # description that fails to render is permanent.
 publish-check = { cmd = "twine check dist/*", depends-on = ["build"], description = "Check the built artefacts with twine; run with -e build" }
 
-# Ruff is both the linter and the formatter; there is deliberately no second
-# formatter to keep in step with it.
 [tool.ruff]
 line-length = 88
-# Spelled out rather than inferred from `requires-python`, so that raising the
-# floor there does not silently change how code is formatted.
 target-version = "py312"
-# The frozen v0.2.0 sources. Their value is being byte-identical to the tag, so
-# reformatting them would quietly break the provenance claim in their README
-# without changing any behaviour. `force-exclude` because `format` and `lint`
-# pass `tests/` explicitly; it covers `ruff format` as well as `ruff check`.
 extend-exclude = ["tests/oracle"]
 force-exclude = true
 
 [tool.ruff.format]
-# Carried over from black, which was configured this way. Ruff defaults to the
-# opposite, and leaving it out would reflow every call site that a trailing
-# comma is currently holding open.
 skip-magic-trailing-comma = true
 
 [tool.ruff.lint]

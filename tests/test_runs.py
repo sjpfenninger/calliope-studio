@@ -898,6 +898,139 @@ class TestCancellation:
         assert client.get(f"/api/runs/{run_id}/").json()["status"] == "cancelled"
 
 
+#: A month rather than the five-day default: the default `national_scale`
+#: solve stage is under a second, too short to land a cancel inside, and a
+#: month gives a build of ~3.5 s and a solve of ~3 s to aim at.
+A_MONTH = {"config": {"init": {"subset": {"timesteps": ["2005-01-01", "2005-01-31"]}}}}
+
+
+def wait_for_stage(run_dir, stage, timeout=120):
+    """Returns once the worker has announced `stage` starting.
+
+    A tight poll on the event file, never `wait_for_terminal`: the whole point
+    is to act *inside* a stage, and a half-second poll would miss the window.
+    """
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        for event in protocol.read_events(run_dir):
+            if event.get("t") == "stage" and event.get("name") == stage:
+                if event.get("status") == "start":
+                    return
+            if event.get("t") == "done":
+                pytest.fail(f"the run finished before reaching {stage}")
+        time.sleep(0.01)
+    pytest.fail(f"the run never reached {stage} within {timeout}s")
+
+
+class TestCancelMidSolve:
+    """A cancel that lands while the worker is inside a stage.
+
+    The three cancel tests above cancel a millisecond after `POST`, so nothing
+    proved the run had begun. Two properties of a cancel mid-way are worth
+    pinning. On POSIX `SIGTERM` kills CPython outright and there is no stage
+    boundary inside `model.build()` or `model.solve()`, so the worker writes
+    **no `outcome.json` and no `done` event**: the status comes from the
+    `cancelled` marker alone, which is why the marker is written before the
+    kill. And a half-written `results.nc` must not survive to mint a results
+    handle over a run that was stopped.
+    """
+
+    @pytest.mark.parametrize("stage", ["build", "solve"])
+    def test_a_cancel_inside_a_stage_leaves_no_results(self, client, ws, stage):
+        run_id = client.post(
+            f"/api/versions/{ws}/runs/", json={"override_dict": A_MONTH}
+        ).json()["id"]
+        run_dir = client.app.state.runs.run_dir(run_id)
+        wait_for_stage(run_dir, stage)
+
+        response = client.post(f"/api/runs/{run_id}/cancel/")
+
+        assert response.status_code == 200
+        assert response.json()["status"] == "cancelled"
+        process = client.app.state.runs._processes[run_id]
+        deadline = time.time() + 15
+        while time.time() < deadline and process.poll() is None:
+            time.sleep(0.05)
+        assert process.poll() is not None, "worker process survived cancellation"
+
+        assert (run_dir / protocol.CANCELLED_FILE).is_file()
+        assert not (run_dir / protocol.RESULTS_FILE).exists()
+        record = client.get(f"/api/runs/{run_id}/").json()
+        assert record["status"] == "cancelled"
+        assert record["has_results"] is False
+
+        events = list(protocol.read_events(run_dir))
+        started = [
+            e for e in events if e.get("t") == "stage" and e.get("name") == stage
+        ]
+        assert started, "the cancel landed before the stage it aimed at"
+        assert not any(
+            e.get("t") == "done" and e.get("status") == "success" for e in events
+        )
+        # The marker-driven path: the kill arrived wherever it arrived.
+        assert protocol.read_outcome(run_dir) is None
+
+        # The stream still ends — a client watching the log must not hang on a
+        # run that will never write `done` itself.
+        assert read_stream(client, run_id)[-1]["event"] == "done"
+        restart(client)
+        assert client.get(f"/api/runs/{run_id}/").json()["status"] == "cancelled"
+
+    def test_a_worker_that_sees_the_marker_stops_at_the_next_boundary(
+        self, national_scale, tmp_path
+    ):
+        """The graceful path, driven directly.
+
+        Through the API a cancel is a marker followed at once by a kill, so the
+        worker's own poll never gets to act on POSIX. It exists for Windows,
+        where the kill is a job termination with no graceful tier, and this is
+        the only way to see it work anywhere: a run directory whose marker is
+        already there when the worker starts.
+        """
+        run_dir = tmp_path / "run"
+        run_dir.mkdir()
+        protocol.RunRequest(workspace=str(national_scale)).write(run_dir)
+        protocol.mark_cancelled(run_dir)
+
+        completed = subprocess.run(
+            [sys.executable, "-m", "calliope_studio.runs.worker", str(run_dir)],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+
+        assert completed.returncode == 1, completed.stderr
+        outcome = protocol.read_outcome(run_dir)
+        assert outcome is not None and outcome["status"] == "cancelled"
+        assert "error" not in outcome, "a cancel is not a failure"
+        events = list(protocol.read_events(run_dir))
+        assert events[-1]["t"] == "done" and events[-1]["status"] == "cancelled"
+        # Stopped at the first boundary: nothing was read, let alone built.
+        assert not any(e.get("t") == "stage" for e in events)
+        assert not (run_dir / protocol.RESULTS_FILE).exists()
+
+    def test_a_cancel_before_the_worker_reports_a_pid_is_still_a_cancel(
+        self, client, ws
+    ):
+        """The marker beats the pid file.
+
+        Cancelled in the same instant as it was started, a run may have no
+        `worker.pid` yet; the record still has to say `cancelled`, and a
+        restart must not turn it into "the process is no longer present".
+        """
+        run_id = client.post(f"/api/versions/{ws}/runs/").json()["id"]
+        assert client.post(f"/api/runs/{run_id}/cancel/").status_code == 200
+        run_dir = client.app.state.runs.run_dir(run_id)
+
+        child = client.app.state.runs._processes[run_id]
+        assert child.wait(timeout=20) is not None
+        assert (run_dir / protocol.CANCELLED_FILE).is_file()
+        restart(client)
+        record = client.get(f"/api/runs/{run_id}/").json()
+        assert record["status"] == "cancelled"
+        assert record.get("error") is None
+
+
 class TestDeepValidation:
     """The build tier: `read_yaml` plus `build()`, in the worker subprocess.
 

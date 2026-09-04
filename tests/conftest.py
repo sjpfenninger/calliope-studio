@@ -94,3 +94,19 @@ def client(national_scale: Path, storage: LocalStorage) -> TestClient:
     with TestClient(app) as test_client:
         test_client.workspace_id = storage.open(national_scale).id
         yield test_client
+
+
+@pytest.fixture(autouse=True)
+def forget_rendered_math():
+    """Clears `routes.math._RENDERED` around every test.
+
+    It is a module-level dict keyed by workspace id, which is a hash of the
+    workspace *path* — so it survives a fresh `create_app` over the same folder,
+    and a test that "restarts" the server to prove a rendering is answered from
+    disk would be answered from memory instead, silently proving nothing.
+    """
+    from calliope_studio.server.routes import math as math_route
+
+    math_route._RENDERED.clear()
+    yield
+    math_route._RENDERED.clear()

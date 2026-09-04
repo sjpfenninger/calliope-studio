@@ -13,6 +13,7 @@ different mechanisms (a session and a signal; a job object) and the assertion is
 the only thing they share.
 """
 
+import signal
 import sys
 import textwrap
 import time
@@ -100,6 +101,29 @@ class TestTheWholeGroupDies:
         # False rather than an exception: the caller's job is to stop it, and it
         # has stopped.
         process.kill_group(child.pid, GROUP)
+
+
+class TestSignalGroup:
+    def test_a_signal_reaches_the_grandchild(self, spawned):
+        """`signal_group` is what both tiers of the kill are built on.
+
+        The solver is a grandchild, so a signal that stopped at the worker's own
+        pid would leave it running — which is what a plain `terminate()` does.
+        """
+        child, grandchild = spawned
+
+        assert process.signal_group(child.pid, signal.SIGTERM)
+
+        assert _wait_until(lambda: child.poll() is not None), "worker survived"
+        assert _wait_until(lambda: not process.is_running(grandchild)), (
+            "the grandchild outlived a group signal"
+        )
+
+    def test_signalling_a_group_that_is_gone_is_false_not_an_error(self, spawned):
+        child, _ = spawned
+        process.kill_group(child.pid, GROUP)
+        assert _wait_until(lambda: child.poll() is not None)
+        assert process.signal_group(child.pid, signal.SIGTERM) is False
 
 
 class TestLiveness:

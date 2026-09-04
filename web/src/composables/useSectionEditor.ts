@@ -54,9 +54,33 @@ import {
   type Revised,
   type SectionData,
 } from "@/api/versions";
-import { useConfirmStore } from "@/stores/confirm";
+import { useConfirmStore, type ConfirmRequest } from "@/stores/confirm";
 import { useSectionDataStore } from "@/stores/sectionData";
 import { isEditableTab, useTabsStore } from "@/stores/tabs";
+
+/**
+ * The question asked before an *entry* is removed: a technology, a node, a
+ * link, a data table, a scenario, an override.
+ *
+ * Those own things — parameters, settings, a list of overrides — and taking
+ * one out of the form takes everything it owns with it, which is the line
+ * above which the editors confirm and below which (one parameter row, one
+ * setting, one key) they do not. Un-registering a math file, which leaves the
+ * file on disk, asked first; removing a technology with forty parameters did
+ * not. Written once so the seven editors cannot phrase it seven ways.
+ *
+ * `owns` is a phrase counting what goes with it — "12 parameters", "3
+ * parameters and 2 technologies" — or empty for an entry that sets nothing.
+ */
+export function removalRequest(name: string, owns: string): ConfirmRequest {
+  const what = owns ? `It takes ${owns} with it. ` : "";
+  return {
+    title: `Remove ${name}?`,
+    message: `${what}Nothing is written until you save.`,
+    confirmLabel: "Remove",
+    destructive: true,
+  };
+}
 
 export interface SectionEditorOptions {
   versionId: MaybeRefOrGetter<string>;

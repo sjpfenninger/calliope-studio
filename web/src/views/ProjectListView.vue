@@ -21,7 +21,9 @@ import Panel from "@/components/app/Panel.vue";
 import StateMessage from "@/components/app/StateMessage.vue";
 import InfoTip from "@/components/app/InfoTip.vue";
 import TooltipButton from "@/components/app/TooltipButton.vue";
+import { Badge } from "@/components/ui/badge";
 import {
+  ACCENT_BADGE,
   IDENTIFIER,
   PRIMARY_BUTTON_MD,
   SECONDARY_BUTTON_MD,
@@ -42,9 +44,20 @@ const projectStore = useProjectStore();
 const isLoading = ref(true);
 const registryPath = ref<string | null>(null);
 const currentId = ref<string | null>(null);
+/**
+ * Health is what says which model is open now and where the list is kept. A
+ * failure used to be swallowed, leaving "Open now" on whichever row had it
+ * last and the footer naming a directory it could not confirm.
+ */
+const healthError = ref<string | null>(null);
 const dialog = ref<"open" | "new" | null>(null);
 
-const models = computed(() => projectStore.models);
+// Newest first by the field that is really "last opened" (see `api/projects`).
+// The server already sorts this way; sorting here means the page does not
+// depend on it staying so.
+const models = computed(() =>
+  [...projectStore.models].sort((a, b) => b.created_at.localeCompare(a.created_at)),
+);
 const hasModels = computed(() => models.value.length > 0);
 
 onMounted(async () => {
@@ -57,8 +70,10 @@ onMounted(async () => {
     const health = await getHealth();
     registryPath.value = health.registry_path ?? null;
     currentId.value = health.workspace_id ?? null;
-  } catch {
+  } catch (caught) {
     registryPath.value = null;
+    currentId.value = null;
+    healthError.value = errorDetail(caught, "Could not reach the server.");
   }
 });
 
@@ -109,6 +124,15 @@ async function forget(id: string) {
       </button>
     </header>
 
+    <StateMessage
+      v-if="healthError"
+      variant="inline"
+      tone="danger"
+      data-testid="health-error"
+    >
+      {{ healthError }}
+    </StateMessage>
+
     <StateMessage v-if="isLoading" variant="inline" loading>Reading the model list…</StateMessage>
     <StateMessage v-else-if="projectStore.modelsError" variant="inline" tone="danger">
       {{ projectStore.modelsError }}
@@ -142,22 +166,19 @@ async function forget(id: string) {
         >
           <span class="flex items-center gap-1.5">
             <span class="truncate text-sm font-medium">{{ model.name }}</span>
-            <span
-              v-if="model.id === currentId"
-              class="shrink-0 rounded-xs border border-accent-border bg-accent-soft px-1 text-2xs text-accent-text"
-            >
+            <Badge v-if="model.id === currentId" variant="outline" :class="ACCENT_BADGE">
               Open now
-            </span>
+            </Badge>
           </span>
           <!-- The full path, not the folder name: two models called `model` in
                different places are otherwise indistinguishable. -->
-          <span class="block truncate text-sm text-text-faint">
+          <span class="block truncate text-sm text-text-muted">
             {{ model.description }}
           </span>
         </button>
 
         <InfoTip :label="formatTimestamp(model.created_at)">
-          <span class="shrink-0 text-2xs text-text-faint">
+          <span class="shrink-0 text-2xs text-text-muted">
             {{ formatRelativeTime(model.created_at) }}
           </span>
         </InfoTip>
@@ -181,7 +202,7 @@ async function forget(id: string) {
 
     <div class="flex-1" />
 
-    <p class="mt-2 shrink-0 text-2xs text-text-faint">
+    <p class="mt-2 shrink-0 text-sm text-text-muted">
       This list is kept in
       <code :class="IDENTIFIER">{{ registryPath ?? "the Calliope Studio state directory" }}</code
       >. Removing a model here does not delete anything on disk.

@@ -10,7 +10,13 @@ vi.mock("@/api/system", async () => (await import("@/test-helpers/editorApi")).s
 import * as system from "@/api/system";
 import * as versions from "@/api/versions";
 import { useTabsStore } from "@/stores/tabs";
-import { mountEditor, resetVersionsApi, section, type VersionsApi } from "@/test-helpers/editors";
+import {
+  mountEditor,
+  resetVersionsApi,
+  saveByKeyboard,
+  section,
+  type VersionsApi,
+} from "@/test-helpers/editors";
 import ConfigEditor from "./ConfigEditor.vue";
 
 /**
@@ -69,8 +75,7 @@ describe("ConfigEditor", () => {
       section({ init: { name: "m", time_subset: ["2005-01-01", "2005-01-07"] } }),
     );
     const mounted = await mountEditor(ConfigEditor, { section: "config" });
-    await mounted.find("save").trigger("click");
-    await flushPromises();
+    await saveByKeyboard(mounted);
 
     expect(lastWrite()).toEqual({
       init: { name: "m", subset: { timesteps: ["2005-01-01", "2005-01-07"] } },
@@ -86,8 +91,7 @@ describe("ConfigEditor", () => {
       section({ init: { time_subset: "2005", subset: { timesteps: ["a", "b"] } } }),
     );
     const mounted = await mountEditor(ConfigEditor, { section: "config" });
-    await mounted.find("save").trigger("click");
-    await flushPromises();
+    await saveByKeyboard(mounted);
     expect(lastWrite()).toEqual({
       init: { time_subset: "2005", subset: { timesteps: ["a", "b"] } },
     });
@@ -96,8 +100,7 @@ describe("ConfigEditor", () => {
   it("does not add build: or solve: to a model that declares only init", async () => {
     api.readYamlSection.mockResolvedValue(section({ init: { name: "m" } }));
     const mounted = await mountEditor(ConfigEditor, { section: "config" });
-    await mounted.find("save").trigger("click");
-    await flushPromises();
+    await saveByKeyboard(mounted);
     expect(lastWrite()).toEqual({ init: { name: "m" } });
   });
 
@@ -106,8 +109,7 @@ describe("ConfigEditor", () => {
     // remove it just because the form has nothing to put in it.
     api.readYamlSection.mockResolvedValue(section({ init: { name: "m" }, build: {} }));
     const mounted = await mountEditor(ConfigEditor, { section: "config" });
-    await mounted.find("save").trigger("click");
-    await flushPromises();
+    await saveByKeyboard(mounted);
     expect(lastWrite()).toEqual({ init: { name: "m" }, build: {} });
   });
 

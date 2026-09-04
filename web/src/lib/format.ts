@@ -145,3 +145,15 @@ export function formatTimestamp(iso: string | null): string {
   const at = Date.parse(iso);
   return Number.isNaN(at) ? "—" : new Date(at).toLocaleString();
 }
+
+/**
+ * A count with its noun: "1 run", "12 runs", "1,204 components".
+ *
+ * Pluralisation was hand-rolled in four files and the separator in two others,
+ * so a footer said `1204 components` while the panel above it said `1,204
+ * rows`. One place, with the irregular plural passed in when there is one.
+ */
+export function formatCount(count: number, singular: string, plural?: string): string {
+  const noun = count === 1 ? singular : (plural ?? `${singular}s`);
+  return `${count.toLocaleString()} ${noun}`;
+}

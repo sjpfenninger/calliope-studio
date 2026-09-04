@@ -161,7 +161,37 @@ await guard(browser, consoleErrors, async () => {
     );
     check("with exactly one row bearing that name", (await row(NEW_TECH).count()) === 1);
 
-    await row(NEW_TECH).locator('[data-testid="entry-base-tech"]').selectOption("supply");
+    // Source and back. The raw buffer reads the *file*, so it cannot show the
+    // unsaved name; what it shows instead is that the form holds it, and the
+    // form is still there, edit and all, when Form is pressed again — which is
+    // the property the tab store claims for a dirty pane behind `v-show`.
+    // Two switches exist while the source is up — the hidden form's toolbar
+    // keeps its own, since a dirty pane is `v-show`n — so the visible one.
+    const mode = (name) => page.locator(`[data-testid="mode-${name}"]:visible`).first();
+    await mode("source").click();
+    await testId("locked-banner").waitFor({ timeout: 20000 });
+    check(
+      "the Source view of a dirty form is held read-only by that form",
+      (await testId("locked-banner").innerText()).includes("unsaved changes"),
+    );
+    // Monaco builds its view only once a model is attached, and the model is
+    // the section fetched fresh — so the lines follow the banner, not precede it.
+    check(
+      "and the source itself is on screen",
+      await until(async () => (await page.locator(".view-lines").count()) > 0),
+    );
+    await mode("form").click();
+    await row(NEW_TECH).waitFor({ timeout: 20000 });
+    check(
+      "flipping back to Form finds the edit where it was left",
+      (await row(NEW_TECH).locator('[data-testid="entry-name"]').inputValue()) === NEW_TECH,
+    );
+    check("with the tab still unsaved", (await dirtyDots()) === 1);
+
+    // `base_tech` is the app's own Select, not a native one, so it is opened
+    // and an option is picked rather than `selectOption`ed.
+    await row(NEW_TECH).locator('[data-testid="entry-base-tech"]').click();
+    await page.getByRole("option", { name: "supply", exact: true }).click();
     await save();
 
     const techsAdded = parse(await files.read(TECHS_FILE)).techs;
@@ -172,7 +202,14 @@ await guard(browser, consoleErrors, async () => {
     );
     check("and the tab is clean again", (await dirtyDots()) === 0);
 
+    // An entry owns its parameters, so taking one out asks first.
     await row(NEW_TECH).locator('[data-testid="entry-remove"]').click();
+    await testId("confirm-dialog").waitFor({ timeout: 8000 });
+    check(
+      "removing a technology asks first, naming the act",
+      (await testId("confirm-accept").innerText()).trim() === "Remove",
+    );
+    await testId("confirm-accept").click();
     await until(async () => (await row(NEW_TECH).count()) === 0);
     await save();
 

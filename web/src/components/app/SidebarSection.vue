@@ -20,7 +20,7 @@ defineProps<{ title: string }>();
 <template>
   <section>
     <header class="mb-1 flex h-5 items-center gap-1">
-      <Eyebrow class="mb-0">{{ title }}</Eyebrow>
+      <Eyebrow>{{ title }}</Eyebrow>
       <div class="flex-1" />
       <slot name="actions" />
     </header>

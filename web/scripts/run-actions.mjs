@@ -161,8 +161,13 @@ async function run() {
     (await testId("run-delete").getAttribute("aria-disabled")) === null,
   );
   await testId("run-delete").click();
-  await testId("confirm-delete-run").waitFor({ timeout: 10000 });
-  await calls.settle(() => testId("confirm-delete-run").click());
+  // The shared confirm dialog, which delete-run used to re-implement inline.
+  await testId("confirm-dialog").waitFor({ timeout: 10000 });
+  check(
+    "the confirm names the act",
+    (await testId("confirm-accept").innerText()).trim() === "Delete",
+  );
+  await calls.settle(() => testId("confirm-accept").click());
   await until(async () => (await mine.count()) === 0, { timeout: 20000 });
   check("deleting removes the run from the history", true);
   await until(async () => (await runTabs().count()) === tabsBefore, { timeout: 10000 });

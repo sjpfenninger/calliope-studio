@@ -210,32 +210,42 @@ check(
   await until(async () => (await bubble.count()) > 0 && (await bubble.isVisible())),
 );
 
-// `bg-foreground` against a body painted `--cg-text`: the bubble is the inverted
-// surface, so its fill is exactly the colour the page writes its text in. Both
-// sides are read *after* the switch to dark above, so this also says the portal
-// follows the theme — it is rendered outside the app's own tree.
-const inverted = await page.evaluate(() => {
+// A surface card with a hairline, the same design ECharts and MapLibre draw
+// for their own tooltips, so its fill is the `--cg-surface` the page paints its
+// panes in and its text is the body's. Both sides are read *after* the switch
+// to dark above, so this also says the portal follows the theme — it is
+// rendered outside the app's own tree.
+const card = await page.evaluate(() => {
   const element = document.querySelector('[data-slot="tooltip-content"]');
-  return element
-    ? {
-        background: getComputedStyle(element).backgroundColor,
-        bodyText: getComputedStyle(document.body).color,
-        // The first line only: reka renders a second, visually hidden copy of
-        // the label for the `role="tooltip"` node, so the text is it twice.
-        label: element.innerText.trim().split("\n")[0].trim(),
-      }
-    : null;
+  if (!element) return null;
+  const style = getComputedStyle(element);
+  const probe = document.createElement("div");
+  probe.style.backgroundColor = "var(--cg-surface)";
+  document.body.append(probe);
+  const surface = getComputedStyle(probe).backgroundColor;
+  probe.remove();
+  return {
+    background: style.backgroundColor,
+    surface,
+    text: style.color,
+    bodyText: getComputedStyle(document.body).color,
+    border: style.borderTopWidth,
+    // The first line only: reka renders a second, visually hidden copy of
+    // the label for the `role="tooltip"` node, so the text is it twice.
+    label: element.innerText.trim().split("\n")[0].trim(),
+  };
 });
+
 check(
-  `the tooltip is the inverted surface (${inverted?.background ?? "absent"})`,
-  !!inverted && inverted.background === inverted.bodyText,
+  `the tooltip is a surface card, not an inverted chip (${card?.background ?? "absent"})`,
+  !!card && card.background === card.surface && card.text === card.bodyText && card.border === "1px",
 );
 // The same string as the accessible name, which is the property `TooltipButton`
 // exists to make unforgettable: one `label` prop feeds both.
 const named = (await toggle.getAttribute("aria-label"))?.trim();
 check(
-  `it says what the control does ("${inverted?.label ?? ""}")`,
-  !!inverted?.label && inverted.label === named,
+  `it says what the control does ("${card?.label ?? ""}")`,
+  !!card?.label && card.label === named,
 );
 
 await page.mouse.move(0, 0);

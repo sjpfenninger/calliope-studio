@@ -15,12 +15,13 @@
  * editor: a link inheriting `flow_cap_max` and `cost_flow_cap` from
  * `power_lines` says so where those values would go.
  */
-import { computed } from "vue";
+import { computed, ref } from "vue";
 
 import ParamRows from "./ParamRows.vue";
 import FieldRow from "@/components/app/FieldRow.vue";
 import { Switch } from "@/components/ui/switch";
 import { FIELD } from "@/lib/formClasses";
+import { focusNextFrame } from "./focusNew";
 
 import type { LinkEntry } from "@/lib/entries";
 import { collectInherited, linkSetsKey } from "@/lib/inherited";
@@ -43,6 +44,10 @@ const emit = defineEmits<{ change: [] }>();
 function onChange() {
   emit("change");
 }
+
+const nameField = ref<HTMLInputElement | null>(null);
+/** For the editor that just added this link; see `focusNew`. */
+defineExpose({ focusName: () => focusNextFrame(nameField.value) });
 
 /**
  * Keys the form has a field for. `base_tech` is in the list without being a
@@ -68,6 +73,7 @@ function sets(key: string): boolean {
   <div class="flex flex-col gap-2 pb-2">
     <FieldRow label="name" width="short">
       <input
+        ref="nameField"
         v-model="entry.name"
         type="text"
         data-testid="link-name"

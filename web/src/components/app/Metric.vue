@@ -14,7 +14,6 @@
  */
 import { computed, type HTMLAttributes } from "vue";
 import InfoTip from "./InfoTip.vue";
-import { SECTION_HEADING } from "@/lib/formClasses";
 import { cn } from "@/lib/utils";
 
 const props = withDefaults(
@@ -41,8 +40,15 @@ const props = withDefaults(
 );
 
 const VALUE_SIZE = { sm: "text-sm", md: "text-lg" } as const;
+
+// The value one step above the label, in both layouts. `default` is `dim`
+// rather than full foreground because a metric is an annotation on the thing
+// it describes — a run row's name is the foreground, its duration is not — and
+// the stacked layout used to give the label a *third* tone (`SECTION_HEADING`'s
+// faint) that the inline one did not, so the same label read differently by
+// where it sat.
 const TONE = {
-  default: "text-foreground",
+  default: "text-text-dim",
   success: "text-success-text",
   warning: "text-warning-text",
   danger: "text-danger-text",
@@ -62,12 +68,7 @@ const shown = computed(() =>
  * remembered in the other, and both carried the same broken token for as long as
  * they existed.
  */
-const labelClass = computed(() =>
-  cn(
-    props.layout === "stacked" ? SECTION_HEADING : "text-2xs text-text-muted",
-    "truncate",
-  ),
-);
+const labelClass = "truncate text-2xs text-text-muted";
 </script>
 
 <template>

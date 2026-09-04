@@ -9,7 +9,11 @@ vi.mock("@/api/versions", async () =>
 import * as versions from "@/api/versions";
 import { useTabsStore } from "@/stores/tabs";
 import {
+  answerConfirm,
+  chooseOption,
   mountEditor,
+  nextFrame,
+  pressSave,
   resetVersionsApi,
   rowNames,
   section,
@@ -68,7 +72,7 @@ describe("TechsEditor", () => {
 
   it("passes the links through a save untouched and in their original order", async () => {
     const mounted = await mountEditor(TechsEditor, { section: "techs" });
-    await mounted.find("entry-base-tech").setValue("supply");
+    await chooseOption(mounted, "entry-base-tech", "supply");
     await mounted.find("save").trigger("click");
     await flushPromises();
 
@@ -86,7 +90,7 @@ describe("TechsEditor", () => {
     // pre-edit original through, and every later edit was discarded with the
     // tab marked clean each time.
     const mounted = await mountEditor(TechsEditor, { section: "techs" });
-    await mounted.find("entry-base-tech").setValue("transmission");
+    await chooseOption(mounted, "entry-base-tech", "transmission");
     await mounted.find("save").trigger("click");
     await flushPromises();
     expect(lastWrite().ccgt).toEqual({
@@ -116,6 +120,9 @@ describe("TechsEditor", () => {
     expect(rowNames(mounted)).toEqual(["ccgt", "(unnamed)"]);
     await mounted.findAll("entry-name")[1]!.setValue("battery");
     await mounted.findAll("entry-remove")[0]!.trigger("click");
+    // Not gone yet: a technology owns its parameters, so the row asks first.
+    expect(rowNames(mounted)).toEqual(["ccgt", "battery"]);
+    await answerConfirm(true);
     expect(rowNames(mounted)).toEqual(["battery"]);
 
     await mounted.find("save").trigger("click");
@@ -125,6 +132,55 @@ describe("TechsEditor", () => {
       r2_to_r3: SECTION.r2_to_r3,
       battery: {},
     });
+  });
+
+  it("keeps a technology whose removal was declined", async () => {
+    const mounted = await mountEditor(TechsEditor, { section: "techs" });
+    await mounted.find("entry-remove").trigger("click");
+    await answerConfirm(false);
+    expect(rowNames(mounted)).toEqual(["ccgt"]);
+    expect(useTabsStore().get(mounted.tabId)?.isDirty).toBe(false);
+  });
+
+  it("puts the cursor in a new technology's name field", async () => {
+    // The row arrives called `(unnamed)` with one field that has to be filled
+    // in before any other means anything; leaving the cursor on the button
+    // sends the next keystroke nowhere.
+    const mounted = await mountEditor(TechsEditor, { section: "techs", attach: true });
+    await mounted.find("add-tech").trigger("click");
+    await nextFrame();
+    expect(document.activeElement).toBe(mounted.findAll("entry-name")[1]!.element);
+  });
+
+  it("refuses the Save button while there is nothing to save, and says why", async () => {
+    const mounted = await mountEditor(TechsEditor, { section: "techs" });
+    expect(mounted.find("save").attributes("disabled")).toBeDefined();
+    expect(mounted.find("save").element.parentElement?.getAttribute("tabindex")).toBe("0");
+    await chooseOption(mounted, "entry-base-tech", "supply");
+    expect(mounted.find("save").attributes("disabled")).toBeUndefined();
+  });
+
+  it("keeps a dirty form's edit through a flip to Source and back", async () => {
+    // The raw buffer is `v-show`n and a dirty pane stays mounted, so the edit
+    // survives the round trip — and while Source is in front, Cmd+S belongs
+    // to the buffer, not to the form behind it.
+    const mounted = await mountEditor(TechsEditor, { section: "techs" });
+    const tabs = useTabsStore();
+    await chooseOption(mounted, "entry-base-tech", "storage");
+    expect(tabs.get(mounted.tabId)?.isDirty).toBe(true);
+
+    await mounted.find("mode-source").trigger("click");
+    expect(tabs.get(mounted.tabId)).toMatchObject({ editorMode: "raw" });
+    expect(tabs.structuredTabs.map((tab) => tab.id)).toContain(mounted.tabId);
+    pressSave();
+    await flushPromises();
+    expect(api.putYamlSection).not.toHaveBeenCalled();
+
+    await mounted.find("mode-form").trigger("click");
+    expect(tabs.get(mounted.tabId)).toMatchObject({ editorMode: "structured" });
+    await mounted.find("save").trigger("click");
+    await flushPromises();
+    expect(lastWrite().ccgt).toMatchObject({ base_tech: "storage" });
   });
 
   it("does not write a row that has no name", async () => {
@@ -141,7 +197,7 @@ describe("TechsEditor", () => {
     const mounted = await mountEditor(TechsEditor, { section: "techs" });
     const tabs = useTabsStore();
     expect(tabs.get(mounted.tabId)?.isDirty).toBe(false);
-    await mounted.find("entry-base-tech").setValue("storage");
+    await chooseOption(mounted, "entry-base-tech", "storage");
     expect(tabs.get(mounted.tabId)?.isDirty).toBe(true);
     await mounted.find("save").trigger("click");
     await flushPromises();

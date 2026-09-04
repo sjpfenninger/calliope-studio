@@ -15,12 +15,16 @@
  * this the one?" is visible before clicking rather than after.
  */
 import { computed, onMounted, ref } from "vue";
+import PanelHeader from "@/components/app/PanelHeader.vue";
 import StateMessage from "@/components/app/StateMessage.vue";
 import TooltipButton from "@/components/app/TooltipButton.vue";
+import { Badge } from "@/components/ui/badge";
 import { ChevronRight, CornerLeftUp, Folder, FolderCheck } from "@lucide/vue";
 
+import { errorDetail } from "@/api/errors";
 import { browse as fetchFolder } from "@/api/system";
 import type { Listing } from "./browse";
+import { ACCENT_BADGE } from "@/lib/formClasses";
 import { ICON_STROKE_WIDTH_TIGHT } from "@/lib/icons";
 
 /** The folder currently being shown, once the server has resolved it. */
@@ -36,8 +40,8 @@ async function browse(path?: string) {
   error.value = null;
   try {
     listing.value = (await fetchFolder(path)) as Listing;
-  } catch {
-    error.value = "That folder could not be listed.";
+  } catch (caught) {
+    error.value = errorDetail(caught, "That folder could not be listed.");
   } finally {
     isLoading.value = false;
   }
@@ -57,7 +61,7 @@ defineExpose({ browse });
 
 <template>
   <div class="flex min-h-0 flex-col gap-2">
-    <div class="flex h-7 items-center gap-1.5">
+    <PanelHeader tone="card" size="lg">
       <TooltipButton
         label="Up one level"
         :icon="CornerLeftUp"
@@ -65,21 +69,24 @@ defineExpose({ browse });
         :disabled="!listing?.parent"
         @click="browse(listing?.parent ?? undefined)"
       />
+      <!-- A readout at a field's geometry, on the field's surface: it was on
+           `surface-2` above a `surface` list, which put the one thing that is
+           not a control a step *forward* of the things that are. -->
       <span
         data-testid="browse-path"
-        class="min-w-0 flex-1 truncate rounded-sm border border-border bg-surface-2 px-2 py-1 text-sm"
+        class="flex h-6 min-w-0 flex-1 items-center rounded-sm border border-border bg-surface px-1.5 text-sm"
       >
-        {{ listing?.path ?? "…" }}
+        <span class="truncate">{{ listing?.path ?? "…" }}</span>
       </span>
-    </div>
+    </PanelHeader>
 
     <!-- design-check: allow height — a scroll viewport, not a control. Fixed so
          the dialog does not resize as the user walks into deeper folders. -->
     <div
-      class="h-72 min-h-0 overflow-y-auto rounded-sm border border-border bg-surface"
+      class="h-72 min-h-0 overflow-y-auto rounded-md border border-border bg-surface"
       data-testid="browse-entries"
     >
-      <StateMessage v-if="isLoading" variant="inline" loading>Listing…</StateMessage>
+      <StateMessage v-if="isLoading" variant="inline" loading>Listing folders…</StateMessage>
       <StateMessage v-else-if="error" variant="inline" tone="danger">
         {{ error }}
       </StateMessage>
@@ -94,7 +101,7 @@ defineExpose({ browse });
         type="button"
         :data-testid="`browse-entry-${entry.name}`"
         :data-model="entry.is_model || undefined"
-        class="flex h-6 w-full items-center gap-1.5 px-2 text-left text-sm hover:bg-hover"
+        class="flex h-6 w-full items-center gap-1.5 rounded-sm px-2 text-left text-sm hover:bg-hover"
         @click="browse(entry.path)"
       >
         <component
@@ -103,18 +110,16 @@ defineExpose({ browse });
           :class="entry.is_model ? 'text-accent-text' : 'text-text-faint'"
         />
         <span class="min-w-0 flex-1 truncate">{{ entry.name }}</span>
-        <span v-if="entry.is_model" class="shrink-0 text-2xs text-accent-text">
-          model
-        </span>
+        <Badge v-if="entry.is_model" variant="outline" :class="ACCENT_BADGE">model</Badge>
         <ChevronRight
           class="size-3 shrink-0 text-text-faint"
           :stroke-width="ICON_STROKE_WIDTH_TIGHT"
         />
       </button>
 
-      <p v-if="listing?.truncated" class="p-2 text-2xs text-text-faint">
+      <StateMessage v-if="listing?.truncated" variant="note" class="p-2">
         Only the first entries are shown.
-      </p>
+      </StateMessage>
     </div>
   </div>
 </template>

@@ -40,7 +40,7 @@
  */
 import { parse } from "yaml";
 
-import { api, health, open, requireMode, results, trackRequests, until } from "./harness.mjs";
+import { api, health, MOD, open, requireMode, results, trackRequests, until } from "./harness.mjs";
 
 const BASE = process.argv[2] ?? "http://127.0.0.1:8000";
 
@@ -101,7 +101,9 @@ const AUGMENTED = {
 const { browser, page, testId, consoleErrors } = await open();
 const calls = trackRequests(page, (request) => request.url().includes("/api/"));
 
-const save = () => calls.settle(() => testId("save").click(), { timeout: 30000 });
+// Through the shortcut, not the button: Save is disabled while the form is
+// clean, and pressing it on an untouched form is the whole point of this check.
+const save = () => calls.settle(() => page.keyboard.press(`${MOD}+s`), { timeout: 30000 });
 
 const isDirty = async () =>
   (await page

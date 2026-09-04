@@ -20,7 +20,7 @@ import { computed, inject } from "vue";
 
 import InfoTip from "@/components/app/InfoTip.vue";
 import SidebarSection from "@/components/app/SidebarSection.vue";
-import { FIELD, TEXT_BUTTON_SM } from "@/lib/formClasses";
+import { FIELD, FIELD_LABEL, TEXT_BUTTON_SM } from "@/lib/formClasses";
 import { parseScale, quantitiesIn, type Quantity } from "@/lib/units";
 import { RUN_SELECTION } from "@/stores/runSelection";
 import { useUnitsStore } from "@/stores/units";
@@ -82,7 +82,7 @@ function setLabel(quantity: Quantity, label: string) {
         :data-testid="`units-${quantity}`"
         class="flex flex-col gap-0.5"
       >
-        <span class="text-2xs text-text-muted">{{ quantity }}</span>
+        <span :class="FIELD_LABEL">{{ quantity }}</span>
         <!-- Scale beside label, because they are one thought: "divide by a
              thousand and call it GWh". -->
         <!-- Wrapped one at a time rather than once around the pair: the two
@@ -92,7 +92,7 @@ function setLabel(quantity: Quantity, label: string) {
             :label="`Multiply every ${quantity} value by this. “/1000” and “1e-3” both work.`"
           >
             <input
-              :class="[FIELD, isBadScale(quantity) && 'border-danger']"
+              :class="FIELD"
               :value="scaleOf(quantity)"
               type="text"
               inputmode="text"

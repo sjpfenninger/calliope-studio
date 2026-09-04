@@ -66,9 +66,10 @@ describe("filterTree", () => {
 
   it("keeps a matching branch whole, and opens it", () => {
     // Typing a section name means "show me that section", so its entries come
-    // with it rather than the row arriving empty.
+    // with it rather than the row arriving empty — in the tree's own sorted
+    // order, which is not the order the fixture declares them in.
     const result = filterTree(model, "techs", byLabel);
-    expect(labels(result.items)).toEqual(["Techs", "ccgt", "csp", "battery"]);
+    expect(labels(result.items)).toEqual(["Techs", "battery", "ccgt", "csp"]);
     expect(result.expanded).toEqual(["techs"]);
   });
 

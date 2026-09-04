@@ -72,7 +72,8 @@
   --cg-hover: oklch(
     94% 0 0
   ); /* #eaeaea — row and control hover; opaque, not a wash */
-  /* Pressed, and the active tab. A *selected* row is --cg-accent-soft. */
+  /* A control's hover when the row under it is already --cg-hover. A *selected*
+     row is --cg-accent-soft, and the active tab is the surface it opens into. */
   --cg-active: oklch(91% 0 0); /* #e1e1e1 */
 
   /* ── Hairlines. Three tiers. The subtle tier is lifted from the value white
@@ -114,7 +115,7 @@
   ); /* #d6e6fe — selected and hovered */
   --cg-accent-border: oklch(
     82% 0.085 259.5
-  ); /* #a4c6fc — border of a selected control, or a filled progress segment */
+  ); /* #a4c6fc — border of a selected control, or the zoom brush on a chart */
   /* For AG Grid's cell ring only. The app's focus is a 2px outline
      (style.css), which inside a grid cell clips against the cell edge. */
   --cg-focus-ring: oklch(58.1% 0.23 259.5 / 0.35);

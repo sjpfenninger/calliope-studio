@@ -17,7 +17,7 @@
  * validation of it; the per-key store factory exists for run tabs, which can be
  * open several at a time, and there is no such thing as two validations.
  */
-import { ref } from "vue";
+import { computed, ref } from "vue";
 import { defineStore } from "pinia";
 import { errorDetail } from "../api/errors";
 import { cancelTask, getTask } from "../api/system";
@@ -65,6 +65,21 @@ export const useValidationStore = defineStore("validation", () => {
 
   /** Non-null only while a build is in flight; what `cancel` acts on. */
   const taskId = ref<string | null>(null);
+
+  /**
+   * The problems, split by severity.
+   *
+   * `severity` was declared and then never read: every row was painted as an
+   * error and the sidebar badge was unconditionally destructive, so a model with
+   * nothing but warnings looked exactly like one that would not build. Counted
+   * here so the tab and the badge agree about which it is.
+   */
+  const errorCount = computed(
+    () => problems.value.filter((problem) => problem.severity === "error").length,
+  );
+  const warningCount = computed(
+    () => problems.value.filter((problem) => problem.severity === "warning").length,
+  );
 
   let pollTimer: ReturnType<typeof setTimeout> | null = null;
   /**
@@ -192,6 +207,8 @@ export const useValidationStore = defineStore("validation", () => {
     lastValidatedAt,
     error,
     taskId,
+    errorCount,
+    warningCount,
     validate,
     cancel,
     reset,

@@ -27,6 +27,7 @@ import { FIELD, GHOST_BUTTON } from "@/lib/formClasses";
 import { cn } from "@/lib/utils";
 import { parseScalar, rowKey, type Param } from "@/lib/entries";
 import { unmatchedInherited, type Inherited } from "@/lib/inherited";
+import { useFocusNew } from "./focusNew";
 
 const props = withDefaults(
   defineProps<{
@@ -48,8 +49,12 @@ const ghosts = computed(() =>
   unmatchedInherited(props.inherited, props.promoted, props.params),
 );
 
+/** The key of a row just added takes the cursor; see `focusNew`. */
+const focus = useFocusNew();
+
 function add() {
   props.params.push({ key: "", value: null });
+  focus.request(rowKey(props.params[props.params.length - 1]));
   emit("change");
 }
 
@@ -94,6 +99,7 @@ function materialise(key: string, raw: string) {
           v-model="param.key"
           type="text"
           placeholder="parameter"
+          :ref="(el) => focus.bind(el, rowKey(param))"
           :class="FIELD"
           @input="emit('change')"
         />
@@ -112,6 +118,7 @@ function materialise(key: string, raw: string) {
           label="Remove this parameter"
           :icon="X"
           tone="danger"
+          size="xs"
           @click="remove(index)"
         />
       </template>

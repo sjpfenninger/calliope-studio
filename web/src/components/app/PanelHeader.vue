@@ -23,7 +23,7 @@ import { cn } from "@/lib/utils";
 const props = withDefaults(
   defineProps<{
     /** `chrome` spans a pane and sits on the panel tone; `card` divides a box. */
-    tone?: "chrome" | "card";
+    tone?: "chrome" | "card" | "surface";
     /**
      * 32px (`lg`) for a primary strip, 28px (`md`) for one nested inside a pane.
      *
@@ -47,9 +47,15 @@ const props = withDefaults(
 const classes = computed(() =>
   cn(
     "flex shrink-0 items-center gap-1.5 px-2",
+    // `surface` is chrome's strong hairline on the editor's own background: a
+    // tab view's toolbar sits *inside* the tab, so it takes the tab's colour
+    // rather than the panel grey that would read as a second tab bar. Five
+    // headers wrote `class="bg-surface"` with that comment; now it has a name.
     props.tone === "chrome"
       ? "border-b border-border bg-panel"
-      : "border-b border-border-subtle",
+      : props.tone === "surface"
+        ? "border-b border-border bg-surface"
+        : "border-b border-border-subtle",
     props.wrap
       ? ["flex-wrap py-1", props.size === "lg" ? "min-h-8" : "min-h-7"]
       : props.size === "lg"

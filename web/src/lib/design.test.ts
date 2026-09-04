@@ -581,4 +581,90 @@ describe("design language", () => {
       .map(({ where }) => where);
     expect([...new Set(wrong)]).toEqual([]);
   });
+
+  it("has no re-ordered copies of a shared class string either", () => {
+    // The verbatim rule above needs 30 characters and byte equality, and both
+    // are easy to miss by accident: `FIELD_LABEL` is 21 characters, and
+    // `WARNING_BADGE` was re-typed once with its three colour classes split
+    // across two array entries. So the class *set* is compared too — every
+    // quoted string of three or more utilities, sorted, against every shared
+    // constant sorted the same way.
+    const shared = new Map(
+      Object.entries({
+        ...formClasses,
+        SEGMENT_BASE,
+        SEGMENT_NAV_ACTIVE,
+        SEGMENT_VALUE_ACTIVE,
+      })
+        .filter(([, value]) => typeof value === "string" && value.split(/\s+/).length >= 3)
+        .map(([name, value]) => [(value as string).split(/\s+/).sort().join(" "), name]),
+    );
+    const found = LINES.filter(
+      (line) =>
+        line.file !== "lib/formClasses.ts" &&
+        line.file !== "components/app/segmented.ts" &&
+        !/^\s*(\/?\*|\/\/|<!--)/.test(line.text),
+    ).flatMap((line) =>
+      [...line.text.matchAll(/["'`]([^"'`]+)["'`]/g)]
+        .map((m) => m[1].trim().split(/\s+/))
+        .filter((classes) => classes.length >= 3)
+        .map((classes) => shared.get(classes.sort().join(" ")))
+        .filter((name): name is string => Boolean(name))
+        .map((name) => `${line.file}:${line.no} re-types ${name}`),
+    );
+    expect(found).toEqual([]);
+  });
+
+  it("keeps a container at the container radius", () => {
+    // 3px is the control step and 4px the container step, and the difference
+    // is the whole of what tells a card from a button at a glance. Seven
+    // bordered, padded boxes — every results figure among them — carried
+    // `rounded-sm`, because `Panel` and `SECTION` had one and three call sites
+    // between them and the box was easier to write than to look up. A control
+    // has a height; a container has padding or a column, and no height.
+    expect(
+      offenders(
+        "container-radius",
+        /(?=.*\brounded-sm\b)(?=.*(?:^|[\s"'`])border(?:[\s"'`]|$))(?=.*(?:\bp-\d|\bflex-col\b))(?!.*\bh-\d)/,
+        (f) => (f.startsWith("components/") || f.startsWith("views/")) && isApp(f),
+      ),
+    ).toEqual([]);
+  });
+
+  it("does not re-geometry a chrome strip at the call site", () => {
+    // `PanelHeader`'s docblock says its gap and padding are fixed, and two
+    // call sites overrode them anyway — one to `gap-2`, one to `px-1` — which
+    // is the resize rule above, for a component prop instead of a constant.
+    // Colour is fine (`tone` is the named way, but a class is not a new tier);
+    // a height, a gap or a horizontal padding is.
+    expect(
+      offenders(
+        "strip-geometry",
+        /<(?:PanelHeader|PanelFooter|Segmented)\b[^>]*\bclass="[^"]*\b(?:px-\d|gap-\d|h-\d)/,
+        isApp,
+      ),
+    ).toEqual([]);
+  });
+
+  it("has no arbitrary z-index", () => {
+    // `--cg-z-*` names every layer; `z-[1]` sat on a map overlay beside two
+    // others that said `z-raised`.
+    expect(offenders("arbitrary", /\bz-\[/, isApp)).toEqual([]);
+  });
+
+  it("does not set text small and faint at once", () => {
+    // `--cg-text-faint` is the disabled step and tokens.css says it is never
+    // for real text; at 10px on top of that it is a contrast failure. Forty of
+    // the sixty-four uses in the tree were exactly this pair, on legend
+    // labels, model paths and the map's one instruction. The two allowed
+    // together are `SECTION_HEADING`, which is uppercase and a heading, and a
+    // shortcut hint — say so with the pragma.
+    expect(
+      offenders(
+        "small-faint",
+        /(?=.*\btext-2xs\b)(?=.*\btext-text-faint\b)/,
+        (f) => isApp(f) && f !== "lib/formClasses.ts",
+      ),
+    ).toEqual([]);
+  });
 });

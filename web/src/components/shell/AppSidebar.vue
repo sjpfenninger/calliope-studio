@@ -28,7 +28,10 @@ const editable = computed(() => props.versionId !== null);
   <!-- No border of its own: the splitter handle beside it draws the hairline, and
        two rules on one boundary is a 2px seam where every other bar is 1px. -->
   <aside class="flex h-full min-h-0 flex-col bg-panel">
-    <div class="shrink-0 border-b border-border p-1.5">
+    <!-- 32px, the primary chrome height, holding a 28px switcher — the same
+         rule as every other strip. It was `p-1.5` around an `h-8` button, which
+         made it 45px and the tallest strip in the app. -->
+    <div class="flex h-8 shrink-0 items-center border-b border-border px-1">
       <ProjectSwitcher
         :current-id="projectId"
         :current-name="project.currentProject?.name ?? null"

@@ -154,6 +154,17 @@ const UNIFORM_RADIUS = 7;
 /** How thick a donut's ring is, as a fraction of its radius. */
 const DONUT_THICKNESS = 0.55;
 
+/**
+ * The ring around a node, and the heavier one that says it is selected.
+ *
+ * One pair for the circle layer and the SVG donut, because they are two
+ * drawings of the same node: they used to say 1.5/3 and 1/2 respectively, so
+ * selecting a node changed how much ring it got depending on whether the pie
+ * channel happened to be on.
+ */
+const NODE_STROKE = 1.5;
+const SELECTED_STROKE = 3;
+
 /** How solid a node's circle is when it is drawn as a circle at all. */
 const NODE_FILL_OPACITY = 0.85;
 
@@ -201,9 +212,30 @@ function layerPaint() {
     // Inverts with the theme, which is what keeps a selected node legible
     // against a dimmed basemap.
     nodeStrokeSelected: resolvedColor("--cg-text", "#1f1f1f"),
+    // A step up from the surface ring, which is what every DOM row does under
+    // the pointer and the map alone did not.
+    nodeStrokeHover: resolvedColor("--cg-border-strong", "#bebebe"),
     nodeStroke: resolvedColor("--cg-surface", "#ffffff"),
     accent,
   };
+}
+
+/**
+ * `circle-stroke-color`, once: selection is a property of the feature, since
+ * `setData` rewrites it, and hover is feature-state, since it changes far more
+ * often than the data does and must not cost a re-tile.
+ */
+function strokeColorExpression(
+  paint: ReturnType<typeof layerPaint>,
+): maplibregl.ExpressionSpecification {
+  return [
+    "case",
+    ["get", "selected"],
+    paint.nodeStrokeSelected,
+    ["boolean", ["feature-state", "hover"], false],
+    paint.nodeStrokeHover,
+    paint.nodeStroke,
+  ];
 }
 
 /** The ordinal chart ramp, resolved, darkest first. */
@@ -342,13 +374,31 @@ function pieAware(opacity: number): maplibregl.ExpressionSpecification {
   return ["case", ["boolean", ["feature-state", "pie"], false], 0, opacity];
 }
 
+/** The node under the pointer, so its state can be cleared when it leaves. */
+let hovered: string | null = null;
+
+/**
+ * Moves the hover state from one node to another, or to none.
+ *
+ * `setFeatureState` merges, so this leaves the `pie` flag `markPies` set on
+ * the same feature exactly as it found it.
+ */
+function setHover(instance: maplibregl.Map, id: string | null) {
+  if (hovered === id) return;
+  if (hovered !== null) {
+    instance.setFeatureState({ source: "nodes", id: hovered }, { hover: false });
+  }
+  if (id !== null) instance.setFeatureState({ source: "nodes", id }, { hover: true });
+  hovered = id;
+}
+
 function donutElement(node: string, slices: PieSlice[], radius: number): string {
   const paint = layerPaint();
   return donutSvg(slices, {
     radius,
     thickness: DONUT_THICKNESS,
     stroke: props.selected.includes(node) ? paint.nodeStrokeSelected : paint.nodeStroke,
-    strokeWidth: props.selected.includes(node) ? 2 : 1,
+    strokeWidth: props.selected.includes(node) ? SELECTED_STROKE : NODE_STROKE,
     fallbackColor: paint.nodeColor,
     label: node,
   });
@@ -591,12 +641,7 @@ function applyNodePaint(instance: maplibregl.Map) {
     "circle-color",
     hasColorChannel() ? nodeColorExpression(paint.nodeColor) : paint.nodeColor,
   );
-  instance.setPaintProperty("nodes", "circle-stroke-color", [
-    "case",
-    ["get", "selected"],
-    paint.nodeStrokeSelected,
-    paint.nodeStroke,
-  ]);
+  instance.setPaintProperty("nodes", "circle-stroke-color", strokeColorExpression(paint));
   // Set here rather than only at `addLayer` time so the pie expression cannot be
   // dropped by a later repaint: this is the one function that owns the node
   // layer's paint.
@@ -684,13 +729,13 @@ function addLayers(instance: maplibregl.Map) {
       "circle-color": paint.nodeColor,
       "circle-opacity": pieAware(NODE_FILL_OPACITY),
       "circle-stroke-opacity": pieAware(1),
-      "circle-stroke-width": ["case", ["get", "selected"], 3, 1.5],
-      "circle-stroke-color": [
+      "circle-stroke-width": [
         "case",
         ["get", "selected"],
-        paint.nodeStrokeSelected,
-        paint.nodeStroke,
+        SELECTED_STROKE,
+        NODE_STROKE,
       ],
+      "circle-stroke-color": strokeColorExpression(paint),
     },
   });
 
@@ -709,12 +754,14 @@ function addLayers(instance: maplibregl.Map) {
     if (!feature || dragging) return;
     instance.getCanvas().style.cursor = props.draggableNodes ? "grab" : "pointer";
     const name = String(feature.properties?.node ?? feature.id);
+    setHover(instance, String(feature.id ?? name));
     popup.setLngLat(event.lngLat).setHTML(popupHtml(name)).addTo(instance);
   });
 
   instance.on("mouseleave", "nodes", () => {
     if (dragging) return;
     instance.getCanvas().style.cursor = "";
+    setHover(instance, null);
     popup.remove();
   });
 
@@ -939,7 +986,7 @@ watch(
     >
       <slot name="overlay">
         No nodes with coordinates to display.
-        <span class="block text-2xs text-text-faint">
+        <span class="block text-text-muted">
           Add latitude and longitude to your nodes.
         </span>
       </slot>

@@ -110,10 +110,10 @@ watch(
 
 <template>
   <div class="flex min-h-0 flex-1 flex-col">
-    <!-- `bg-surface`: the first strip under the tab bar, which the active tab
-         opens onto. The segments inside keep `seam="none"` — there is no single
-         surface under *this* strip, which is a different question. -->
-    <PanelHeader data-testid="run-subtabs" size="md" class="px-1 bg-surface">
+    <!-- `tone="surface"`: the first strip under the tab bar, which the active
+         tab opens onto. The segments inside keep `seam="none"` — there is no
+         single surface under *this* strip, which is a different question. -->
+    <PanelHeader data-testid="run-subtabs" size="md" tone="surface">
       <Segmented
         :model-value="tab.subView"
         :items="segments"
@@ -124,7 +124,7 @@ watch(
       />
 
       <div class="flex-1" />
-      <span v-if="run?.label" class="self-center truncate px-2 text-2xs text-text-faint">
+      <span v-if="run?.label" class="self-center truncate px-2 text-sm text-text-muted">
         {{ run.id.slice(0, 8) }}
       </span>
     </PanelHeader>

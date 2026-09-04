@@ -102,7 +102,9 @@ describe("SchemaObjectEditor", () => {
 
   it("asks for the disclosure rather than owning it, and writes nothing doing so", () => {
     const wrapper = render({ name: "m" });
-    wrapper.findAll("button")[0]!.trigger("click");
+    // The disclosure's own button, not the first one on the page — the `mode`
+    // select's trigger is a button too now.
+    wrapper.findAll("button").find((b) => b.text().includes("advanced"))!.trigger("click");
     expect(wrapper.editor.emitted("update:showAdvanced")).toEqual([[true]]);
     // The failure this catches: promotion computed off the live value, which
     // makes a re-render able to write. A form must not save by being looked at.

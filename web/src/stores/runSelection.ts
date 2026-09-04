@@ -9,6 +9,7 @@ import {
   type Link,
   type ResultQuery,
 } from "../api/results";
+import { compareNames } from "../lib/fileTree";
 import type { GeoPayload } from "../lib/mapGeo";
 
 /**
@@ -149,6 +150,15 @@ function defineRunSelection(handle: string) {
     const isLoading = ref(false);
     const error = ref<string | null>(null);
 
+    /**
+     * The dimension filters, and deliberately session-only.
+     *
+     * The units and rounding directly below them in the sidebar persist per
+     * model, and this does not, for the reason `stores/explorer.ts` gives for
+     * its tree filters: a filter still applied the next time the app opens
+     * hides most of a run's results with nothing on screen to blame it on. A
+     * unit is a fact about the model; a filter is a question about this look.
+     */
     const selected = ref<Record<string, string[]>>({});
     const variableTimeseries = ref<string | null>(null);
     const variableStatic = ref<string | null>(null);
@@ -269,7 +279,7 @@ function defineRunSelection(handle: string) {
       const leading = BASE_TECH_ORDER.filter((name) => buckets.has(name));
       const rest = [...buckets.keys()]
         .filter((name) => !leading.includes(name) && name !== OTHER_TECHS)
-        .sort();
+        .sort(compareNames);
       const trailing = buckets.has(OTHER_TECHS) ? [OTHER_TECHS] : [];
       return [...leading, ...rest, ...trailing].map((name) => ({
         name,
@@ -340,7 +350,7 @@ function defineRunSelection(handle: string) {
           : [name],
       );
       const leading = order.filter((name) => present.includes(name));
-      const rest = present.filter((name) => !leading.includes(name)).sort();
+      const rest = present.filter((name) => !leading.includes(name)).sort(compareNames);
       return [...leading, ...rest];
     });
 

@@ -19,6 +19,7 @@
  */
 import { computed, ref, shallowRef } from "vue";
 import LockedBanner from "@/components/app/LockedBanner.vue";
+import Segmented from "@/components/app/Segmented.vue";
 import StateMessage from "@/components/app/StateMessage.vue";
 // `Map` is aliased so it cannot shadow the global `Map` constructor.
 import { List, Map as MapIcon, Plus } from "@lucide/vue";
@@ -32,6 +33,8 @@ import NodeFields, { type DataTableParam } from "./NodeFields.vue";
 import { Accordion } from "@/components/ui/accordion";
 import EntryAccordionRow from "./EntryAccordionRow.vue";
 import { GHOST_BUTTON, IDENTIFIER } from "@/lib/formClasses";
+import { formatCount } from "@/lib/format";
+import { useFocusNew } from "./focusNew";
 
 import { useModelGeo } from "@/composables/useModelGeo";
 import { useComponentTreeStore } from "@/stores/componentTree";
@@ -74,6 +77,8 @@ const entries = ref<NodeEntry[]>([]);
  * extends it so a new node arrives open.
  */
 const openRows = ref<string[]>([]);
+/** The name field of a row just added takes the cursor; see `focusNew`. */
+const focus = useFocusNew();
 const templatesData = computed(() => templatesStore.templates);
 
 // Map from node name → param name → data-table info
@@ -123,6 +128,32 @@ const visibleEntries = computed(() =>
 
 /** The map only makes sense for a whole section. */
 const showMap = computed(() => !props.entryName && ui.sectionView.nodes === "map");
+
+/**
+ * Map or list. A model whose nodes have no coordinates at all has no map to
+ * show — the pane would be a scrim over nothing — so that segment says why it
+ * is dead rather than leading there. A model with *no* nodes keeps it: the map
+ * is where the first one gets placed.
+ */
+const VIEW_ITEMS = computed(() => {
+  const unplaceable = mapNodes.value.length > 0 && missing.value.length === mapNodes.value.length;
+  return [
+    { value: "structured" as const, label: "List", icon: List, testid: "view-list" },
+    {
+      value: "map" as const,
+      label: "Map",
+      icon: MapIcon,
+      testid: "view-map",
+      disabled: unplaceable,
+      tip: unplaceable ? "No node has coordinates yet. Add them in the list." : undefined,
+    },
+  ];
+});
+
+const view = computed({
+  get: () => ui.sectionView.nodes,
+  set: (next) => ui.setSectionView("nodes", next),
+});
 
 /**
  * Every node on the map: this file's, plus the ones defined elsewhere.
@@ -277,10 +308,9 @@ function addEntry() {
     extraParams: [],
     techs: [],
   });
-  openRows.value = [
-    ...openRows.value,
-    rowKey(entries.value[entries.value.length - 1]),
-  ];
+  const key = rowKey(entries.value[entries.value.length - 1]);
+  openRows.value = [...openRows.value, key];
+  focus.request(key);
   // A node with no name and no coordinates cannot be shown on a map, so adding
   // one is also a request to see the list.
   ui.setSectionView("nodes", "structured");
@@ -302,6 +332,19 @@ function openElsewhere() {
   }
 }
 
+/** What removing this node takes with it, for the confirmation. */
+function owns(entry: NodeEntry): string {
+  const set =
+    entry.extraParams.length +
+    (entry.template ? 1 : 0) +
+    (entry.latitude !== null ? 1 : 0) +
+    (entry.longitude !== null ? 1 : 0);
+  const parts = [];
+  if (set) parts.push(formatCount(set, "parameter"));
+  if (entry.techs.length) parts.push(formatCount(entry.techs.length, "technology", "technologies"));
+  return parts.join(" and ");
+}
+
 </script>
 
 <template>
@@ -318,6 +361,7 @@ function openElsewhere() {
         :error="saveError"
         :conflict="conflict"
         :file="filePath"
+        :tab-id="tabId"
         @save="save"
         @reload="reload"
       >
@@ -332,19 +376,14 @@ function openElsewhere() {
           <Plus class="size-3.5" />
           Add node
         </button>
-        <button
+        <Segmented
           v-if="!entryName"
-          type="button"
-          data-testid="view-toggle"
-          :class="GHOST_BUTTON"
-          @click="ui.toggleSectionView('nodes')"
-        >
-          <component
-            :is="showMap ? List : MapIcon"
-            class="size-3.5"
-          />
-          {{ showMap ? "List" : "Map" }}
-        </button>
+          v-model="view"
+          :items="VIEW_ITEMS"
+          mode="nav"
+          size="fill"
+          seam="none"
+        />
       </EditorToolbar>
       <LockedBanner v-if="lockOwner" :owner="lockOwner" :file="filePath" />
 
@@ -383,37 +422,41 @@ function openElsewhere() {
               Open it
             </button>
           </div>
-          <p
-            v-else
-            class="flex h-full items-center justify-center text-sm text-text-muted"
-          >
+          <StateMessage v-else variant="fill">
             Click a node to edit it, or drag one to move it.
-          </p>
+          </StateMessage>
         </template>
       </EditorMapPane>
 
       <fieldset v-else :disabled="locked" class="min-h-0 flex-1 overflow-auto">
         <StateMessage v-if="!visibleEntries.length" variant="block">
-          {{ entryName ? `No node called "${entryName}".` : "No nodes defined yet." }}
+          {{ entryName ? `No node called “${entryName}”.` : "No nodes defined yet." }}
+          <template v-if="!entryName" #action>
+            <button type="button" :class="GHOST_BUTTON" :disabled="locked" @click="addEntry">
+              <Plus class="size-3.5" />
+              Add node
+            </button>
+          </template>
         </StateMessage>
 
-        <Accordion v-else v-model="openRows" type="multiple" class="px-2">
+        <Accordion v-else v-model="openRows" type="multiple" class="px-2 py-1">
           <EntryAccordionRow
             v-for="entry in visibleEntries"
             :key="rowKey(entry)"
             :value="rowKey(entry)"
             :name="entry.name || '(unnamed)'"
             remove-label="Remove this node"
+            :owns="owns(entry)"
             testid="entry-row"
             @remove="removeEntry(entry)"
           >
-
-              <NodeFields
-                :entry="entry"
-                :templates="templatesData"
-                :data-table-params="dataTableParams[entry.name] ?? {}"
-                @change="onChange"
-              />
+            <NodeFields
+              :ref="(el) => focus.bind(el, rowKey(entry))"
+              :entry="entry"
+              :templates="templatesData"
+              :data-table-params="dataTableParams[entry.name] ?? {}"
+              @change="onChange"
+            />
           </EntryAccordionRow>
         </Accordion>
       </fieldset>

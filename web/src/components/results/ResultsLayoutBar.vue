@@ -19,6 +19,7 @@ import { RotateCcw } from "@lucide/vue";
 import PanelHeader from "@/components/app/PanelHeader.vue";
 import Segmented from "@/components/app/Segmented.vue";
 import TooltipButton from "@/components/app/TooltipButton.vue";
+import { TEXT_BUTTON_SM } from "@/lib/formClasses";
 import { RESULTS_LAYOUTS, type ResultsLayoutId } from "@/lib/resultsLayouts";
 import { RUN_SELECTION } from "@/stores/runSelection";
 import { useUiStore } from "@/stores/ui";
@@ -76,19 +77,19 @@ const segments = computed(() =>
     <div class="flex-1" />
 
     <template v-if="store.mapNodes.length">
-      <span class="truncate text-2xs text-text-faint">
+      <span class="truncate text-sm text-text-muted">
         Charts narrowed to {{ store.mapNodes.join(", ") }}
       </span>
       <button
         type="button"
-        class="rounded-xs px-1 text-2xs text-accent-text hover:bg-hover"
+        :class="TEXT_BUTTON_SM"
         data-testid="clear-map-nodes"
         @click="store.mapNodes = []"
       >
         Clear
       </button>
     </template>
-    <span v-else-if="store.hasGeography" class="shrink-0 text-2xs text-text-faint">
+    <span v-else-if="store.hasGeography" class="shrink-0 text-sm text-text-muted">
       Click nodes on the map to narrow the charts.
     </span>
   </PanelHeader>

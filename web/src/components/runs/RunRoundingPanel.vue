@@ -19,7 +19,7 @@ import { computed } from "vue";
 import { Checkbox } from "@/components/ui/checkbox";
 import InfoTip from "@/components/app/InfoTip.vue";
 import SidebarSection from "@/components/app/SidebarSection.vue";
-import { FIELD, TEXT_BUTTON_SM } from "@/lib/formClasses";
+import { FIELD, FIELD_LABEL, SOFT_DISABLED, TEXT_BUTTON_SM } from "@/lib/formClasses";
 import { MAX_PRECISION, isBadPrecision } from "@/lib/precision";
 import { useRoundingStore } from "@/stores/rounding";
 
@@ -61,12 +61,12 @@ function toggleExports() {
         <!-- Significant figures rather than decimal places: one frame holds a
              40 GW capacity and a 0.003 cost fraction, and two decimals flattens
              the second while padding the first. -->
-        <span class="text-2xs text-text-muted">significant figures</span>
+        <span :class="FIELD_LABEL">significant figures</span>
         <InfoTip
           :label="`How many significant figures to show, 1 to ${MAX_PRECISION}. Empty shows every digit.`"
         >
           <input
-            :class="[FIELD, isBad && 'border-danger']"
+            :class="FIELD"
             :value="rounding.digits"
             type="text"
             inputmode="numeric"
@@ -89,17 +89,13 @@ function toggleExports() {
           :aria-checked="rounding.exports"
           :aria-disabled="!canExport"
           data-testid="rounding-exports"
-          class="flex h-6 items-center gap-1.5 rounded-xs px-1 text-sm"
-          :class="
-            canExport
-              ? 'cursor-pointer hover:bg-hover'
-              : 'cursor-default text-text-faint opacity-50'
-          "
+          class="flex h-6 items-center gap-1.5 rounded-sm px-1 text-sm"
+          :class="canExport ? 'cursor-pointer hover:bg-hover' : SOFT_DISABLED"
           @click="toggleExports()"
           @keydown.space.prevent="toggleExports()"
         >
           <Checkbox
-            class="pointer-events-none size-3.5"
+            class="pointer-events-none"
             :model-value="rounding.exports"
             :disabled="!canExport"
           />

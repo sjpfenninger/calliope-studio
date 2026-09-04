@@ -122,6 +122,22 @@ describe("buildModelTree", () => {
     ]);
   });
 
+  it("sorts entries within a section the way the file tree sorts files", () => {
+    // The server hands them back in declaration order across the import graph,
+    // which is file order — so a technology added in a second file sat after
+    // everything in the first. Same comparator as the file tree beside it:
+    // numeric and case-insensitive, so `node_10` follows `node_9`.
+    const tree = {
+      nodes: { file: "n.yaml", entries: ["node_10", "Zone", "node_9", "alpha"] },
+    } as ComponentTree;
+    expect(buildModelTree(tree)[0].children?.map((child) => child.label)).toEqual([
+      "alpha",
+      "node_9",
+      "node_10",
+      "Zone",
+    ]);
+  });
+
   it("leaves an empty section childless, so it renders as a leaf", () => {
     const tree = { techs: { file: "t.yaml", entries: [] } } as ComponentTree;
     expect(buildModelTree(tree)[0].children).toBeUndefined();

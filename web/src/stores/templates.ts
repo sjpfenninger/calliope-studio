@@ -25,10 +25,13 @@ export const useTemplatesStore = defineStore("templates", () => {
     try {
       templates.value = await getTemplates(versionId);
       loadedVersionId.value = versionId;
-    } catch {
+    } catch (caught) {
       // A model whose templates cannot be read is one being written. The editors
-      // fall back to showing no inherited fields, which is what they did before.
+      // fall back to showing no inherited fields, which is what they did before —
+      // but the reason goes to the console rather than nowhere, because a
+      // template that silently stops resolving reads as a field the entry lost.
       templates.value = {};
+      console.error("The model's templates could not be resolved.", caught);
     }
   }
 

@@ -14,8 +14,9 @@
  * "name a new thing": a name field, a live reason it cannot be created yet, and
  * the resulting path shown before the button is pressed rather than after.
  */
-import { computed, nextTick, ref, watch } from "vue";
+import { computed, ref, watch } from "vue";
 
+import FieldRow from "@/components/app/FieldRow.vue";
 import StateMessage from "@/components/app/StateMessage.vue";
 import {
   Dialog,
@@ -33,7 +34,6 @@ import {
   PRIMARY_BUTTON_MD,
   SECONDARY_BUTTON_MD,
 } from "@/lib/formClasses";
-import { cn } from "@/lib/utils";
 
 const props = defineProps<{
   versionId: string;
@@ -60,13 +60,21 @@ const field = ref<HTMLInputElement>();
 
 const noun = computed(() => (props.kind === "file" ? "file" : "folder"));
 
-watch(open, async (isOpen) => {
+watch(open, (isOpen) => {
   if (!isOpen) return;
   name.value = "";
   error.value = null;
-  await nextTick();
-  field.value?.focus();
 });
+
+/**
+ * The cursor lands in the name box through Reka's own focus pass rather than a
+ * `nextTick` after it — the same shape as `NewModelDialog`, where the pass
+ * would otherwise take the first focusable thing a tick after ours.
+ */
+function focusName(event: Event) {
+  event.preventDefault();
+  field.value?.focus();
+}
 
 /** The path that would be created, as the server will resolve it. */
 const target = computed(() => {
@@ -99,6 +107,18 @@ const canCreate = computed(
   () => Boolean(target.value) && !problem.value && !busy.value,
 );
 
+/**
+ * The one line under the field: a server refusal, a reason it cannot be
+ * created yet, the path it would make, or a prompt. Four `<p>`s at three sizes
+ * and two paddings used to take turns here, so the dialog jumped as you typed.
+ */
+const status = computed<{ tone: "danger" | "muted"; text: string; testid?: string }>(() => {
+  if (error.value) return { tone: "danger", text: error.value };
+  if (problem.value) return { tone: "danger", text: problem.value };
+  if (target.value) return { tone: "muted", text: target.value, testid: "new-entry-target" };
+  return { tone: "muted", text: `Give the ${noun.value} a name.` };
+});
+
 async function create() {
   if (!canCreate.value || !target.value) return;
   busy.value = true;
@@ -122,7 +142,7 @@ async function create() {
 
 <template>
   <Dialog v-model:open="open">
-    <DialogContent class="sm:max-w-lg" :data-testid="`new-${noun}-dialog`">
+    <DialogContent :data-testid="`new-${noun}-dialog`" @open-auto-focus="focusName">
       <DialogHeader>
         <DialogTitle>New {{ noun }}</DialogTitle>
         <DialogDescription>
@@ -131,31 +151,21 @@ async function create() {
         </DialogDescription>
       </DialogHeader>
 
-      <div class="flex items-center gap-2">
-        <label class="shrink-0 text-sm text-text-dim" for="new-entry-name">Name</label>
+      <FieldRow label="Name">
         <input
-          id="new-entry-name"
           ref="field"
           v-model="name"
+          aria-label="Name"
           :data-testid="`new-${noun}-name`"
           :placeholder="kind === 'file' ? 'techs.yaml' : 'model_config'"
-          :class="cn(FIELD, 'flex-1')"
+          :class="FIELD"
           @keydown.enter="create"
         />
-      </div>
+      </FieldRow>
 
-      <StateMessage v-if="error" variant="inline" tone="danger">{{ error }}</StateMessage>
-      <p v-else-if="problem" class="text-2xs text-danger-text">{{ problem }}</p>
-      <p
-        v-else-if="target"
-        data-testid="new-entry-target"
-        class="truncate text-sm text-text-faint"
-      >
-        {{ target }}
-      </p>
-      <p v-else class="text-2xs text-text-faint">
-        Give the {{ noun }} a name.
-      </p>
+      <StateMessage variant="note" :tone="status.tone" :data-testid="status.testid">
+        {{ status.text }}
+      </StateMessage>
 
       <DialogFooter>
         <button type="button" :class="SECONDARY_BUTTON_MD" @click="open = false">

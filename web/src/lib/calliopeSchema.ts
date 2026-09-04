@@ -29,6 +29,7 @@
  * about how Calliope *reaches* a file, so the server answers it
  * (`modeldef/filekinds.py`) and this turns the answer into associations.
  */
+import { compareNames } from "./fileTree";
 
 export interface CalliopeSchema extends Record<string, any> {
   properties?: Record<string, any>;
@@ -170,14 +171,14 @@ export function schemaEntries(
   const entries: SchemaEntry[] = [
     {
       uri: MODEL_URI,
-      fileMatch: [...byKind.model.sort(), VIRTUAL_MATCH],
+      fileMatch: [...byKind.model.sort(compareNames), VIRTUAL_MATCH],
       schema: withSiblingSchemas(payload),
     },
   ];
 
   const math = payload["x-calliope"]?.schemas?.math;
   if (math && byKind.math.length) {
-    entries.push({ uri: MATH_URI, fileMatch: byKind.math.sort(), schema: math });
+    entries.push({ uri: MATH_URI, fileMatch: byKind.math.sort(compareNames), schema: math });
   }
   return entries;
 }

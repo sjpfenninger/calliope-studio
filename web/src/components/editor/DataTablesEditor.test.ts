@@ -120,6 +120,7 @@ describe("DataTablesEditor", () => {
 
   it("writes nothing for a save that changed nothing", async () => {
     const mounted = await open();
+    expect(mounted.find("save").attributes("disabled")).toBeDefined();
     await mounted.find("save").trigger("click");
     await flushPromises();
     expect(api.putYamlSection).not.toHaveBeenCalled();

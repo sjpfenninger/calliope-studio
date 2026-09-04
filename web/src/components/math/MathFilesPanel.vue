@@ -36,10 +36,14 @@
  * `math-check` pins the property from the outside, so the arrangement is
  * checked rather than reasoned about again.
  */
-import { computed, ref } from "vue";
+import { computed, nextTick, ref } from "vue";
 import { FilePlus2, Trash2 } from "@lucide/vue";
 
 import Eyebrow from "@/components/app/Eyebrow.vue";
+import StateMessage from "@/components/app/StateMessage.vue";
+import TooltipButton from "@/components/app/TooltipButton.vue";
+import MathRailSection from "@/components/math/MathRailSection.vue";
+import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { errorDetail } from "@/api/errors";
 import {
@@ -49,7 +53,8 @@ import {
   readYamlSection,
   type SectionData,
 } from "@/api/versions";
-import { FIELD_SM, GHOST_BUTTON, DANGER_ICON_BUTTON_SM } from "@/lib/formClasses";
+import { FIELD_SM, GHOST_BUTTON, WARNING_BADGE } from "@/lib/formClasses";
+import { openIntent } from "@/lib/openIntent";
 import { useConfirmStore } from "@/stores/confirm";
 import { useComponentTreeStore } from "@/stores/componentTree";
 import { useMathStore } from "@/stores/math";
@@ -71,6 +76,7 @@ const busy = ref(false);
 const error = ref<string | null>(null);
 const adding = ref(false);
 const newName = ref("");
+const nameField = ref<HTMLInputElement>();
 
 /** Only the user's own files: a built-in source has nothing to configure. */
 const files = computed(() => math.sources.filter((source) => source.kind === "user"));
@@ -133,8 +139,12 @@ function toggle(source: MathSource, enabled: boolean) {
 }
 
 async function remove(source: MathSource) {
+  // "Remove", here and on the button and in the dialog: this used to be "Stop
+  // using" in the aria-label, a bin on the button and "Remove" on the confirm,
+  // three names for one act — and the file *is* left alone, which the message
+  // says.
   const ok = await confirm.ask({
-    title: `Stop using ${source.name}?`,
+    title: `Remove ${source.name}?`,
     message:
       `This removes the entry from config.init.math_paths and config.init.extra_math. ` +
       `${source.path ?? "The file"} itself is left on disk.`,
@@ -158,10 +168,14 @@ async function remove(source: MathSource) {
  *
  * A name abandoned by closing the form used to still be in the box when it was
  * reopened, so the next Create made a file the user had already decided against.
+ * Opening puts the cursor in the box: the only thing to do next is type.
  */
-function toggleAdding() {
+async function toggleAdding() {
   adding.value = !adding.value;
   newName.value = "";
+  if (!adding.value) return;
+  await nextTick();
+  nameField.value?.focus();
 }
 
 /** A skeleton that parses, validates and does nothing until it is edited. */
@@ -212,9 +226,9 @@ async function create() {
 </script>
 
 <template>
-  <div class="flex flex-col gap-1 border-b border-border-subtle px-2 py-1.5" data-testid="math-files">
+  <MathRailSection data-testid="math-files">
     <div class="flex items-center gap-1">
-      <Eyebrow class="mb-0">Math files</Eyebrow>
+      <Eyebrow>Math files</Eyebrow>
       <div class="flex-1" />
       <button
         type="button"
@@ -228,13 +242,11 @@ async function create() {
       </button>
     </div>
 
-    <!-- A plain paragraph rather than `StateMessage`: that component's `inline`
-         variant is padded for a list row, and this is a note under a heading in
-         a 256px sidebar. -->
-    <p v-if="error" class="text-2xs text-danger-text">{{ error }}</p>
+    <StateMessage v-if="error" variant="note" tone="danger">{{ error }}</StateMessage>
 
     <form v-if="adding" class="flex items-center gap-1" @submit.prevent="create">
       <input
+        ref="nameField"
         v-model="newName"
         :class="FIELD_SM"
         data-testid="math-new-name"
@@ -246,14 +258,14 @@ async function create() {
       </button>
     </form>
 
-    <p v-if="!files.length && !adding" class="text-2xs text-text-faint">
+    <StateMessage v-if="!files.length && !adding" variant="note">
       No custom math. New creates a file and enables it.
-    </p>
+    </StateMessage>
 
     <div
       v-for="source in files"
       :key="source.name"
-      class="flex items-center gap-1"
+      class="flex h-6 items-center gap-1.5"
       :data-math-file="source.name"
     >
       <Switch
@@ -262,38 +274,38 @@ async function create() {
         :aria-label="`Apply ${source.name}`"
         @update:model-value="(value: boolean) => toggle(source, value)"
       />
+      <!-- A plain click previews and a modifier opens for keeps — the rule the
+           file tree applies, and this is a file. -->
       <button
         type="button"
         class="min-w-0 flex-1 truncate text-left text-sm"
-        :class="source.applied ? 'text-foreground' : 'text-text-faint'"
+        :class="source.applied ? 'text-foreground' : 'text-text-muted'"
         :disabled="!source.path || source.missing"
-        @click="source.path && tabs.openFile(source.path)"
+        @click="source.path && tabs.openFile(source.path, openIntent($event))"
       >
         {{ source.name }}
       </button>
-      <span v-if="source.missing" class="shrink-0 text-2xs text-warning-text">
-        missing
-      </span>
-      <button
-        type="button"
-        :class="DANGER_ICON_BUTTON_SM"
+      <Badge v-if="source.missing" variant="outline" :class="WARNING_BADGE">missing</Badge>
+      <TooltipButton
+        :label="`Remove ${source.name}`"
+        :icon="Trash2"
+        tone="danger"
+        size="xs"
         :disabled="busy"
-        :aria-label="`Stop using ${source.name}`"
         @click="remove(source)"
-      >
-        <Trash2 class="size-3" />
-      </button>
+      />
     </div>
 
     <!-- Listed in `extra_math` and declared nowhere. Calliope raises
          `Requested math '…' was not initialised.` and refuses to read the model
          at all, so this is worth more than a tree badge. -->
-    <p
+    <StateMessage
       v-for="source in undefinedNames"
       :key="source.name"
-      class="text-2xs text-danger-text"
+      variant="note"
+      tone="danger"
     >
       “{{ source.name }}” is in extra_math but declared nowhere.
-    </p>
-  </div>
+    </StateMessage>
+  </MathRailSection>
 </template>

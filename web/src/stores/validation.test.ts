@@ -222,4 +222,39 @@ describe("useValidationStore", () => {
       expect(store.phase).toBe("idle");
     });
   });
+
+  describe("severity", () => {
+    it("counts errors and warnings apart", async () => {
+      // `severity` arrived on every problem and was read by nothing: the rows
+      // were all painted as errors and the badge was always destructive, so a
+      // model that merely warned looked like one that would not build. The two
+      // counts are what the tab's row tone and the sidebar's badge variant key on.
+      const store = useValidationStore();
+      start.mockResolvedValue(
+        envelope({
+          result: {
+            errors: [
+              problem(),
+              problem({ severity: "warning", tier: "build", line: null }),
+              problem({ severity: "warning", tier: "build", line: null }),
+            ],
+          },
+        }),
+      );
+
+      await store.validate("v1");
+
+      expect(store.errorCount).toBe(1);
+      expect(store.warningCount).toBe(2);
+    });
+
+    it("counts nothing once reset", async () => {
+      const store = useValidationStore();
+      start.mockResolvedValue(envelope({ result: { errors: [problem()] } }));
+      await store.validate("v1");
+      store.reset();
+      expect(store.errorCount).toBe(0);
+      expect(store.warningCount).toBe(0);
+    });
+  });
 });

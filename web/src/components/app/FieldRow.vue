@@ -20,6 +20,11 @@
  *
  * `FIELD` is untouched and still `w-full` — the row owns the width, so there is
  * only ever one definition of a text field.
+ *
+ * **The `#action` slot is 20px.** It sits beside the revert affordance this
+ * component draws at `size="xs"`, in a row whose control is 24px, so a remove
+ * or a mode toggle put there takes the same size — ten call sites had a 24px
+ * button next to the 20px one, a step too big for the row it was in.
  */
 import { computed } from "vue";
 import { CornerDownRight, Undo2 } from "@lucide/vue";
@@ -150,7 +155,13 @@ const sourceTitle = computed(() => {
             <SourceLink :source="source" />
           </template>
         </span>
-        <span v-if="isSet && inherited.value" class="truncate text-text-faint line-through">
+        <!-- Struck through, not faded: the inherited value is real content the
+             user came to compare against, and the faint step is the disabled
+             tone. A 1px rule, so the strike does not swallow a short number. -->
+        <span
+          v-if="isSet && inherited.value"
+          class="truncate text-text-dim line-through decoration-1"
+        >
           {{ inherited.value }}
         </span>
       </span>

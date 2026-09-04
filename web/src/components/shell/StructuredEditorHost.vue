@@ -17,6 +17,9 @@
  */
 import ConfigEditor from "@/components/editor/ConfigEditor.vue";
 import StateMessage from "@/components/app/StateMessage.vue";
+import { FileCode2 } from "@lucide/vue";
+import { GHOST_BUTTON } from "@/lib/formClasses";
+import { useTabsStore } from "@/stores/tabs";
 import DataTablesEditor from "@/components/editor/DataTablesEditor.vue";
 import LinksEditor from "@/components/editor/LinksEditor.vue";
 import NodesEditor from "@/components/editor/NodesEditor.vue";
@@ -32,6 +35,8 @@ const props = defineProps<{
 
 /** Null for a section tab, which shows every entry. */
 const entryName = () => (props.tab.kind === "entry" ? props.tab.entryName : null);
+
+const tabs = useTabsStore();
 </script>
 
 <template>
@@ -84,8 +89,21 @@ const entryName = () => (props.tab.kind === "entry" ? props.tab.entryName : null
       :tabId="tab.id"
       :entryName="entryName()"
     />
-    <StateMessage v-else variant="inline">
-      No structured editor for this section yet — use the Raw view.
+    <!-- The switch the editors carry in their toolbar is not here, since there
+         is no toolbar; the way to the source is offered in its place. -->
+    <StateMessage v-else variant="fill">
+      No structured editor for this section yet.
+      <template #action>
+        <button
+          type="button"
+          :class="GHOST_BUTTON"
+          data-testid="mode-source"
+          @click="tabs.setEditorMode(tab.id, 'raw')"
+        >
+          <FileCode2 class="size-3.5" />
+          Open the source
+        </button>
+      </template>
     </StateMessage>
   </div>
 </template>

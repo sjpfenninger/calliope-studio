@@ -37,7 +37,7 @@
  */
 
 export const SEGMENT_BASE =
-  "group relative inline-flex shrink-0 select-none items-center justify-center gap-1.5 whitespace-nowrap px-2 text-sm text-text-muted transition-colors hover:text-foreground disabled:pointer-events-none disabled:opacity-40";
+  "group relative inline-flex shrink-0 select-none items-center justify-center gap-1.5 whitespace-nowrap px-2 text-sm text-text-muted transition-colors hover:text-foreground disabled:pointer-events-none disabled:opacity-50";
 
 /**
  * The strip's own bottom hairline, for a strip that scrolls.

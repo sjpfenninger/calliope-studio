@@ -31,7 +31,9 @@ import {
 import ModelDialogs from "@/components/workspace/ModelDialogs.vue";
 import TooltipButton from "@/components/app/TooltipButton.vue";
 import { shortenPath } from "@/lib/format";
+import { GHOST_BUTTON_MD } from "@/lib/formClasses";
 import { ICON_STROKE_WIDTH_TIGHT } from "@/lib/icons";
+import { cn } from "@/lib/utils";
 import { useProjectStore } from "@/stores/project";
 
 const props = defineProps<{
@@ -66,11 +68,11 @@ async function opened(id: string) {
 </script>
 
 <template>
-  <div class="flex items-center gap-1">
+  <div class="flex min-w-0 flex-1 items-center gap-1">
     <DropdownMenu>
       <DropdownMenuTrigger
         data-testid="project-switcher"
-        class="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-sm px-2 text-left text-sm transition-colors hover:bg-hover"
+        :class="cn(GHOST_BUTTON_MD, 'min-w-0 flex-1 text-left')"
       >
         <FolderOpen class="size-3.5 shrink-0 text-text-faint" />
         <span class="min-w-0 flex-1 truncate font-medium">
@@ -83,6 +85,9 @@ async function opened(id: string) {
       </DropdownMenuTrigger>
 
       <DropdownMenuContent align="start" class="w-80">
+        <!-- `h-auto`, deliberately: the item is two lines, the folder name over
+             its path, and the primitive's fixed 24px row clipped them into each
+             other. The one menu item in the app that is not one line. -->
         <DropdownMenuItem
           v-for="project in projects.models"
           :key="project.id"
@@ -100,7 +105,7 @@ async function opened(id: string) {
             <span class="block truncate">{{ project.name }}</span>
             <!-- Shortened from the head: `truncate` clips the end, and the end
                  is the only part that tells two models in one tree apart. -->
-            <span class="block truncate text-sm text-text-faint">
+            <span class="block truncate text-sm text-text-muted">
               {{ shortenPath(project.description, 2) }}
             </span>
           </span>

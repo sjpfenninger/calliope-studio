@@ -16,6 +16,14 @@ import LockedBanner from "@/components/app/LockedBanner.vue";
 import StateMessage from "@/components/app/StateMessage.vue";
 import FieldRow from "@/components/app/FieldRow.vue";
 import { Plus } from "@lucide/vue";
+import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 import { getDataTableParams } from "@/api/versions";
 import { useSectionEditor } from "@/composables/useSectionEditor";
@@ -24,7 +32,9 @@ import ParamRows from "./ParamRows.vue";
 import { Accordion } from "@/components/ui/accordion";
 import EntryAccordionRow from "./EntryAccordionRow.vue";
 import { Switch } from "@/components/ui/switch";
-import { FIELD, GHOST_BUTTON } from "@/lib/formClasses";
+import { ACCENT_BADGE, FIELD, GHOST_BUTTON } from "@/lib/formClasses";
+import { formatCount } from "@/lib/format";
+import { useFocusNew } from "./focusNew";
 
 import { type DataTableParam } from "@/lib/dataTableParams";
 import { collectInherited, techSetsKey } from "@/lib/inherited";
@@ -49,6 +59,13 @@ const componentTreeStore = useComponentTreeStore();
 const templatesStore = useTemplatesStore();
 
 const BASE_TECH_OPTIONS = ["supply", "demand", "storage", "transmission", "conversion"];
+/**
+ * Reka refuses an item whose value is `""`, since that is what it uses to mean
+ * "nothing chosen". The blank row is a real answer here — `base_tech` usually
+ * comes from the template, and unsetting it is how you stop overriding that —
+ * so it needs a value of its own.
+ */
+const NONE = "__none__";
 
 const entries = ref<TechEntry[]>([]);
 /**
@@ -62,23 +79,8 @@ const entries = ref<TechEntry[]>([]);
  */
 const openRows = ref<string[]>([]);
 
-/**
- * The row whose name field is waiting to take focus, by `rowKey`.
- *
- * A new technology is a row called `(unnamed)` with one field that has to be
- * filled in before any of the others mean anything, so the cursor belongs
- * there. Set by `addEntry` and cleared by the ref callback below, which is what
- * makes it fire exactly once rather than stealing focus on every re-render.
- */
-const focusRow = ref<string | null>(null);
-
-function focusNameField(el: unknown, key: string) {
-  if (focusRow.value !== key || !(el instanceof HTMLInputElement)) return;
-  focusRow.value = null;
-  // The ref fires while Reka's collapsible content is still `hidden` for the
-  // frame it measures its height in, and a hidden input silently refuses focus.
-  requestAnimationFrame(() => el.focus());
-}
+/** The name field of a row just added takes the cursor; see `focusNew`. */
+const focus = useFocusNew();
 // The section as loaded, so the transmission entries LinksEditor owns survive a
 // save from here.
 const originalSection = ref<Record<string, RawTech>>({});
@@ -202,7 +204,7 @@ function addEntry() {
   entries.value.push(entry);
   const key = rowKey(entries.value[entries.value.length - 1]);
   openRows.value = [...openRows.value, key];
-  focusRow.value = key;
+  focus.request(key);
   markDirty();
 }
 
@@ -228,12 +230,18 @@ function inheritedFor(entry: TechEntry) {
   );
 }
 
+/** What removing this technology takes with it, for the confirmation. */
+function owns(entry: TechEntry): string {
+  const set = entry.extraParams.length + (entry.template ? 1 : 0) + (entry.base_tech ? 1 : 0);
+  return set ? formatCount(set, "parameter") : "";
+}
+
 </script>
 
 <template>
   <div class="flex min-h-0 flex-1 flex-col" data-testid="techs-editor">
     <StateMessage v-if="isLoading" variant="block" loading>
-      Loading techs…
+      Loading technologies…
     </StateMessage>
     <StateMessage v-else-if="error" variant="block" tone="danger">{{ error }}</StateMessage>
 
@@ -244,6 +252,7 @@ function inheritedFor(entry: TechEntry) {
         :error="saveError"
         :conflict="conflict"
         :file="filePath"
+        :tab-id="tabId"
         @save="save"
         @reload="reload"
       >
@@ -256,33 +265,41 @@ function inheritedFor(entry: TechEntry) {
           @click="addEntry"
         >
           <Plus class="size-3.5" />
-          Add tech
+          Add technology
         </button>
       </EditorToolbar>
       <LockedBanner v-if="lockOwner" :owner="lockOwner" :file="filePath" />
 
       <fieldset :disabled="locked" class="min-h-0 flex-1 overflow-auto">
         <StateMessage v-if="!visibleEntries.length" variant="block">
-          {{ entryName ? `No tech called "${entryName}".` : "No techs defined yet." }}
+          {{
+            entryName
+              ? `No technology called “${entryName}”.`
+              : "No technologies defined yet."
+          }}
+          <template v-if="!entryName" #action>
+            <button type="button" :class="GHOST_BUTTON" :disabled="locked" @click="addEntry">
+              <Plus class="size-3.5" />
+              Add technology
+            </button>
+          </template>
         </StateMessage>
 
-        <Accordion v-else v-model="openRows" type="multiple" class="px-2">
+        <Accordion v-else v-model="openRows" type="multiple" class="px-2 py-1">
           <EntryAccordionRow
             v-for="entry in visibleEntries"
             :key="rowKey(entry)"
             :value="rowKey(entry)"
             :name="entry.name || '(unnamed)'"
             remove-label="Remove this technology"
+            :owns="owns(entry)"
             testid="entry-row"
             @remove="removeEntry(entry)"
           >
             <template #meta>
-              <span
-                v-if="entry.base_tech"
-                class="shrink-0 rounded-xs bg-accent-soft px-1 text-2xs text-accent-text"
-              >
+              <Badge v-if="entry.base_tech" variant="outline" :class="ACCENT_BADGE">
                 {{ entry.base_tech }}
-              </span>
+              </Badge>
             </template>
 
             <!-- name is the mapping key, not a parameter. -->
@@ -291,7 +308,7 @@ function inheritedFor(entry: TechEntry) {
                 v-model="entry.name"
                 type="text"
                 data-testid="entry-name"
-                :ref="(el) => focusNameField(el, rowKey(entry))"
+                :ref="(el) => focus.bind(el, rowKey(entry))"
                 :class="FIELD"
                 @input="onChange"
               />
@@ -321,23 +338,30 @@ function inheritedFor(entry: TechEntry) {
                 onChange();
               "
             >
-              <select
-                :value="entry.base_tech ?? ''"
-                data-testid="entry-base-tech"
-                :class="FIELD"
-                @change="
-                  entry.base_tech =
-                    ($event.target as HTMLSelectElement).value || null;
+              <Select
+                :model-value="entry.base_tech ?? NONE"
+                @update:model-value="
+                  entry.base_tech = $event === NONE ? null : String($event);
                   onChange();
                 "
               >
-                <!-- Blank first: base_tech usually comes from the template,
-                     and setting it here is an override, not a requirement. -->
-                <option value="">—</option>
-                <option v-for="option in BASE_TECH_OPTIONS" :key="option" :value="option">
-                  {{ option }}
-                </option>
-              </select>
+                <SelectTrigger
+                  size="sm"
+                  class="w-full"
+                  aria-label="base_tech"
+                  data-testid="entry-base-tech"
+                >
+                  <SelectValue>{{ entry.base_tech ?? "—" }}</SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  <!-- Blank first: base_tech usually comes from the template,
+                       and setting it here is an override, not a requirement. -->
+                  <SelectItem :value="NONE">—</SelectItem>
+                  <SelectItem v-for="option in BASE_TECH_OPTIONS" :key="option" :value="option">
+                    {{ option }}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
             </FieldRow>
 
             <FieldRow

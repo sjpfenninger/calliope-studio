@@ -34,13 +34,20 @@ const MAP_SPLIT_KEY = `${KEY_PREFIX}map.split`;
 const RESULTS_LAYOUT_KEY = `${KEY_PREFIX}results.layout`;
 const RESULTS_GEOMETRY_KEY = `${KEY_PREFIX}results.geometry`;
 const CONFIG_ADVANCED_KEY = `${KEY_PREFIX}config.advanced`;
+const SECTION_VIEW_KEY = `${KEY_PREFIX}sectionView`;
+const NEW_LINK_TEMPLATE_KEY = `${KEY_PREFIX}newLinkTemplate`;
 
 /** The single-geometry keys this replaced, read once and then removed. */
 const LEGACY_RESULTS_SPLIT_KEY = `${KEY_PREFIX}results.split`;
 const LEGACY_RESULTS_COLLAPSED_KEY = `${KEY_PREFIX}results.collapsed`;
 
-/** Explorer | editor | side panel. Replaced by a 2-panel shell later. */
-const DEFAULT_SPLITTER = [20, 55, 25];
+/**
+ * Sidebar | tab area. Two entries, because that is what the shell emits: this
+ * was three from the three-panel layout the shell no longer has, and the length
+ * guard in `readSplitter` rejected every real drag as the wrong shape — so the
+ * width was written on every drag and never once read back.
+ */
+const DEFAULT_SPLITTER = [22, 78];
 
 /** Config above, CSV grid below. The grid gets the larger half. */
 const DEFAULT_DATA_TABLE_SPLIT = [40, 60];
@@ -136,10 +143,11 @@ export const useUiStore = defineStore("ui", () => {
       const stored = localStorage.getItem(SPLITTER_KEY);
       if (!stored) return [...DEFAULT_SPLITTER];
       const parsed = JSON.parse(stored) as unknown;
-      // Length-checked, because the shell's panel count changes during this
-      // migration and restoring a 3-element array into a 2-panel splitter puts
-      // one panel at a size it never asked for.
-      return Array.isArray(parsed) && parsed.length === DEFAULT_SPLITTER.length
+      // Length-checked: a three-element array from the old shell restored into
+      // two panels puts one of them at a size it never asked for.
+      return Array.isArray(parsed) &&
+        parsed.length === DEFAULT_SPLITTER.length &&
+        parsed.every((size) => typeof size === "number" && Number.isFinite(size))
         ? (parsed as number[])
         : [...DEFAULT_SPLITTER];
     } catch {
@@ -364,14 +372,32 @@ export const useUiStore = defineStore("ui", () => {
    * every time the tab was switched away from and back. Per *section*
    * rather than per tab: two files' nodes are still the same kind of thing to
    * look at, and this matches how the toggle behaved before.
+   *
+   * Persisted, like the splitters beside it: the docstring above argues the
+   * choice must not reset on a tab switch, and a reload is the same loss one
+   * step later. It was the one field here with that argument and no storage.
    */
-  const sectionView = ref<Record<MappableSection, EditorView>>({
-    nodes: "map",
-    links: "map",
-  });
+  const sectionView = ref<Record<MappableSection, EditorView>>(readSectionView());
+
+  function readSectionView(): Record<MappableSection, EditorView> {
+    const views: Record<MappableSection, EditorView> = { nodes: "map", links: "map" };
+    try {
+      const stored = localStorage.getItem(SECTION_VIEW_KEY);
+      if (!stored) return views;
+      const parsed = JSON.parse(stored) as Record<string, unknown>;
+      for (const section of Object.keys(views) as MappableSection[]) {
+        const view = parsed?.[section];
+        if (view === "map" || view === "structured") views[section] = view;
+      }
+      return views;
+    } catch {
+      return views;
+    }
+  }
 
   function setSectionView(section: MappableSection, view: EditorView) {
-    sectionView.value[section] = view;
+    sectionView.value = { ...sectionView.value, [section]: view };
+    writeStorage(SECTION_VIEW_KEY, JSON.stringify(sectionView.value));
   }
 
   function toggleSectionView(section: MappableSection) {
@@ -384,9 +410,22 @@ export const useUiStore = defineStore("ui", () => {
    * A bare `base_tech: transmission` is not yet a usable technology — it has no
    * carriers and no costs — and in practice a model's links are all variations on
    * one or two templates, so the picker is set once and then every link drawn
-   * inherits from it.
+   * inherits from it. Set once is the argument for keeping it across sessions
+   * too — a model's templates do not change between one evening and the next.
    */
-  const newLinkTemplate = ref<string | null>(null);
+  const newLinkTemplate = ref<string | null>(readNewLinkTemplate());
+
+  function readNewLinkTemplate(): string | null {
+    try {
+      return localStorage.getItem(NEW_LINK_TEMPLATE_KEY) || null;
+    } catch {
+      return null;
+    }
+  }
+
+  // A watch rather than a setter: `LinksEditor` assigns the field directly from
+  // its picker, and a setter it does not call would persist nothing.
+  watch(newLinkTemplate, (template) => writeStorage(NEW_LINK_TEMPLATE_KEY, template));
 
   // ── The config editor's advanced fields ──────────────────────────────────
 

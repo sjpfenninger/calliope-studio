@@ -16,6 +16,7 @@
  */
 import { Lock } from "@lucide/vue";
 
+import Banner from "./Banner.vue";
 import { GHOST_BUTTON, IDENTIFIER } from "@/lib/formClasses";
 import { useConfirmStore } from "@/stores/confirm";
 import { useSectionDataStore } from "@/stores/sectionData";
@@ -51,26 +52,21 @@ async function discard(): Promise<void> {
 </script>
 
 <template>
-  <div
-    role="status"
-    data-testid="locked-banner"
-    class="flex h-8 shrink-0 items-center gap-2 border-b border-border bg-warning-soft px-2 text-sm text-warning-text"
-  >
-    <Lock class="size-3.5 shrink-0" />
-    <span class="min-w-0 flex-1 truncate">
-      <span :class="IDENTIFIER">{{ file }}</span> has unsaved changes in
-      <span class="font-medium">{{ owner.title }}</span>. Save or discard them to edit here.
-    </span>
-    <button type="button" :class="GHOST_BUTTON" data-testid="locked-go" @click="goThere">
-      Go there
-    </button>
-    <button
-      type="button"
-      :class="GHOST_BUTTON"
-      data-testid="locked-discard"
-      @click="discard"
-    >
-      Discard those changes
-    </button>
-  </div>
+  <Banner tone="warning" :icon="Lock" testid="locked-banner">
+    <span :class="IDENTIFIER">{{ file }}</span> has unsaved changes in
+    <span class="font-medium">{{ owner.title }}</span>. Save or discard them to edit here.
+    <template #action>
+      <button type="button" :class="GHOST_BUTTON" data-testid="locked-go" @click="goThere">
+        Go there
+      </button>
+      <button
+        type="button"
+        :class="GHOST_BUTTON"
+        data-testid="locked-discard"
+        @click="discard"
+      >
+        Discard those changes
+      </button>
+    </template>
+  </Banner>
 </template>

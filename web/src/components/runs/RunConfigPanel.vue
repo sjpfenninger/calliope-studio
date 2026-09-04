@@ -25,14 +25,15 @@ import InfoTip from "@/components/app/InfoTip.vue";
 import Eyebrow from "@/components/app/Eyebrow.vue";
 import { FileWarning } from "@lucide/vue";
 
+import { Badge } from "@/components/ui/badge";
 import { Tree } from "@/components/ui/tree";
 import { errorDetail } from "@/api/errors";
 import { getSnapshot, getSnapshotCsv, getSnapshotFile, listSnapshotFiles } from "@/api/runs";
 import { fetchSummary } from "@/api/results";
 import { buildFileTree, type FileEntry, type FileTreeNode } from "@/lib/fileTree";
-import { formatBytes } from "@/lib/format";
+import { formatBytes, formatCount } from "@/lib/format";
 import { fileIcon } from "@/lib/icons";
-import { CODE_BLOCK } from "@/lib/formClasses";
+import { CODE_BLOCK, FIELD_WIDTH, WARNING_BADGE } from "@/lib/formClasses";
 
 const props = defineProps<{ runId: string; handle: string | null }>();
 
@@ -184,11 +185,10 @@ const viewSegments = computed(() => [
           external.map((entry) => `${entry.reference} — ${entry.reason}`).join('\n')
         "
       >
-        <span class="inline-flex items-center gap-1 text-2xs text-warning-text">
-          <FileWarning class="size-3" />
-          {{ external.length }} {{ external.length === 1 ? "file" : "files" }} outside
-          the model folder
-        </span>
+        <Badge variant="outline" :class="WARNING_BADGE">
+          <FileWarning />
+          {{ formatCount(external.length, "file") }} outside the model folder
+        </Badge>
       </InfoTip>
     </PanelHeader>
 
@@ -221,7 +221,7 @@ const viewSegments = computed(() => [
         <template #trailing="{ item }">
           <span
             v-if="(item as FileTreeNode).size !== undefined"
-            class="ml-auto shrink-0 text-2xs tabular-nums text-text-faint"
+            class="ml-auto shrink-0 text-2xs tabular-nums text-text-muted"
           >
             {{ formatBytes((item as FileTreeNode).size ?? 0) }}
           </span>
@@ -241,13 +241,16 @@ const viewSegments = computed(() => [
           >{{ content }}</pre
         >
 
+        <!-- Row heights match AG Grid's `--cg-row-h`: the same CSV opens in a
+             grid one tab away, and a table of the same file at two rhythms
+             reads as two different files. -->
         <table v-else-if="csv" class="w-full text-sm">
           <thead class="sticky top-0 bg-panel">
             <tr>
               <th
                 v-for="column in csv.columns"
                 :key="column.name"
-                class="border-b border-border px-2 py-1 text-left font-medium"
+                class="border-b border-border px-2 py-1.5 text-left font-medium"
               >
                 {{ column.name }}
               </th>
@@ -258,7 +261,7 @@ const viewSegments = computed(() => [
               <td
                 v-for="(cell, cellIndex) in row"
                 :key="cellIndex"
-                class="border-b border-border-subtle px-2 py-0.5 tabular-nums"
+                class="border-b border-border-subtle px-2 py-1 tabular-nums"
               >
                 {{ cell }}
               </td>
@@ -276,16 +279,16 @@ const viewSegments = computed(() => [
 
       <template v-else>
         <section v-for="section in SECTIONS" :key="section.key" class="mb-3">
-          <Eyebrow>
+          <Eyebrow class="mb-1">
             {{ section.label }}
           </Eyebrow>
-          <dl class="rounded-sm border border-border">
+          <dl class="rounded-md border border-border">
             <div
               v-for="(value, key) in summary[section.key]"
               :key="key"
-              class="flex gap-2 border-b border-border-subtle px-2 py-0.5 text-sm last:border-b-0"
+              class="flex gap-2 border-b border-border-subtle px-2 py-1 text-sm last:border-b-0"
             >
-              <dt class="w-56 shrink-0 truncate text-text-dim">{{ key }}</dt>
+              <dt :class="[FIELD_WIDTH.wide, 'truncate text-text-dim']">{{ key }}</dt>
               <!-- design-check: allow native-title — the same string the `dd`
                    prints, unclipped. -->
               <dd class="min-w-0 flex-1 truncate" :title="display(value)">

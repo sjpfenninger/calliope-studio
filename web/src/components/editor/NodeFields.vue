@@ -16,17 +16,19 @@
  * turns them into its own with the inherited pair still visible, struck through,
  * beside a button that puts them back.
  */
-import { computed } from "vue";
+import { computed, ref } from "vue";
 import { Plus, X } from "@lucide/vue";
 
 import ParamRows from "./ParamRows.vue";
 import FieldRow from "@/components/app/FieldRow.vue";
+import StateMessage from "@/components/app/StateMessage.vue";
 import TooltipButton from "@/components/app/TooltipButton.vue";
 import { Switch } from "@/components/ui/switch";
 import Eyebrow from "@/components/app/Eyebrow.vue";
-import { FIELD } from "@/lib/formClasses";
+import { FIELD, SECTION } from "@/lib/formClasses";
+import { focusNextFrame, useFocusNew } from "./focusNew";
 
-import type { NodeEntry } from "@/lib/entries";
+import { rowKey, type NodeEntry } from "@/lib/entries";
 import { collectInherited, nodeSetsKey } from "@/lib/inherited";
 import type { DataTableParam } from "@/lib/dataTableParams";
 
@@ -45,6 +47,13 @@ const emit = defineEmits<{ change: [] }>();
 function onChange() {
   emit("change");
 }
+
+const nameField = ref<HTMLInputElement | null>(null);
+/** For the editor that just added this node; see `focusNew`. */
+defineExpose({ focusName: () => focusNextFrame(nameField.value) });
+
+/** The name of a technology just added below takes the cursor. */
+const focus = useFocusNew();
 
 /** Keys the form has a field for, so they get no ghost parameter row. */
 const PROMOTED = ["template", "active", "latitude", "longitude", "techs"];
@@ -70,6 +79,7 @@ function setCoordinate(key: "latitude" | "longitude", raw: string) {
 
 function addTech() {
   props.entry.techs.push({ techName: "", params: [] });
+  focus.request(rowKey(props.entry.techs[props.entry.techs.length - 1]));
   onChange();
 }
 
@@ -83,6 +93,7 @@ function removeTech(index: number) {
   <div class="flex flex-col gap-2 pb-2">
     <FieldRow label="name" width="short">
       <input
+        ref="nameField"
         v-model="entry.name"
         type="text"
         data-testid="node-name"
@@ -173,15 +184,17 @@ function removeTech(index: number) {
     />
 
     <!-- Per-node technology overrides: the same tech, tuned here. -->
-    <div class="flex flex-col gap-1.5 rounded-sm border border-border p-2">
+    <div :class="SECTION">
       <div class="flex items-center justify-between">
-        <Eyebrow class="mb-0">techs</Eyebrow>
-        <TooltipButton label="Add a technology" :icon="Plus" @click="addTech" />
+        <Eyebrow>techs</Eyebrow>
+        <TooltipButton label="Add a technology" :icon="Plus" size="xs" @click="addTech" />
       </div>
 
+      <!-- Keyed by identity: removing one used to hand the next one's name to
+           a component still holding the removed one's parameter drafts. -->
       <div
         v-for="(techOvr, ti) in entry.techs"
-        :key="ti"
+        :key="rowKey(techOvr)"
         class="flex flex-col gap-1 border-t border-border-subtle pt-1.5 first:border-t-0 first:pt-0"
       >
         <FieldRow :label="techOvr.techName">
@@ -189,7 +202,8 @@ function removeTech(index: number) {
             <input
               v-model="techOvr.techName"
               type="text"
-              placeholder="tech name"
+              placeholder="technology name"
+              :ref="(el) => focus.bind(el, rowKey(techOvr))"
               :class="FIELD"
               @input="onChange"
             />
@@ -199,6 +213,7 @@ function removeTech(index: number) {
               label="Remove this technology"
               :icon="X"
               tone="danger"
+              size="xs"
               @click="removeTech(ti)"
             />
           </template>
@@ -211,9 +226,9 @@ function removeTech(index: number) {
         />
       </div>
 
-      <p v-if="!entry.techs.length" class="text-2xs text-text-faint">
-        No techs assigned.
-      </p>
+      <StateMessage v-if="!entry.techs.length" variant="note">
+        No technologies assigned.
+      </StateMessage>
     </div>
   </div>
 </template>

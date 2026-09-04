@@ -21,6 +21,14 @@ import { withSiblingSchemas } from "../lib/calliopeSchema";
 export const useSchemaStore = defineStore("schema", () => {
   const resolved = ref<Record<string, any> | null>(null);
   const isLoaded = ref(false);
+  /**
+   * True once a fetch has failed.
+   *
+   * Distinct from `!isLoaded`, which is also the state before anyone asked. A
+   * config editor with no schema draws only the one field it knows by hand, and
+   * with nothing to say why, that looked like the model having no settings.
+   */
+  const unavailable = ref(false);
 
   /** Recursively resolve all $ref pointers using the schema's $defs. */
   function deref(
@@ -70,8 +78,13 @@ export const useSchemaStore = defineStore("schema", () => {
       // that does carry refs and a config editor rendering `$ref` as a field.
       resolved.value = Object.keys(defs).length ? deref(schema, defs) : schema;
       isLoaded.value = true;
-    } catch {
-      // Schema unavailable — editors degrade gracefully (no auto-detected fields).
+      unavailable.value = false;
+    } catch (caught) {
+      // The editors degrade to the fields they draw by hand, but not silently:
+      // this used to swallow the error whole, and the config form went empty
+      // with nothing anywhere to say the schema had failed to arrive.
+      unavailable.value = true;
+      console.error("The Calliope schema could not be read.", caught);
     }
   }
 
@@ -90,5 +103,5 @@ export const useSchemaStore = defineStore("schema", () => {
     return cursor;
   }
 
-  return { resolved, isLoaded, load, subschema };
+  return { resolved, isLoaded, unavailable, load, subschema };
 });

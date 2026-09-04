@@ -1,5 +1,6 @@
 import { createPinia, setActivePinia } from "pinia";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { nextTick } from "vue";
 
 import { useUiStore } from "./ui";
 
@@ -157,31 +158,40 @@ describe("useUiStore", () => {
   });
 
   describe("splitter geometry", () => {
-    it("defaults to the three-panel layout", () => {
+    it("defaults to the two-panel shell", () => {
       stubMatchMedia(false);
-      expect(useUiStore().splitterSizes).toEqual([20, 55, 25]);
+      expect(useUiStore().splitterSizes).toEqual([22, 78]);
     });
 
-    it("round-trips through localStorage", () => {
+    it("round-trips the two sizes the shell emits", () => {
+      // The default used to be three elements, and the length guard below
+      // therefore rejected every array the shell actually wrote — so the
+      // sidebar width was saved on every drag and restored never.
       stubMatchMedia(false);
-      useUiStore().setSplitterSizes([10, 70, 20]);
+      useUiStore().setSplitterSizes([30, 70]);
 
       setActivePinia(createPinia());
-      expect(useUiStore().splitterSizes).toEqual([10, 70, 20]);
+      expect(useUiStore().splitterSizes).toEqual([30, 70]);
     });
 
     it("ignores a stored layout with the wrong number of panels", () => {
-      // The shell's panel count changes during this migration; restoring three
-      // sizes into two panels puts a panel at a width it never asked for.
-      localStorage.setItem("calliope-studio.splitter.sizes", JSON.stringify([50, 50]));
+      // What the three-panel shell left behind; restoring it into two panels
+      // puts a panel at a width it never asked for.
+      localStorage.setItem(
+        "calliope-studio.splitter.sizes",
+        JSON.stringify([20, 55, 25]),
+      );
       stubMatchMedia(false);
-      expect(useUiStore().splitterSizes).toEqual([20, 55, 25]);
+      expect(useUiStore().splitterSizes).toEqual([22, 78]);
     });
 
     it("ignores corrupt stored geometry", () => {
       localStorage.setItem("calliope-studio.splitter.sizes", "not json");
       stubMatchMedia(false);
-      expect(useUiStore().splitterSizes).toEqual([20, 55, 25]);
+      expect(useUiStore().splitterSizes).toEqual([22, 78]);
+      localStorage.setItem("calliope-studio.splitter.sizes", JSON.stringify(["a", null]));
+      setActivePinia(createPinia());
+      expect(useUiStore().splitterSizes).toEqual([22, 78]);
     });
 
     it("survives a localStorage that refuses to be written", () => {
@@ -201,7 +211,7 @@ describe("useUiStore", () => {
         });
 
       try {
-        expect(() => ui.setSplitterSizes([10, 70, 20])).not.toThrow();
+        expect(() => ui.setSplitterSizes([10, 90])).not.toThrow();
         expect(() => ui.setPreference("dark")).not.toThrow();
         expect(() => ui.setResultsLayout("beside")).not.toThrow();
         expect(() => ui.setConfigAdvanced("init", true)).not.toThrow();
@@ -211,7 +221,7 @@ describe("useUiStore", () => {
 
       // The setting still applies this session; only its memory of tomorrow is
       // gone, which is the whole of what these keys are for.
-      expect(ui.splitterSizes).toEqual([10, 70, 20]);
+      expect(ui.splitterSizes).toEqual([10, 90]);
       expect(ui.preference).toBe("dark");
       expect(ui.resultsLayout).toBe("beside");
     });
@@ -422,6 +432,39 @@ describe("useUiStore", () => {
     it("remembers no template for new links until one is picked", () => {
       stubMatchMedia(false);
       expect(useUiStore().newLinkTemplate).toBeNull();
+    });
+
+    it("keeps the chosen view across a reload", () => {
+      // The field's own docstring argues it must not reset on a tab switch; a
+      // reload was the same loss one step later, and this was the one field in
+      // the store with that argument and no storage behind it.
+      stubMatchMedia(false);
+      useUiStore().setSectionView("nodes", "structured");
+
+      setActivePinia(createPinia());
+      const ui = useUiStore();
+      expect(ui.sectionView.nodes).toBe("structured");
+      expect(ui.sectionView.links).toBe("map");
+    });
+
+    it("ignores a stored view it does not have", () => {
+      localStorage.setItem(
+        "calliope-studio.sectionView",
+        JSON.stringify({ nodes: "globe", links: "structured" }),
+      );
+      stubMatchMedia(false);
+      expect(useUiStore().sectionView).toEqual({ nodes: "map", links: "structured" });
+    });
+
+    it("keeps the link template across a reload, however it was set", async () => {
+      // `LinksEditor` assigns the field directly rather than through a setter,
+      // so the persistence has to watch the value rather than wait to be called.
+      stubMatchMedia(false);
+      useUiStore().newLinkTemplate = "power_lines";
+      await nextTick();
+
+      setActivePinia(createPinia());
+      expect(useUiStore().newLinkTemplate).toBe("power_lines");
     });
   });
 });

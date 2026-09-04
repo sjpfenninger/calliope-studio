@@ -22,7 +22,7 @@ import { cn } from "@/lib/utils";
 const props = withDefaults(
   defineProps<{
     /** `inline` sits in a list; `block` centres in flow; `fill` fills its parent. */
-    variant?: "inline" | "block" | "fill";
+    variant?: "inline" | "block" | "fill" | "note";
     tone?: "muted" | "danger" | "warning";
     loading?: boolean;
     /** Drawn above the message. Ignored while loading, which has its own. */
@@ -42,6 +42,10 @@ const TONE = {
 
 const LAYOUT = {
   inline: "flex items-center gap-1.5 p-3 text-sm",
+  // A note under a heading, in a sidebar or a dialog: `inline` without the
+  // padding a list row needs. Nine call sites had gone around the component to
+  // get this, and every one of them came back a size smaller and a tone fainter.
+  note: "flex items-center gap-1.5 text-sm",
   block: "grid place-items-center gap-1.5 p-6 text-center text-sm",
   fill: "grid h-full w-full place-items-center gap-1.5 p-6 text-center text-sm",
 } as const;

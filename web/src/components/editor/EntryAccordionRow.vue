@@ -8,6 +8,11 @@
  * The `#meta` slot renders *inside* the trigger, which two of the five already
  * did and three did not; putting a badge outside the trigger means clicking it
  * does not toggle the row, which is a small trap with no upside.
+ *
+ * **Remove asks first.** An entry owns things — a technology its parameters, an
+ * override its settings — and the row is where all five editors take one out,
+ * so the question is asked here, once, in `removalRequest`'s words. `remove`
+ * is emitted only on a yes.
  */
 import {
   AccordionContent,
@@ -16,14 +21,18 @@ import {
 } from "@/components/ui/accordion";
 import { Trash2 } from "@lucide/vue";
 import TooltipButton from "../app/TooltipButton.vue";
+import { removalRequest } from "@/composables/useSectionEditor";
+import { useConfirmStore } from "@/stores/confirm";
 
-defineProps<{
+const props = defineProps<{
   /** The AccordionItem value; use `rowKey` so it stays stable across a rename. */
   value: string;
-  /** The entry's name, shown monospace as the row's title. */
+  /** The entry's name, shown as the row's title. */
   name: string;
   /** Tooltip on the remove button, e.g. "Remove this technology". */
   removeLabel: string;
+  /** What goes with the entry, for the confirmation: "12 parameters". */
+  owns?: string;
   /**
    * The row's own testid, on the `AccordionItem` — so Reka's `data-state` and
    * the `data-name` below sit on the element a check selects, and open-versus-
@@ -32,7 +41,13 @@ defineProps<{
   testid?: string;
 }>();
 
-defineEmits<{ remove: [] }>();
+const emit = defineEmits<{ remove: [] }>();
+
+const confirm = useConfirmStore();
+
+async function remove(): Promise<void> {
+  if (await confirm.ask(removalRequest(props.name, props.owns ?? ""))) emit("remove");
+}
 </script>
 
 <template>
@@ -49,8 +64,9 @@ defineEmits<{ remove: [] }>();
         :label="removeLabel"
         :icon="Trash2"
         tone="danger"
+        size="xs"
         testid="entry-remove"
-        @click="$emit('remove')"
+        @click="remove"
       />
     </div>
     <AccordionContent>

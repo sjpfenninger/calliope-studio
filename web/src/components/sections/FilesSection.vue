@@ -145,13 +145,13 @@ function open(node: FileTreeNode, event: MouseEvent | KeyboardEvent) {
       <!-- Both label their target, because where a new entry lands depends on
            what is selected and that is not otherwise visible from the strip. -->
       <TooltipButton
-        :label="`New file in ${parent || 'the model folder'}`"
+        :label="`New file in ${parent || 'the model folder'}…`"
         :icon="FilePlus"
         testid="new-file"
         @click="creating = 'file'"
       />
       <TooltipButton
-        :label="`New folder in ${parent || 'the model folder'}`"
+        :label="`New folder in ${parent || 'the model folder'}…`"
         :icon="FolderPlus"
         testid="new-folder"
         @click="creating = 'folder'"
@@ -178,8 +178,28 @@ function open(node: FileTreeNode, event: MouseEvent | KeyboardEvent) {
 
     <!-- Above the tree, not instead of it: the `role="tree"` element stays
          mounted, so every `data-testid` selector keeps resolving, and an empty
-         `flex-1` list below the message costs nothing to look at. -->
-    <StateMessage v-if="isEmpty" variant="inline" :icon="SearchX">
+         `flex-1` list below the message costs nothing to look at.
+
+         The store's own docstring says a model whose files cannot be listed
+         must not look like one with no files — and then nothing rendered the
+         error it set, so it did. -->
+    <StateMessage
+      v-if="version.error"
+      variant="inline"
+      tone="danger"
+      data-testid="file-tree-error"
+    >
+      {{ version.error }}
+    </StateMessage>
+    <StateMessage
+      v-else-if="version.isLoading && !nodes.length"
+      variant="inline"
+      loading
+      data-testid="file-tree-loading"
+    >
+      Reading the model's files…
+    </StateMessage>
+    <StateMessage v-else-if="isEmpty" variant="inline" :icon="SearchX">
       No file matches “{{ query }}”
     </StateMessage>
 

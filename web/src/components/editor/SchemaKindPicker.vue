@@ -26,6 +26,7 @@ import {
 import InfoTip from "@/components/app/InfoTip.vue";
 import TooltipButton from "@/components/app/TooltipButton.vue";
 import type { FileKind } from "@/lib/calliopeSchema";
+import { FIELD_LABEL } from "@/lib/formClasses";
 import { useSchemaKindsStore } from "@/stores/schemaKinds";
 
 const props = defineProps<{ path: string }>();
@@ -48,7 +49,7 @@ function choose(value: unknown) {
 
 <template>
   <div class="flex items-center gap-1" data-testid="schema-kind">
-    <span class="text-2xs text-text-faint">Schema</span>
+    <span :class="FIELD_LABEL">Schema</span>
     <!-- The tooltip wraps the whole `Select`, not its trigger. A Reka `Tooltip`
          provides a popper context of its own, so one sitting *between* a popper
          root and its trigger shadows the root's: the trigger registers its

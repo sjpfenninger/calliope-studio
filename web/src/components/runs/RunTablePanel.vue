@@ -35,6 +35,8 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useResultFrame } from "@/composables/useResultFrame";
 import { RESOLUTION_LABELS, SUM_LABELS, keepOne } from "@/lib/chartControls";
 import { saveText } from "@/lib/download";
+import { formatCount } from "@/lib/format";
+import { FIELD_LABEL, FIELD_WIDTH, SOFT_DISABLED } from "@/lib/formClasses";
 import { csvFilename, frameToCsv } from "@/lib/frameCsv";
 import { frameToGrid } from "@/lib/tableRows";
 import { useRoundingStore } from "@/stores/rounding";
@@ -119,14 +121,14 @@ function chooseResolution(next: unknown): string {
 
 <template>
   <div class="flex min-h-0 flex-1" data-testid="run-table">
-    <RunFilterPanel class="w-52 shrink-0" />
+    <RunFilterPanel />
 
     <main class="flex min-h-0 flex-1 flex-col">
       <PanelHeader wrap>
         <PanelTitle>Data</PanelTitle>
 
         <Select v-model="store.variableTable">
-          <SelectTrigger size="sm" class="w-40" data-testid="table-variable">
+          <SelectTrigger size="sm" :class="FIELD_WIDTH.short" data-testid="table-variable">
             <SelectValue placeholder="Variable" />
           </SelectTrigger>
           <SelectContent>
@@ -156,9 +158,7 @@ function chooseResolution(next: unknown): string {
               :key="name"
               :value="name"
               :aria-disabled="Boolean(store.resampleLock(store.variableTable))"
-              :class="
-                store.resampleLock(store.variableTable) && 'cursor-default opacity-50'
-              "
+              :class="store.resampleLock(store.variableTable) && SOFT_DISABLED"
             >
               {{ RESOLUTION_LABELS[name] ?? name }}
             </ToggleGroupItem>
@@ -181,10 +181,7 @@ function chooseResolution(next: unknown): string {
             <ToggleGroupItem
               :value="option"
               :aria-disabled="Boolean(store.sumLock(store.variableTable, option))"
-              :class="
-                store.sumLock(store.variableTable, option) &&
-                'cursor-default opacity-50'
-              "
+              :class="store.sumLock(store.variableTable, option) && SOFT_DISABLED"
             >
               {{ SUM_LABELS[option] }}
             </ToggleGroupItem>
@@ -197,7 +194,7 @@ function chooseResolution(next: unknown): string {
         <InfoTip
           label="A model defines every variable over the full cross product of its dimensions, so most combinations hold nothing at all."
         >
-          <label class="flex items-center gap-1.5 text-2xs text-text-muted">
+          <label :class="['flex items-center gap-1.5', FIELD_LABEL]">
             <Switch
               v-model="store.tableDropEmpty"
               data-testid="table-drop-empty"
@@ -212,11 +209,10 @@ function chooseResolution(next: unknown): string {
              empty" on a real model is what makes this worth showing. -->
         <span
           v-if="seriesCount"
-          class="shrink-0 text-2xs text-text-faint"
+          class="shrink-0 text-2xs text-text-muted"
           data-testid="table-size"
         >
-          {{ rowCount.toLocaleString() }} rows × {{ seriesCount.toLocaleString() }}
-          series
+          {{ formatCount(rowCount, "row") }} × {{ formatCount(seriesCount, "series", "series") }}
         </span>
 
         <TooltipButton

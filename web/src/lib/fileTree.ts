@@ -51,7 +51,18 @@ export interface FileTreeNode {
  */
 function byKind(a: FileTreeNode, b: FileTreeNode): number {
   if (a.leaf !== b.leaf) return a.leaf ? 1 : -1;
-  return a.label.localeCompare(b.label, undefined, { numeric: true });
+  return compareNames(a.label, b.label);
+}
+
+/**
+ * The one comparator for names a user wrote: `node_10` after `node_9`, and
+ * case-insensitive, which is how a folder listing reads and how every other
+ * list of identifiers in the app — inherited parameters, filter sections, the
+ * model tree — should read too. A bare `.sort()` puts `Z` before `a` and
+ * `node_10` before `node_2`.
+ */
+export function compareNames(a: string, b: string): number {
+  return a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
 }
 
 function sortTree(nodes: FileTreeNode[]): FileTreeNode[] {

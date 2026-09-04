@@ -10,8 +10,10 @@ import * as versions from "@/api/versions";
 import { useComponentTreeStore } from "@/stores/componentTree";
 import { useTabsStore } from "@/stores/tabs";
 import {
+  answerConfirm,
   mountEditor,
   resetVersionsApi,
+  saveByKeyboard,
   section,
   type MountedEditor,
   type VersionsApi,
@@ -58,8 +60,7 @@ describe("ScenariosEditor", () => {
     const mounted = await mountEditor(ScenariosEditor, { section: "scenarios" });
     expect(listed(mounted)).toEqual([["cheap_gas"]]);
 
-    await mounted.find("save").trigger("click");
-    await flushPromises();
+    await saveByKeyboard(mounted);
     expect(lastWrite()).toEqual({ solo: ["cheap_gas"] });
   });
 
@@ -113,13 +114,30 @@ describe("ScenariosEditor", () => {
     expect(lastWrite()).toEqual({ s: ["a"] });
   });
 
-  it("removes an override from a scenario", async () => {
+  it("removes an override from a scenario without asking", async () => {
+    // A bare name inside a scenario owns nothing; only the scenario does.
     api.readYamlSection.mockResolvedValue(section({ s: ["a", "b"] }));
     const mounted = await mountEditor(ScenariosEditor, { section: "scenarios" });
-    await arrow(mounted, "Remove", 0).trigger("click");
+    await arrow(mounted, "Remove a", 0).trigger("click");
     expect(listed(mounted)).toEqual([["b"]]);
     await mounted.find("save").trigger("click");
     await flushPromises();
     expect(lastWrite()).toEqual({ s: ["b"] });
+  });
+
+  it("removes a scenario only once the question is answered yes", async () => {
+    api.readYamlSection.mockResolvedValue(section({ s: ["a"], t: ["b"] }));
+    const mounted = await mountEditor(ScenariosEditor, { section: "scenarios" });
+    await mounted.findAll("entry-remove")[0]!.trigger("click");
+    await answerConfirm(false);
+    expect(mounted.findAll("scenario")).toHaveLength(2);
+    expect(useTabsStore().get(mounted.tabId)?.isDirty).toBe(false);
+
+    await mounted.findAll("entry-remove")[0]!.trigger("click");
+    await answerConfirm(true);
+    expect(mounted.findAll("scenario")).toHaveLength(1);
+    await mounted.find("save").trigger("click");
+    await flushPromises();
+    expect(lastWrite()).toEqual({ t: ["b"] });
   });
 });

@@ -34,10 +34,16 @@ const props = withDefaults(
      * on — expand something else first.
      */
     lockedReason?: string;
+    /**
+     * `xs` (20px) in a flow beside an `Eyebrow`; `sm` (24px) in a 32px header,
+     * where the controls it sits beside are 24px and a 20px title read as a
+     * step smaller than its own picker.
+     */
+    size?: "xs" | "sm";
     testid?: string;
     class?: HTMLAttributes["class"];
   }>(),
-  { lockedReason: "", testid: undefined },
+  { lockedReason: "", size: "xs", testid: undefined },
 );
 
 const emit = defineEmits<{ toggle: [] }>();
@@ -54,7 +60,8 @@ const emit = defineEmits<{ toggle: [] }>();
       :data-testid="props.testid"
       :class="
         cn(
-          'flex h-5 min-w-0 shrink-0 items-center gap-1 rounded-xs px-1',
+          'flex min-w-0 shrink-0 items-center gap-1 px-1',
+          props.size === 'sm' ? 'h-6 rounded-sm' : 'h-5 rounded-xs',
           'transition-colors hover:bg-hover',
           '[&[data-state=open]>svg]:rotate-0 [&[data-state=closed]>svg]:-rotate-90',
           props.lockedReason && 'cursor-default opacity-50 hover:bg-transparent',

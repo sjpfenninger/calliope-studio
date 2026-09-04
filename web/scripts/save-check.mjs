@@ -27,7 +27,7 @@
  */
 import { parse } from "yaml";
 
-import { health, open, requireMode, results, trackRequests } from "./harness.mjs";
+import { health, MOD, open, requireMode, results, trackRequests } from "./harness.mjs";
 
 const BASE = process.argv[2] ?? "http://127.0.0.1:8000";
 
@@ -100,8 +100,14 @@ page.on("request", (request) => {
   }
 });
 
-/** Saves, and waits for the write to land rather than for a guessed second. */
-const save = () => calls.settle(() => testId("save").click(), { timeout: 30000 });
+/**
+ * Saves, and waits for the write to land rather than for a guessed second.
+ *
+ * Through the keyboard: the toolbar's Save button is disabled while the form
+ * is clean, and a clean form is exactly what this check saves. Cmd+S goes
+ * through the same composable and the same write.
+ */
+const save = () => calls.settle(() => page.keyboard.press(`${MOD}+s`), { timeout: 30000 });
 
 console.log(`No-op save at ${BASE}`);
 await page.goto(`${BASE}${payload.landing}`, { waitUntil: "domcontentloaded" });
@@ -129,7 +135,7 @@ for (const [section, file] of SECTIONS) {
 
   if (MAPPABLE.has(section)) {
     check(`${section}: opens on the map`, (await testId("editor-map").count()) === 1);
-    await testId("view-toggle").click();
+    await testId("view-list").click();
     await testId("editor-map").waitFor({ state: "detached", timeout: 20000 }).catch(() => {});
     check(
       `${section}: the toggle reaches the list`,

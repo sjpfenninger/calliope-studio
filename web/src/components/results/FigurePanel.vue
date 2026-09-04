@@ -15,6 +15,7 @@
  */
 import { inject, onBeforeUnmount, ref } from "vue";
 
+import Panel from "@/components/app/Panel.vue";
 import PanelDisclosure from "@/components/app/PanelDisclosure.vue";
 import PanelHeader from "@/components/app/PanelHeader.vue";
 import PanelTitle from "@/components/app/PanelTitle.vue";
@@ -69,17 +70,17 @@ const binding = panels.bindingFor(props.figure);
     @expand="panels.onPanelState(props.figure, false)"
   >
     <div class="h-full min-h-0 px-2 py-1">
-      <section
-        class="flex h-full min-h-0 flex-col rounded-sm border border-border bg-surface"
-        :data-testid="`figure-${props.figure}`"
-      >
-        <PanelHeader ref="header" tone="card" wrap class="gap-2">
+      <Panel class="h-full" :data-testid="`figure-${props.figure}`">
+        <PanelHeader ref="header" tone="card" wrap>
+          <!-- `sm`, the height of the pickers beside it: at `xs` the figure's
+               own title was a step smaller than its variable picker. -->
           <PanelDisclosure
             v-if="panels.isCollapsible(props.figure)"
             :label="props.label"
             :locked-reason="panels.lockedReason(props.figure)"
             :open="panels.isOpen(props.figure)"
             :testid="props.testid"
+            size="sm"
             @toggle="panels.toggle(props.figure)"
           >
             {{ props.title }}
@@ -88,7 +89,7 @@ const binding = panels.bindingFor(props.figure);
                card would need a horizontal title bar. The title keeps the
                chevron's box so the header's controls do not shift when the
                layout changes under them. -->
-          <span v-else class="flex h-5 min-w-0 shrink-0 items-center px-1">
+          <span v-else class="flex h-6 min-w-0 shrink-0 items-center px-1">
             <PanelTitle>{{ props.title }}</PanelTitle>
           </span>
 
@@ -103,7 +104,7 @@ const binding = panels.bindingFor(props.figure);
         >
           <slot />
         </div>
-      </section>
+      </Panel>
     </div>
   </ResizablePanel>
 </template>

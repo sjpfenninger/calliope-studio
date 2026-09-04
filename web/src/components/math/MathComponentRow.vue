@@ -14,7 +14,7 @@
 import { computed } from "vue";
 
 import { Badge } from "@/components/ui/badge";
-import { WARNING_BADGE } from "@/lib/formClasses";
+import { ACCENT_BADGE, WARNING_BADGE } from "@/lib/formClasses";
 import { componentKey, useMathStore } from "@/stores/math";
 import type { MathComponent } from "@/api/versions";
 
@@ -33,24 +33,26 @@ const isSelected = computed(() => key.value === math.selectedKey);
  * Deactivated rows are muted rather than badged.
  *
  * They sit under their own heading, so a badge on each would repeat what the
- * heading above them already says, in the densest part of the app.
+ * heading above them already says, in the densest part of the app. A resting
+ * row is `text-text-dim`, the tone a tree row rests at, so the two lists a
+ * sidebar-width apart read as one kind of thing.
  */
 const tone = computed(() => {
   if (isSelected.value) return "bg-accent-soft text-accent-text";
   if (props.component.deactivated) return "text-text-muted hover:bg-hover";
-  return "text-foreground hover:bg-hover";
+  return "text-text-dim hover:bg-hover";
 });
 </script>
 
 <template>
   <button
     type="button"
-    class="flex w-full items-center gap-1 px-2 py-0.5 text-left text-sm"
+    class="flex h-6 w-full items-center gap-1.5 px-2 text-left text-sm"
     :class="tone"
     :data-math-component="component.name"
     @click="math.select(key)"
   >
-    <span class="truncate text-sm">{{ component.name }}</span>
+    <span class="truncate">{{ component.name }}</span>
     <span class="flex-1" />
     <Badge
       v-if="component.overridden"
@@ -60,12 +62,6 @@ const tone = computed(() => {
     >
       {{ component.deactivated ? "switched off" : "override" }}
     </Badge>
-    <Badge
-      v-else-if="mine"
-      variant="outline"
-      class="shrink-0 border-accent-border px-1 font-normal text-accent-text"
-    >
-      mine
-    </Badge>
+    <Badge v-else-if="mine" variant="outline" :class="ACCENT_BADGE">mine</Badge>
   </button>
 </template>

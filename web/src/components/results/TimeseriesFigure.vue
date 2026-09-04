@@ -24,6 +24,7 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import type { ResultFrame } from "@/api/results";
 import { RESOLUTION_LABELS, SUM_LABELS, chooseSum, keepOne } from "@/lib/chartControls";
 import { exportFrames, hasData } from "@/lib/frameExport";
+import { FIELD_WIDTH, SOFT_DISABLED } from "@/lib/formClasses";
 import type { DisplayUnit } from "@/lib/units";
 import { indexColorsFor } from "@/lib/seriesColors";
 import { useRoundingStore } from "@/stores/rounding";
@@ -81,7 +82,7 @@ function chooseSumFor(next: unknown, current: SumBy, variable: string | null): S
   >
     <template #controls>
       <Select v-model="store.variableTimeseries">
-        <SelectTrigger size="sm" class="w-36" data-testid="timeseries-variable">
+        <SelectTrigger size="sm" :class="FIELD_WIDTH.short" data-testid="timeseries-variable">
           <SelectValue placeholder="Variable" />
         </SelectTrigger>
         <SelectContent>
@@ -140,10 +141,7 @@ function chooseSumFor(next: unknown, current: SumBy, variable: string | null): S
           <ToggleGroupItem
             :value="option"
             :aria-disabled="Boolean(store.sumLock(store.variableTimeseries, option))"
-            :class="
-              store.sumLock(store.variableTimeseries, option) &&
-              'cursor-default opacity-50'
-            "
+            :class="store.sumLock(store.variableTimeseries, option) && SOFT_DISABLED"
           >
             {{ SUM_LABELS[option] }}
           </ToggleGroupItem>

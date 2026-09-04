@@ -20,7 +20,7 @@
  * The file is restored byte-for-byte in `finally`: the CI server is shared, and
  * `save-check` asserts this very file's byte identity.
  */
-import { health, open, requireMode, trackRequests, results, until } from "./harness.mjs";
+import { health, MOD, open, requireMode, trackRequests, results, until } from "./harness.mjs";
 
 const BASE = process.argv[2] ?? "http://127.0.0.1:8000";
 
@@ -101,8 +101,9 @@ try {
   // A second, untouched save must write nothing — the no-op property holds
   // *after* an edit-save cycle too, not only on a freshly opened grid.
   const settled = await read();
-  await calls.settle(() => testId("save").click(), { expect: 0 });
-  check("an untouched save after the edit writes nothing", csvWrites.length === 1);
+  check("an untouched save after the edit is refused", await testId("save").isDisabled());
+  await calls.settle(() => page.keyboard.press(`${MOD}+s`), { expect: 0 });
+  check("and Cmd+S on the clean grid writes nothing", csvWrites.length === 1);
   check("…and the file is untouched", (await read()) === settled);
 
   // B. Cmd+S with the cell editor still open: the save must commit the
@@ -171,8 +172,9 @@ try {
   check("the file tab's edit reaches the file", (await read()).includes("444.125"));
   check("…in exactly one write", csvWrites.length === writesBefore + 1);
 
-  await calls.settle(() => testId("save").click(), { expect: 0 });
-  check("an untouched file-tab save writes nothing", csvWrites.length === writesBefore + 1);
+  check("an untouched file-tab save is refused", await testId("save").isDisabled());
+  await calls.settle(() => page.keyboard.press(`${MOD}+s`), { expect: 0 });
+  check("and Cmd+S on the clean file tab writes nothing", csvWrites.length === writesBefore + 1);
 
   check("no save error was shown", (await testId("save-error").count()) === 0);
   check("no console errors throughout", consoleErrors.length === 0);

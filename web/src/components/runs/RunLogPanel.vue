@@ -12,6 +12,7 @@
  * make a live log unusable.
  */
 import { computed, nextTick, ref, watch } from "vue";
+import Metric from "@/components/app/Metric.vue";
 import StateMessage from "@/components/app/StateMessage.vue";
 import PanelFooter from "@/components/app/PanelFooter.vue";
 import PanelHeader from "@/components/app/PanelHeader.vue";
@@ -21,8 +22,19 @@ import RunProgress from "./RunProgress.vue";
 import RunStatusPill from "./RunStatusPill.vue";
 import { errorDetail } from "@/api/errors";
 import { cn } from "@/lib/utils";
-import { formatDuration, formatObjective, formatTimestamp } from "@/lib/format";
-import { CODE_BLOCK, FIELD_SM, IDENTIFIER } from "@/lib/formClasses";
+import {
+  formatCount,
+  formatDuration,
+  formatObjective,
+  formatTimestamp,
+} from "@/lib/format";
+import {
+  CODE_BLOCK,
+  CODE_WELL,
+  FIELD_SM,
+  IDENTIFIER,
+  SECONDARY_BUTTON_SM,
+} from "@/lib/formClasses";
 
 import {
   isTerminal,
@@ -76,6 +88,9 @@ const FILTERS: Array<{ id: LogFilter; label: string }> = [
 /**
  * A failed cancel leaves the run visibly still solving, which without a
  * message reads as the button doing nothing.
+ *
+ * Local, rather than the runs section's `actionError`: this panel lives in the
+ * run tab, and the section that owns that surface may not be on screen.
  */
 const cancelError = ref<string | null>(null);
 
@@ -127,41 +142,49 @@ watch(
         </option>
       </select>
 
-      <span v-if="run?.solver" class="text-2xs text-text-faint">{{ run.solver }}</span>
-      <span v-if="run?.objective != null" class="text-2xs tabular-nums text-text-faint">
-        objective {{ formatObjective(run.objective) }}
-      </span>
-      <span
+      <span v-if="run?.solver" class="text-2xs text-text-muted">{{ run.solver }}</span>
+      <!-- The same `Metric` the run list uses, so the objective here and the one
+           in the row that opened this tab cannot be two tones of one number. -->
+      <Metric
+        v-if="run?.objective != null"
+        layout="inline"
+        label="objective"
+        :value="formatObjective(run.objective)"
+      />
+      <Metric
         v-if="run?.duration_seconds != null"
-        class="text-2xs tabular-nums text-text-faint"
-      >
-        {{ formatDuration(run.duration_seconds) }}
-      </span>
+        layout="inline"
+        label="took"
+        :value="formatDuration(run.duration_seconds)"
+      />
 
       <button
         v-if="running"
         type="button"
         data-testid="cancel-run"
-        class="inline-flex h-5 items-center gap-1 rounded-xs border border-border px-1.5 text-2xs hover:bg-hover"
+        :class="SECONDARY_BUTTON_SM"
         @click="cancel"
       >
-        <Square class="size-2.5" />
-        Cancel
+        <Square class="size-3" />
+        Cancel run
       </button>
     </PanelHeader>
 
-    <StateMessage v-if="cancelError" variant="inline" tone="danger">
+    <StateMessage v-if="cancelError" variant="note" tone="danger" class="px-2 py-1">
       {{ cancelError }}
     </StateMessage>
 
+    <!-- `bg-surface` because this *is* the pane, the way Monaco's editor is: a
+         log is the content of the tab, not a well set into it. `CODE_WELL` is
+         for the traceback below, which is a box inside this one. -->
     <div
       ref="viewport"
       class="min-h-0 flex-1 overflow-auto bg-surface p-2"
       :class="CODE_BLOCK"
       @scroll="onScroll"
     >
-      <p v-if="trimmed" class="mb-1 text-2xs text-text-faint">
-        {{ trimmed.toLocaleString() }} earlier lines trimmed — all of them are in
+      <p v-if="trimmed" class="mb-1 text-sm text-text-muted">
+        {{ formatCount(trimmed, "earlier line") }} trimmed — all of them are in
         <code :class="IDENTIFIER">run.log</code>.
       </p>
 
@@ -189,10 +212,11 @@ watch(
         {{ run.error }}
       </p>
       <details v-if="run?.traceback" class="mt-2">
-        <summary class="cursor-pointer text-2xs text-text-faint">Traceback</summary>
-        <pre class="mt-1 whitespace-pre-wrap text-text-dim" :class="CODE_BLOCK">{{
-          run.traceback
-        }}</pre>
+        <summary class="cursor-pointer text-sm text-text-muted">Traceback</summary>
+        <pre
+          class="mt-1 whitespace-pre-wrap text-text-dim"
+          :class="[CODE_WELL, CODE_BLOCK]"
+        >{{ run.traceback }}</pre>
       </details>
     </div>
 

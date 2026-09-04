@@ -31,7 +31,7 @@ import { join } from "node:path";
 
 import { parse } from "yaml";
 
-import { api, health, open, quiet, requireMode, results, trackRequests, until } from "./harness.mjs";
+import { api, health, MOD, open, quiet, requireMode, results, trackRequests, until } from "./harness.mjs";
 
 const BASE = process.argv[2] ?? "http://127.0.0.1:8000";
 
@@ -316,7 +316,9 @@ try {
     page.getByRole("treeitem", { name: /^config$/i }).first().click(),
   );
   await testId("save").waitFor({ timeout: 20000 });
-  await calls.settle(() => testId("save").click());
+  // The button is disabled on a clean form; the shortcut still writes, which
+  // is what keeps a no-op save testable at all.
+  await calls.settle(() => page.keyboard.press(`${MOD}+s`));
   await calls.idle();
 
   const afterConfigSave = await initConfig();

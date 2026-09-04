@@ -18,23 +18,17 @@ import PanelHeader from "@/components/app/PanelHeader.vue";
 import InfoTip from "@/components/app/InfoTip.vue";
 import TooltipButton from "@/components/app/TooltipButton.vue";
 import {
-  DANGER_BUTTON_MD,
+  FIELD_LABEL,
   IDENTIFIER,
   PRIMARY_BUTTON,
-  SECONDARY_BUTTON_MD,
+  TEXT_BUTTON_SM,
+  WARNING_BADGE,
 } from "@/lib/formClasses";
-import { Check, HardDrive, Play, RefreshCw, TriangleAlert } from "@lucide/vue";
+import { Check, HardDrive, Play, RefreshCw } from "@lucide/vue";
 
 import RunListItem from "@/components/runs/RunListItem.vue";
 import RunStatusPill from "@/components/runs/RunStatusPill.vue";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Badge } from "@/components/ui/badge";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -52,9 +46,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { errorDetail } from "@/api/errors";
-import { formatBytes } from "@/lib/format";
+import { formatBytes, formatCount } from "@/lib/format";
 import { ICON_STROKE_WIDTH_TIGHT } from "@/lib/icons";
 import { openIntent } from "@/lib/openIntent";
+import { cn } from "@/lib/utils";
+import { useConfirmStore } from "@/stores/confirm";
 import { RETENTION_CHOICES, useRunsStore, type RunRecord } from "@/stores/runs";
 import { useTabsStore } from "@/stores/tabs";
 
@@ -62,7 +58,6 @@ const runs = useRunsStore();
 const tabs = useTabsStore();
 
 const starting = ref(false);
-const pendingDelete = ref<RunRecord | null>(null);
 
 /**
  * Why the last action failed, shown at the top of the list. One surface for
@@ -144,6 +139,19 @@ async function start() {
 
 const canStart = computed(() => !starting.value && !!tabs.versionId);
 
+// The wrapper below keeps a disabled button's tooltip reachable precisely so
+// it can say why. Enabled during a run, deliberately: two solves at once is a
+// thing the server supports and the list shows.
+const runTip = computed(() =>
+  !tabs.versionId
+    ? "No model is open."
+    : starting.value
+      ? "Starting the run…"
+      : runs.scenario
+        ? `Solve with ${runs.scenario} applied.`
+        : "Solve the model as written.",
+);
+
 function open(run: RunRecord, event: MouseEvent) {
   tabs.openRun(
     { id: run.id, handle: run.results_handle, label: run.label },
@@ -152,10 +160,20 @@ function open(run: RunRecord, event: MouseEvent) {
   if (!runs.isStreaming(run.id)) runs.connectLogs(run.id);
 }
 
-async function confirmDelete() {
-  const run = pendingDelete.value;
-  pendingDelete.value = null;
-  if (run) await attempt("Deleting the run", () => runs.remove(run.id));
+/**
+ * Through the one confirm dialog rather than a `Dialog` of its own — which
+ * `ConfirmDialog`'s docblock says was *copied from here*, so the two could
+ * only ever drift apart.
+ */
+async function remove(run: RunRecord) {
+  const ok = await useConfirmStore().ask({
+    title: "Delete this run?",
+    message:
+      "Its results, log and frozen configuration are removed from disk. This cannot be undone.",
+    confirmLabel: "Delete",
+    destructive: true,
+  });
+  if (ok) await attempt("Deleting the run", () => runs.remove(run.id));
 }
 
 function rename(run: RunRecord, label: string) {
@@ -182,13 +200,7 @@ function setRetention(keep: number | null) {
       <!-- The trigger is the wrapper, not the button: a disabled control fires
            no pointer events, so a tooltip on one never opens. It only takes the
            button's place in the tab order while the button is out of it. -->
-      <InfoTip
-        :label="
-          runs.scenario
-            ? `Solve with ${runs.scenario} applied`
-            : 'Solve the model as written'
-        "
-      >
+      <InfoTip :label="runTip">
         <span class="inline-flex" :tabindex="canStart ? undefined : 0">
           <button
             type="button"
@@ -203,10 +215,19 @@ function setRetention(keep: number | null) {
         </span>
       </InfoTip>
 
-      <RunStatusPill v-if="busy" :status="runs.active[0].status" />
+      <!-- One pill with its word for one run; a dot per run when there are
+           several, since the strip is 200px at its narrowest and the list
+           below carries the words. `active[0]` alone said nothing about the
+           second run. -->
+      <RunStatusPill
+        v-for="run in runs.active"
+        :key="run.id"
+        :status="run.status"
+        :dot-only="busy && runs.active.length > 1"
+      />
 
       <div class="flex-1" />
-      <TooltipButton label="Reload the run history" :icon="RefreshCw" @click="refresh" />
+      <TooltipButton label="Reload the run history." :icon="RefreshCw" @click="refresh" />
     </PanelHeader>
 
     <!-- Its own strip rather than a control in the header above: the sidebar
@@ -215,7 +236,7 @@ function setRetention(keep: number | null) {
          made it. Absent entirely for a model that defines neither scenarios nor
          overrides, which is also every viewer-mode session. -->
     <PanelHeader v-if="runs.hasScenarios" data-testid="scenario-strip">
-      <span class="shrink-0 text-2xs text-text-faint">Scenario</span>
+      <span :class="cn('shrink-0', FIELD_LABEL)">Scenario</span>
       <Select :model-value="runs.scenario ?? NONE" @update:model-value="setScenario">
         <SelectTrigger
           size="sm"
@@ -247,9 +268,9 @@ function setRetention(keep: number | null) {
                 v-if="entry.missing?.length"
                 :label="`Composes overrides this model does not define: ${entry.missing.join(', ')}`"
               >
-                <span class="inline-flex items-center">
-                  <TriangleAlert class="size-3 text-warning-text" />
-                </span>
+                <Badge variant="outline" :class="WARNING_BADGE">
+                  {{ formatCount(entry.missing.length, "unknown override") }}
+                </Badge>
               </InfoTip>
             </SelectItem>
           </SelectGroup>
@@ -291,10 +312,23 @@ function setRetention(keep: number | null) {
         @open="open(run, $event)"
         @rename="rename(run, $event)"
         @cancel="cancel(run)"
-        @remove="pendingDelete = run"
+        @remove="remove(run)"
       />
 
-      <StateMessage v-if="!runs.ordered.length && !runs.error" variant="inline">
+      <!-- Not while loading: "No runs yet" over a history still on its way is
+           a false statement for as long as the request takes. -->
+      <StateMessage
+        v-if="runs.isLoading && !runs.ordered.length"
+        variant="inline"
+        loading
+        data-testid="run-list-loading"
+      >
+        Reading the run history…
+      </StateMessage>
+      <StateMessage
+        v-else-if="!runs.ordered.length && !runs.error"
+        variant="inline"
+      >
         No runs yet. Solving writes results beside the model, in
         <code :class="IDENTIFIER">calliope-studio/runs/</code>.
       </StateMessage>
@@ -305,9 +339,7 @@ function setRetention(keep: number | null) {
          both what it is costing and why old runs disappear. -->
     <PanelFooter v-if="tabs.versionId">
       <HardDrive class="size-3" />
-      <span>
-        {{ runs.ordered.length }} {{ runs.ordered.length === 1 ? "run" : "runs" }}
-      </span>
+      <span>{{ formatCount(runs.ordered.length, "run") }}</span>
       <span class="tabular-nums">· {{ formatBytes(runs.totalBytes) }}</span>
 
       <div class="flex-1" />
@@ -319,11 +351,7 @@ function setRetention(keep: number | null) {
         <span class="inline-flex">
           <DropdownMenu>
             <DropdownMenuTrigger as-child>
-              <button
-                type="button"
-                data-testid="retention"
-                class="rounded-xs px-1 hover:bg-hover hover:text-foreground"
-              >
+              <button type="button" data-testid="retention" :class="TEXT_BUTTON_SM">
                 keep {{ runs.retention === null ? "all" : runs.retention }}
               </button>
             </DropdownMenuTrigger>
@@ -346,37 +374,5 @@ function setRetention(keep: number | null) {
         </span>
       </InfoTip>
     </PanelFooter>
-
-    <Dialog
-      :open="pendingDelete !== null"
-      @update:open="(open) => !open && (pendingDelete = null)"
-    >
-      <DialogContent class="sm:max-w-96">
-        <DialogHeader>
-          <DialogTitle>Delete this run?</DialogTitle>
-          <DialogDescription>
-            Its results, log and frozen configuration are removed from disk. This
-            cannot be undone.
-          </DialogDescription>
-        </DialogHeader>
-        <DialogFooter>
-          <button
-            type="button"
-            :class="SECONDARY_BUTTON_MD"
-            @click="pendingDelete = null"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            data-testid="confirm-delete-run"
-            :class="DANGER_BUTTON_MD"
-            @click="confirmDelete"
-          >
-            Delete
-          </button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
   </div>
 </template>

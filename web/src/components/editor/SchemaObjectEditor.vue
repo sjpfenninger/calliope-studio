@@ -21,16 +21,31 @@
  * Recursive: an object-typed property renders another one of these.
  */
 import { computed, reactive, useId } from "vue";
-import { Plus, Trash2, X } from "@lucide/vue";
+import { Plus, X } from "@lucide/vue";
 
 import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import Eyebrow from "@/components/app/Eyebrow.vue";
 import FieldRow from "@/components/app/FieldRow.vue";
 import InfoTip from "@/components/app/InfoTip.vue";
 import PanelDisclosure from "@/components/app/PanelDisclosure.vue";
 import TooltipButton from "@/components/app/TooltipButton.vue";
-import { FIELD, FIELD_WIDTH, WARNING_BADGE, type FieldWidth } from "@/lib/formClasses";
+import { rowKey } from "@/lib/entries";
+import {
+  FIELD,
+  FIELD_WIDTH,
+  SECTION,
+  WARNING_BADGE,
+  type FieldWidth,
+} from "@/lib/formClasses";
+import { useFocusNew } from "./focusNew";
 import {
   describeValue,
   detectWidget,
@@ -138,6 +153,13 @@ interface FieldEntry {
   /** Whether it belongs behind the disclosure rather than with the common set. */
   advanced: boolean;
 }
+
+/**
+ * Reka refuses an item whose value is `""`, since that is what it uses to mean
+ * "nothing chosen" — and the blank row here *is* a choice: unset is not
+ * nothing, it is whatever Calliope falls back to.
+ */
+const NONE = "__none__";
 
 /** What is said about a key Calliope's schema does not describe. */
 const UNKNOWN_HINT =
@@ -302,9 +324,29 @@ function textFor(key: string): string {
   return textDrafts[key] ?? formatValue(props.modelValue[key]);
 }
 
+/**
+ * The undrafted rows, derived once per value rather than once per render.
+ *
+ * The rows are keyed by identity (`rowKey`), so a fresh set of objects on every
+ * render would remount every row on every unrelated re-render; this keeps them
+ * the same objects until the value they are read from actually changes.
+ */
+const modelRows = computed(() => {
+  const out: Record<string, KVRow[]> = {};
+  for (const entry of allEntries.value) {
+    if (entry.widget === "keyValue" || entry.widget === "keyValueRange") {
+      out[entry.key] = rowsFromValue(props.modelValue[entry.key]);
+    }
+  }
+  return out;
+});
+
 function rowsFor(key: string): KVRow[] {
-  return rowDrafts[key] ?? rowsFromValue(props.modelValue[key]);
+  return rowDrafts[key] ?? modelRows.value[key] ?? [];
 }
+
+/** The key of a row just added takes the cursor; see `focusNew`. */
+const focus = useFocusNew();
 
 function editableRows(key: string): KVRow[] {
   if (!rowDrafts[key]) rowDrafts[key] = rowsFromValue(props.modelValue[key]);
@@ -369,7 +411,9 @@ function setRowRange(key: string, index: number, half: "start" | "end", value: s
 }
 
 function addRow(key: string) {
-  editableRows(key).push({ key: "", text: "" });
+  const rows = editableRows(key);
+  rows.push({ key: "", text: "" });
+  focus.request(rowKey(rows[rows.length - 1]!));
 }
 
 function removeRow(entry: FieldEntry, index: number) {
@@ -429,22 +473,36 @@ function flushRowsFor(entry: FieldEntry) {
           :description="entry.description ?? undefined"
           :width="entry.width"
         >
-          <select
-            :value="modelValue[entry.key] ?? ''"
-            :class="FIELD"
-            v-bind="entry.inputProps"
-            @change="
-              update(entry.key, ($event.target as HTMLSelectElement).value || null)
-            "
+          <Select
+            :model-value="modelValue[entry.key] == null ? NONE : String(modelValue[entry.key])"
+            @update:model-value="update(entry.key, $event === NONE ? null : $event)"
           >
-            <!-- Blank first, so a value that was set can be unset again. A
-                 select takes no placeholder, so this is where its default goes:
-                 unset is not "nothing", it is whatever Calliope falls back to. -->
-            <option value="">{{ entry.placeholder ? `— ${entry.placeholder}` : "—" }}</option>
-            <option v-for="option in entry.options ?? []" :key="option" :value="option">
-              {{ option }}
-            </option>
-          </select>
+            <SelectTrigger
+              size="sm"
+              class="w-full"
+              :aria-label="entry.label"
+              v-bind="entry.inputProps"
+            >
+              <SelectValue>
+                {{
+                  modelValue[entry.key] == null
+                    ? entry.placeholder ? `— ${entry.placeholder}` : "—"
+                    : String(modelValue[entry.key])
+                }}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <!-- Blank first, so a value that was set can be unset again. A
+                   select takes no placeholder, so this is where its default goes:
+                   unset is not "nothing", it is whatever Calliope falls back to. -->
+              <SelectItem :value="NONE">
+                {{ entry.placeholder ? `— ${entry.placeholder}` : "—" }}
+              </SelectItem>
+              <SelectItem v-for="option in entry.options ?? []" :key="option" :value="option">
+                {{ option }}
+              </SelectItem>
+            </SelectContent>
+          </Select>
         </FieldRow>
 
         <FieldRow
@@ -488,7 +546,7 @@ function flushRowsFor(entry: FieldEntry) {
         >
           <div class="flex items-center justify-between">
             <InfoTip :label="entry.description ?? ''" side="right">
-              <Eyebrow class="mb-0">{{ entry.label }}</Eyebrow>
+              <Eyebrow>{{ entry.label }}</Eyebrow>
             </InfoTip>
             <TooltipButton
               label="Add a row"
@@ -497,9 +555,12 @@ function flushRowsFor(entry: FieldEntry) {
               @click="addRow(entry.key)"
             />
           </div>
+          <!-- Keyed by the row's own identity, never by its index: the
+               inputs are seeded from the row, and a reused instance kept the
+               removed row's text under the next row's key. -->
           <FieldRow
             v-for="(row, j) in rowsFor(entry.key)"
-            :key="j"
+            :key="rowKey(row)"
             :label="row.key"
           >
             <template #label>
@@ -507,6 +568,7 @@ function flushRowsFor(entry: FieldEntry) {
                 :value="row.key"
                 type="text"
                 placeholder="key"
+                :ref="(el) => focus.bind(el, rowKey(row))"
                 :class="FIELD"
                 @input="setRowKey(entry.key, j, ($event.target as HTMLInputElement).value)"
                 @change="flushRowsFor(entry)"
@@ -565,6 +627,7 @@ function flushRowsFor(entry: FieldEntry) {
                 label="Remove this row"
                 :icon="X"
                 tone="danger"
+                size="xs"
                 @click="removeRow(entry, j)"
               />
             </template>
@@ -573,10 +636,7 @@ function flushRowsFor(entry: FieldEntry) {
 
         <!-- Likewise a nested object: heading above, so its own fields keep the
              gutter rather than indenting it inside another one. -->
-        <div
-          v-else-if="entry.widget === 'object'"
-          class="flex flex-col gap-1 rounded-sm border border-border p-2"
-        >
+        <div v-else-if="entry.widget === 'object'" :class="SECTION">
           <InfoTip :label="entry.description ?? ''" side="right">
             <Eyebrow>{{ entry.label }}</Eyebrow>
           </InfoTip>
@@ -619,7 +679,7 @@ function flushRowsFor(entry: FieldEntry) {
     <!-- Keys the schema does not describe. Preserved on save either way; this is
          so the model does not carry one the user cannot see. -->
     <div v-if="unknownEntries.length" class="flex flex-col gap-1">
-      <Eyebrow class="mb-0">not recognised</Eyebrow>
+      <Eyebrow>not recognised</Eyebrow>
       <FieldRow
         v-for="entry in unknownEntries"
         :key="entry.key"
@@ -638,8 +698,9 @@ function flushRowsFor(entry: FieldEntry) {
           <TooltipButton
             v-if="!entry.expected"
             label="Remove this key"
-            :icon="Trash2"
+            :icon="X"
             tone="danger"
+            size="xs"
             @click="update(entry.key, null)"
           />
         </template>

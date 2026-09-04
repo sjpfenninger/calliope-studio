@@ -137,7 +137,9 @@ function onLayout(sizes: number[]) {
     class="min-h-0 flex-1"
     @layout="onLayout"
   >
-    <ResizablePanel :default-size="22" :min-size="14" :max-size="40">
+    <!-- Read back from the store: the drag below writes it on every frame, and
+         for as long as this said `22` nothing ever read it. -->
+    <ResizablePanel :default-size="ui.splitterSizes[0]" :min-size="14" :max-size="40">
       <AppSidebar :project-id="projectId" :version-id="versionId" />
     </ResizablePanel>
 
@@ -146,7 +148,7 @@ function onLayout(sizes: number[]) {
          handle keeps its line, because it *is* the sidebar's edge. -->
     <ResizableHandle with-handle data-testid="shell-split-handle" />
 
-    <ResizablePanel :default-size="78">
+    <ResizablePanel :default-size="ui.splitterSizes[1]">
       <div class="flex h-full min-h-0 flex-col">
         <TabBar />
         <TabBody />

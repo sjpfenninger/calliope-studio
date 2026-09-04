@@ -19,27 +19,32 @@
  */
 import { computed, onMounted, onUnmounted, ref, shallowRef } from "vue";
 import LockedBanner from "@/components/app/LockedBanner.vue";
+import Segmented from "@/components/app/Segmented.vue";
 import StateMessage from "@/components/app/StateMessage.vue";
 import TooltipButton from "@/components/app/TooltipButton.vue";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 // `Map` is aliased: unaliased it shadows the global `Map` constructor, which is
 // used below and fails in a way that points at the wrong line entirely.
 import { List, Map as MapIcon, Plus, Trash2, X } from "@lucide/vue";
 
-import { useSectionEditor } from "@/composables/useSectionEditor";
+import { removalRequest, useSectionEditor } from "@/composables/useSectionEditor";
 import EditorMapPane from "./EditorMapPane.vue";
 import EditorToolbar from "./EditorToolbar.vue";
 import LinkFields from "./LinkFields.vue";
 import { Accordion } from "@/components/ui/accordion";
 import EntryAccordionRow from "./EntryAccordionRow.vue";
-import {
-  FIELD,
-  FIELD_LABEL,
-  GHOST_BUTTON,
-  IDENTIFIER,
-} from "@/lib/formClasses";
+import { FIELD_LABEL, GHOST_BUTTON, IDENTIFIER } from "@/lib/formClasses";
+import { formatCount } from "@/lib/format";
+import { useFocusNew } from "./focusNew";
 
-import { cn } from "@/lib/utils";
 import { useModelGeo } from "@/composables/useModelGeo";
+import { useConfirmStore } from "@/stores/confirm";
 import { useTabsStore } from "@/stores/tabs";
 import { useComponentTreeStore } from "@/stores/componentTree";
 import { useTemplatesStore } from "@/stores/templates";
@@ -70,7 +75,10 @@ const tabsStore = useTabsStore();
 const componentTreeStore = useComponentTreeStore();
 const templatesStore = useTemplatesStore();
 const ui = useUiStore();
+const confirm = useConfirmStore();
 
+/** Reka refuses `""` as an item value; see `TechsEditor`. */
+const NONE = "__none__";
 
 const entries = ref<LinkEntry[]>([]);
 /**
@@ -78,6 +86,8 @@ const entries = ref<LinkEntry[]>([]);
  * `:default-value`, which is read once; extended by `addEntry`.
  */
 const openRows = ref<string[]>([]);
+/** The name field of a row just added takes the cursor; see `focusNew`. */
+const focus = useFocusNew();
 /** The section as loaded, so entries owned by TechsEditor survive a save. */
 const originalSection = ref<Record<string, RawTech>>({});
 const templatesData = computed(() => templatesStore.templates);
@@ -120,6 +130,30 @@ const visibleEntries = computed(() =>
 );
 
 const showMap = computed(() => !props.entryName && ui.sectionView.links === "map");
+
+/**
+ * Map or list, with the map segment dead while there is nothing to draw on:
+ * every node the model has is unplaced. The same rule as `NodesEditor`'s.
+ */
+const VIEW_ITEMS = computed(() => {
+  const unplaceable = mapNodes.value.length === 0 && missing.value.length > 0;
+  return [
+    { value: "structured" as const, label: "List", icon: List, testid: "view-list" },
+    {
+      value: "map" as const,
+      label: "Map",
+      icon: MapIcon,
+      testid: "view-map",
+      disabled: unplaceable,
+      tip: unplaceable ? "No node has coordinates yet. Add them in the nodes list." : undefined,
+    },
+  ];
+});
+
+const view = computed({
+  get: () => ui.sectionView.links,
+  set: (next) => ui.setSectionView("links", next),
+});
 
 /**
  * The nodes a link can be drawn between: the saved ones, which are the only ones
@@ -299,10 +333,9 @@ function addEntry() {
     active: true,
     params: [],
   });
-  openRows.value = [
-    ...openRows.value,
-    rowKey(entries.value[entries.value.length - 1]),
-  ];
+  const key = rowKey(entries.value[entries.value.length - 1]);
+  openRows.value = [...openRows.value, key];
+  focus.request(key);
   // An unnamed link with no endpoints cannot be drawn, so adding one this way is
   // also a request to see the list.
   ui.setSectionView("links", "structured");
@@ -315,6 +348,19 @@ function removeEntry(entry: LinkEntry) {
   // By identity: the entry may have been renamed since it was selected.
   if (activeEntry.value === entry) select(null);
   onChange();
+}
+
+/** What removing this link takes with it, for the confirmation. */
+function owns(entry: LinkEntry): string {
+  const set = entry.params.length + (entry.template ? 1 : 0);
+  return set ? formatCount(set, "parameter") : "";
+}
+
+/** The map's detail pane has no accordion row to ask for it, so it asks here. */
+async function confirmRemove(entry: LinkEntry) {
+  if (await confirm.ask(removalRequest(entry.name || "(unnamed)", owns(entry)))) {
+    removeEntry(entry);
+  }
 }
 
 /** `region1_to_region2`, the convention in Calliope's own example models. */
@@ -403,6 +449,7 @@ function openElsewhere() {
         :error="saveError"
         :conflict="conflict"
         :file="filePath"
+        :tab-id="tabId"
         @save="save"
         @reload="reload"
       >
@@ -417,19 +464,14 @@ function openElsewhere() {
           <Plus class="size-3.5" />
           Add link
         </button>
-        <button
+        <Segmented
           v-if="!entryName"
-          type="button"
-          data-testid="view-toggle"
-          :class="GHOST_BUTTON"
-          @click="ui.toggleSectionView('links')"
-        >
-          <component
-            :is="showMap ? List : MapIcon"
-            class="size-3.5"
-          />
-          {{ showMap ? "List" : "Map" }}
-        </button>
+          v-model="view"
+          :items="VIEW_ITEMS"
+          mode="nav"
+          size="fill"
+          seam="none"
+        />
       </EditorToolbar>
       <LockedBanner v-if="lockOwner" :owner="lockOwner" :file="filePath" />
 
@@ -453,20 +495,25 @@ function openElsewhere() {
           <label :class="FIELD_LABEL" for="new-link-template">
             new links use
           </label>
-          <select
-            id="new-link-template"
-            data-testid="new-link-template"
-            :class="cn(FIELD, 'w-auto')"
-            :value="ui.newLinkTemplate ?? ''"
-            @change="
-              ui.newLinkTemplate = ($event.target as HTMLSelectElement).value || null
-            "
+          <Select
+            :model-value="ui.newLinkTemplate ?? NONE"
+            @update:model-value="ui.newLinkTemplate = $event === NONE ? null : String($event)"
           >
-            <option value="">(no template)</option>
-            <option v-for="name in linkTemplates" :key="name" :value="name">
-              {{ name }}
-            </option>
-          </select>
+            <SelectTrigger
+              id="new-link-template"
+              size="sm"
+              aria-label="Template for new links"
+              data-testid="new-link-template"
+            >
+              <SelectValue>{{ ui.newLinkTemplate ?? "(no template)" }}</SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem :value="NONE">(no template)</SelectItem>
+              <SelectItem v-for="name in linkTemplates" :key="name" :value="name">
+                {{ name }}
+              </SelectItem>
+            </SelectContent>
+          </Select>
 
           <span
             v-if="pendingFrom"
@@ -482,7 +529,7 @@ function openElsewhere() {
               @click="pendingFrom = null"
             />
           </span>
-          <span v-else class="text-sm text-text-faint">
+          <span v-else class="text-sm text-text-muted">
             Click two nodes to draw a link, or a line to edit one.
           </span>
         </template>
@@ -495,7 +542,8 @@ function openElsewhere() {
                 label="Remove this link"
                 :icon="Trash2"
                 tone="danger"
-                @click="removeEntry(activeEntry)"
+                size="xs"
+                @click="confirmRemove(activeEntry)"
               />
             </div>
             <LinkFields
@@ -517,12 +565,9 @@ function openElsewhere() {
               Open it
             </button>
           </div>
-          <p
-            v-else
-            class="flex h-full items-center justify-center text-sm text-text-muted"
-          >
+          <StateMessage v-else variant="fill">
             Click a link to edit it, or two nodes to draw a new one.
-          </p>
+          </StateMessage>
         </template>
       </EditorMapPane>
 
@@ -530,35 +575,43 @@ function openElsewhere() {
         <StateMessage v-if="!visibleEntries.length" variant="block">
           {{
             entryName
-              ? `No link called "${entryName}".`
+              ? `No link called “${entryName}”.`
               : "No transmission technologies in this file."
           }}
+          <template v-if="!entryName" #action>
+            <button type="button" :class="GHOST_BUTTON" :disabled="locked" @click="addEntry">
+              <Plus class="size-3.5" />
+              Add link
+            </button>
+          </template>
         </StateMessage>
 
-        <Accordion v-else v-model="openRows" type="multiple" class="px-2">
+        <Accordion v-else v-model="openRows" type="multiple" class="px-2 py-1">
           <EntryAccordionRow
             v-for="entry in visibleEntries"
             :key="rowKey(entry)"
             :value="rowKey(entry)"
             :name="entry.name || '(unnamed)'"
             remove-label="Remove this link"
+            :owns="owns(entry)"
             testid="entry-row"
             @remove="removeEntry(entry)"
           >
             <template #meta>
               <span
                 v-if="entry.linkFrom || entry.linkTo"
-                class="shrink-0 text-2xs text-text-faint"
+                class="shrink-0 text-2xs text-text-muted"
               >
                 {{ entry.linkFrom || "?" }} → {{ entry.linkTo || "?" }}
               </span>
             </template>
 
-              <LinkFields
-                :entry="entry"
-                :templates="templatesData"
-                @change="onChange"
-              />
+            <LinkFields
+              :ref="(el) => focus.bind(el, rowKey(entry))"
+              :entry="entry"
+              :templates="templatesData"
+              @change="onChange"
+            />
           </EntryAccordionRow>
         </Accordion>
       </fieldset>

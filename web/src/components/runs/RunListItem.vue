@@ -18,7 +18,8 @@
 import { computed, nextTick, ref } from "vue";
 import InfoTip from "@/components/app/InfoTip.vue";
 import Metric from "@/components/app/Metric.vue";
-import { FIELD_SM } from "@/lib/formClasses";
+import { FIELD_SM, ICON_BUTTON_ON_ROW_SM } from "@/lib/formClasses";
+import { ICON_STROKE_WIDTH_TIGHT } from "@/lib/icons";
 import { cn } from "@/lib/utils";
 import { MoreHorizontal, Pencil, Square, Trash2 } from "@lucide/vue";
 
@@ -104,7 +105,7 @@ function commitRename() {
        moves, so nothing reflows under the cursor. -->
   <div
     class="group relative flex select-none flex-col gap-0.5 border-b border-border-subtle py-1 pl-2 pr-7"
-    :class="active ? 'bg-active' : 'hover:bg-hover'"
+    :class="active ? 'bg-accent-soft' : 'hover:bg-hover'"
     data-testid="run-item"
     :data-run-id="run.id"
     @click="onRowClick"
@@ -135,6 +136,7 @@ function commitRename() {
           type="button"
           data-testid="run-open"
           class="min-w-0 shrink truncate text-left text-sm"
+          :class="active && 'text-accent-text'"
         >
           {{ title }}
         </button>
@@ -179,7 +181,11 @@ function commitRename() {
 
          Two `as-child` primitives around one element is *not* the problem —
          that was the first guess, and giving each its own element changed
-         nothing. -->
+         nothing.
+
+         The same reasoning is why this is a bare button and not a
+         `TooltipButton`: that component wraps its button in its own tooltip,
+         which would put one back between the trigger and the menu. -->
     <InfoTip label="Run actions">
       <span
         class="absolute right-1.5 top-1 inline-flex opacity-0 group-hover:opacity-100 focus-within:opacity-100 has-[[data-state=open]]:opacity-100"
@@ -191,9 +197,9 @@ function commitRename() {
               type="button"
               aria-label="Run actions"
               data-testid="run-menu"
-              class="grid size-5 place-items-center rounded-xs text-text-faint hover:bg-active hover:text-foreground"
+              :class="ICON_BUTTON_ON_ROW_SM"
             >
-              <MoreHorizontal class="size-3.5" />
+              <MoreHorizontal class="size-3" :stroke-width="ICON_STROKE_WIDTH_TIGHT" />
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" class="min-w-40">
@@ -231,9 +237,9 @@ function commitRename() {
          back to the four short figures it was built for, and every run in the
          list is the same height whichever of them it has. It was allowed to wrap
          only because the scenario made it five. -->
-    <div class="flex items-center gap-x-2 text-text-faint">
+    <div class="flex items-center gap-x-2">
       <InfoTip :label="formatTimestamp(run.created_at)">
-        <span class="shrink-0 text-2xs">{{ formatRelativeTime(run.created_at) }}</span>
+        <span class="shrink-0 text-2xs text-text-dim">{{ formatRelativeTime(run.created_at) }}</span>
       </InfoTip>
       <Metric
         v-if="run.duration_seconds != null"

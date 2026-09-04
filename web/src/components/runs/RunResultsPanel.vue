@@ -119,7 +119,7 @@ onMounted(() => store.load());
 
 <template>
   <div class="flex min-h-0 flex-1" data-testid="run-results">
-    <RunFilterPanel class="w-52 shrink-0" />
+    <RunFilterPanel />
 
     <main class="flex min-h-0 flex-1 flex-col">
       <StateMessage v-if="store.error" variant="inline" tone="danger">
@@ -180,6 +180,11 @@ onMounted(() => store.load());
                 mapSizeFrame.loading.value ||
                 mapColorFrame.loading.value ||
                 mapPieFrame.loading.value
+              "
+              :error="
+                mapSizeFrame.error.value ??
+                mapColorFrame.error.value ??
+                mapPieFrame.error.value
               "
             />
 

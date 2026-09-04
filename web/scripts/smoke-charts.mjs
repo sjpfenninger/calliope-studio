@@ -39,8 +39,8 @@ check(
  */
 const paintedColours = () =>
   page.evaluate(() => {
-    const canvas = [...document.querySelectorAll("section")]
-      .find((section) => section.querySelector('[data-testid="static-sum-by"]'))
+    const canvas = [...document.querySelectorAll('[data-testid^="figure-"]')]
+      .find((figure) => figure.querySelector('[data-testid="static-sum-by"]'))
       .querySelector("canvas");
     const { data } = canvas
       .getContext("2d")

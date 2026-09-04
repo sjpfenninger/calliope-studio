@@ -12,7 +12,6 @@ import StateMessage from "@/components/app/StateMessage.vue";
 import {
   IDENTIFIER,
   PRIMARY_BUTTON_MD,
-  SECONDARY_BUTTON,
   SECONDARY_BUTTON_MD,
 } from "@/lib/formClasses";
 import { cn } from "@/lib/utils";
@@ -56,7 +55,7 @@ watch(open, (isOpen) => {
 
 async function openHere() {
   const path = listing.value?.path;
-  if (!path || opening.value) return;
+  if (!path || opening.value || !listing.value?.is_model) return;
   opening.value = true;
   try {
     const project = await openProject(path);
@@ -68,11 +67,27 @@ async function openHere() {
     opening.value = false;
   }
 }
+
+/**
+ * Enter submits, as it does in the two dialogs with a text field — but not
+ * from a button, where Enter already means that button: a folder row is
+ * "go into this folder", and Cancel is Cancel.
+ */
+function onEnter(event: KeyboardEvent) {
+  if ((event.target as HTMLElement | null)?.closest("button")) return;
+  void openHere();
+}
 </script>
 
 <template>
   <Dialog v-model:open="open">
-    <DialogContent class="max-w-2xl" data-testid="open-model-dialog">
+    <!-- `sm:` on purpose: unprefixed, this is the same tailwind-merge group as
+         the primitive's small-viewport guard and replaces it. -->
+    <DialogContent
+      class="sm:max-w-2xl"
+      data-testid="open-model-dialog"
+      @keydown.enter="onEnter"
+    >
       <DialogHeader>
         <DialogTitle>Open a model</DialogTitle>
         <DialogDescription>
@@ -83,21 +98,21 @@ async function openHere() {
 
       <FolderBrowser v-model:listing="listing" />
 
-      <StateMessage v-if="error" variant="inline" tone="danger">{{ error }}</StateMessage>
-      <div v-else-if="listing && !listing.is_model" class="flex items-center gap-2">
-        <p class="min-w-0 flex-1 text-2xs text-text-faint">
-          This folder has no <code :class="IDENTIFIER">model.yaml</code>.
-        </p>
-        <button
-          type="button"
-          data-testid="create-here"
-          :class="cn(SECONDARY_BUTTON, 'shrink-0')"
-          @click="emit('create')"
-        >
-          <FolderPlus class="size-3.5" />
-          Create a model here…
-        </button>
-      </div>
+      <StateMessage v-if="error" variant="note" tone="danger">{{ error }}</StateMessage>
+      <StateMessage v-else-if="listing && !listing.is_model" variant="note">
+        This folder has no <code :class="IDENTIFIER">model.yaml</code>.
+        <template #action>
+          <button
+            type="button"
+            data-testid="create-here"
+            :class="cn(SECONDARY_BUTTON_MD, 'ml-auto shrink-0')"
+            @click="emit('create')"
+          >
+            <FolderPlus class="size-3.5" />
+            Create a model here…
+          </button>
+        </template>
+      </StateMessage>
 
       <DialogFooter>
         <button

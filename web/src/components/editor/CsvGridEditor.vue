@@ -146,12 +146,13 @@ onUnmounted(() => window.removeEventListener("keydown", onKeyDown));
   <!-- design-check: allow focus — a focus *container*, not a control: it takes
        focus so the grid can receive keys, and a ring round a whole pane says nothing. -->
   <div class="flex min-h-0 flex-1 flex-col outline-none" tabindex="-1">
-    <StateMessage v-if="isLoading" variant="block" loading>Loading…</StateMessage>
+    <StateMessage v-if="isLoading" variant="block" loading>Reading the CSV…</StateMessage>
     <StateMessage v-else-if="error" variant="block" tone="danger">{{ error }}</StateMessage>
 
     <template v-else>
       <EditorToolbar
         :file="filePath"
+        :tab-id="tabId"
         :saving="isSaving"
         :disabled="locked"
         :error="saveError"

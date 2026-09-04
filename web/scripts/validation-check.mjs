@@ -182,9 +182,12 @@ async function run() {
       interval: 250,
     });
     check("the restored model validates clean", true);
+    // Relative, as everywhere else a time is shown; the full timestamp is the
+    // tooltip. A run that has just finished says so.
     check(
       "and says when it was last checked",
-      (await testId("validation-tab").innerText()).includes("at "),
+      /just now|\d+[mhd] ago/.test(await testId("validation-when").innerText()),
+      await testId("validation-when").innerText(),
     );
     check(
       "the sidebar badge is gone",

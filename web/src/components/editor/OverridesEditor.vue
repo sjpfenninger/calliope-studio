@@ -32,6 +32,8 @@ import EntryAccordionRow from "./EntryAccordionRow.vue";
 import FieldRow from "@/components/app/FieldRow.vue";
 import TooltipButton from "@/components/app/TooltipButton.vue";
 import { FIELD, GHOST_BUTTON } from "@/lib/formClasses";
+import { formatCount } from "@/lib/format";
+import { useFocusNew } from "./focusNew";
 
 import { cn } from "@/lib/utils";
 import { useComponentTreeStore } from "@/stores/componentTree";
@@ -61,6 +63,8 @@ const entries = ref<OverrideEntry[]>([]);
  * `:default-value`, which is read once; extended by `addEntry`.
  */
 const openRows = ref<string[]>([]);
+/** The field a row just added exists to fill in takes the cursor; see `focusNew`. */
+const focus = useFocusNew();
 
 const visibleEntries = computed(() =>
   props.entryName
@@ -153,10 +157,9 @@ const {
 
 function addEntry() {
   entries.value.push({ name: "", settings: [] });
-  openRows.value = [
-    ...openRows.value,
-    rowKey(entries.value[entries.value.length - 1]),
-  ];
+  const key = rowKey(entries.value[entries.value.length - 1]);
+  openRows.value = [...openRows.value, key];
+  focus.request(key);
   onChange();
 }
 
@@ -168,12 +171,19 @@ function removeEntry(entry: OverrideEntry) {
 
 function addSetting(entry: OverrideEntry) {
   entry.settings.push({ path: "", value: null });
+  focus.request(rowKey(entry.settings[entry.settings.length - 1]));
   onChange();
 }
 
-function removeSetting(entry: OverrideEntry, index: number) {
-  entry.settings.splice(index, 1);
+function removeSetting(entry: OverrideEntry, setting: Setting) {
+  const at = entry.settings.indexOf(setting);
+  if (at !== -1) entry.settings.splice(at, 1);
   onChange();
+}
+
+/** What removing this override takes with it, for the confirmation. */
+function owns(entry: OverrideEntry): string {
+  return entry.settings.length ? formatCount(entry.settings.length, "setting") : "";
 }
 
 const onChange = markDirty;
@@ -197,6 +207,7 @@ const onChange = markDirty;
         :error="saveError"
         :conflict="conflict"
         :file="filePath"
+        :tab-id="tabId"
         @save="save"
         @reload="reload"
       >
@@ -218,25 +229,31 @@ const onChange = markDirty;
         <StateMessage v-if="!visibleEntries.length" variant="block">
           {{
             entryName
-              ? `No override called "${entryName}".`
+              ? `No override called “${entryName}”.`
               : "No overrides defined yet."
           }}
+          <template v-if="!entryName" #action>
+            <button type="button" :class="GHOST_BUTTON" :disabled="locked" @click="addEntry">
+              <Plus class="size-3.5" />
+              Add override
+            </button>
+          </template>
         </StateMessage>
 
-        <Accordion v-else v-model="openRows" type="multiple" class="px-2">
+        <Accordion v-else v-model="openRows" type="multiple" class="px-2 py-1">
           <EntryAccordionRow
             v-for="entry in visibleEntries"
             :key="rowKey(entry)"
             :value="rowKey(entry)"
             :name="entry.name || '(unnamed)'"
             remove-label="Remove this override"
+            :owns="owns(entry)"
             testid="entry-row"
             @remove="removeEntry(entry)"
           >
             <template #meta>
-              <span class="shrink-0 text-2xs text-text-faint">
-                {{ entry.settings.length }}
-                {{ entry.settings.length === 1 ? "setting" : "settings" }}
+              <span class="shrink-0 text-2xs text-text-muted">
+                {{ formatCount(entry.settings.length, "setting") }}
               </span>
             </template>
 
@@ -244,6 +261,7 @@ const onChange = markDirty;
               <input
                 v-model="entry.name"
                 type="text"
+                :ref="(el) => focus.bind(el, rowKey(entry))"
                 :class="FIELD"
                 @input="onChange"
               />
@@ -253,9 +271,12 @@ const onChange = markDirty;
                  standard 9rem, `config.solve.spores.number` and
                  `config.solve.spores.tracking_parameter` truncate to the
                  same string. -->
+            <!-- Keyed by the setting's own identity, never by its index: the
+                 value control seeds its text at setup, so a reused instance
+                 kept the removed row's number under the next row's path. -->
             <FieldRow
-              v-for="(setting, index) in entry.settings"
-              :key="index"
+              v-for="setting in entry.settings"
+              :key="rowKey(setting)"
               :label="setting.path"
               width="value"
               align="start"
@@ -271,6 +292,7 @@ const onChange = markDirty;
                   list="override-paths"
                   placeholder="config.init.name"
                   :title="setting.path"
+                  :ref="(el) => focus.bind(el, rowKey(setting))"
                   :class="FIELD"
                   @input="onChange"
                 />
@@ -292,7 +314,8 @@ const onChange = markDirty;
                   label="Remove this setting"
                   :icon="X"
                   tone="danger"
-                  @click="removeSetting(entry, index)"
+                  size="xs"
+                  @click="removeSetting(entry, setting)"
                 />
               </template>
             </FieldRow>

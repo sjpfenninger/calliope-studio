@@ -24,6 +24,16 @@ const schemaStore = useSchemaStore();
 const runsStore = useRunsStore();
 const ui = useUiStore();
 
+/**
+ * The schema could not be fetched, so the form below has only the keys the
+ * file already sets and none of the ones Calliope would offer. That used to
+ * be silent — an emptier form that looked finished. Read through a cast, so
+ * this compiles whether or not the store has learned to say so yet.
+ */
+const schemaUnavailable = computed(() =>
+  Boolean((schemaStore as { unavailable?: boolean }).unavailable),
+);
+
 // ---------------------------------------------------------------------------
 // Section data — owned here; SchemaObjectEditor instances v-model into these.
 // ---------------------------------------------------------------------------
@@ -235,6 +245,7 @@ onMounted(() => {
         :error="saveError"
         :conflict="conflict"
         :file="filePath"
+        :tab-id="tabId"
         @save="save"
         @reload="reload"
       />
@@ -244,8 +255,11 @@ onMounted(() => {
         :disabled="locked"
         class="flex min-h-0 flex-1 flex-col gap-2 overflow-auto p-2"
       >
+        <StateMessage v-if="schemaUnavailable" variant="note" tone="warning">
+          Calliope's schema could not be read; only what the file already says is shown.
+        </StateMessage>
         <section :class="SECTION">
-          <Eyebrow class="mb-0">init</Eyebrow>
+          <Eyebrow>init</Eyebrow>
           <SchemaObjectEditor
             :key="filePath + ':init'"
             v-model="configData.init"
@@ -257,7 +271,7 @@ onMounted(() => {
         </section>
 
         <section :class="SECTION">
-          <Eyebrow class="mb-0">build</Eyebrow>
+          <Eyebrow>build</Eyebrow>
           <SchemaObjectEditor
             :key="filePath + ':build'"
             v-model="configData.build"
@@ -270,7 +284,7 @@ onMounted(() => {
         </section>
 
         <section :class="SECTION">
-          <Eyebrow class="mb-0">solve</Eyebrow>
+          <Eyebrow>solve</Eyebrow>
           <SchemaObjectEditor
             :key="filePath + ':solve'"
             v-model="configData.solve"

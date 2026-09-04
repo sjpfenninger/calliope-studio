@@ -24,8 +24,17 @@ const forwarded = useForwardPropsEmits(delegatedProps, emits)
     <TooltipContent
       data-slot="tooltip-content"
       v-bind="{ ...forwarded, ...$attrs }"
-      :class="cn('bg-foreground text-background animate-in fade-in-0 zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 z-tooltip isolate w-fit rounded-sm px-1.5 py-1 text-2xs shadow-md text-balance', props.class)"
+      :class="cn('bg-surface text-foreground border border-border animate-in fade-in-0 zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 z-tooltip isolate w-fit rounded-md px-2 py-1 text-sm shadow-lg text-balance', props.class)"
     >
+      <!--
+        A light, bordered card rather than shadcn's inverted chip, because the
+        app has two other tooltips it cannot restyle: ECharts draws its own
+        (`charts/theme.ts`) and MapLibre its own (`maplibre-overrides.css`), both
+        a surface-coloured card with a hairline at 12px and the container radius.
+        A map node and the button beside it used to answer "what is this" in two
+        designs. The arrow goes with it — a dark wedge under a light card reads as
+        a shadow that fell off.
+      -->
       <!--
         The text is raised, because the arrow cannot be lowered. The arrow
         straddles the bubble's edge and its inner half reaches ~9px in, well past
@@ -39,7 +48,7 @@ const forwarded = useForwardPropsEmits(delegatedProps, emits)
       -->
       <span class="relative z-10"><slot /></span>
 
-      <TooltipArrow class="bg-foreground fill-foreground size-2.5 translate-y-[calc(-50%_-_2px)] rotate-45 rounded-xs" />
+      <TooltipArrow class="bg-surface fill-surface size-2.5 translate-y-[calc(-50%_-_2px)] rotate-45 rounded-xs border-r border-b border-border" />
     </TooltipContent>
   </TooltipPortal>
 </template>

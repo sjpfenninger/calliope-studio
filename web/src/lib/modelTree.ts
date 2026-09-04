@@ -1,4 +1,5 @@
 import type { ComponentTree } from "../stores/componentTree";
+import { compareNames } from "./fileTree";
 
 /**
  * Turning the server's component tree into rows the explorer can render.
@@ -122,6 +123,12 @@ export function buildModelTree(tree: ComponentTree | null): ModelTreeNode[] {
         counts: typeof entry === "string" ? undefined : entry.counts,
       };
     });
+
+    // Sorted the way the file tree beside it is, and for the same reason: the
+    // server lists entries in the order the files declare them, which across an
+    // import graph is the order of the files. `SECTIONS` above stays as it is —
+    // that is a reading order, not an alphabet.
+    children.sort((a, b) => compareNames(a.label, b.label));
 
     rows.push({
       key: section,

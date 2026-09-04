@@ -15,11 +15,13 @@
  * down a list of twelve reuses one editor tab instead of opening twelve.
  */
 import { computed } from "vue";
-import { CircleCheck, ShieldCheck, X } from "@lucide/vue";
+import { CircleCheck, CircleX, ShieldCheck, Square, TriangleAlert } from "@lucide/vue";
 
+import InfoTip from "@/components/app/InfoTip.vue";
 import PanelHeader from "@/components/app/PanelHeader.vue";
 import StateMessage from "@/components/app/StateMessage.vue";
 import { Badge } from "@/components/ui/badge";
+import { formatCount, formatRelativeTime, formatTimestamp } from "@/lib/format";
 import { GHOST_BUTTON, SECONDARY_BUTTON } from "@/lib/formClasses";
 import { useTabsStore } from "@/stores/tabs";
 import { useValidationStore, type ValidationProblem } from "@/stores/validation";
@@ -36,7 +38,7 @@ const status = computed(() => {
   if (validation.phase === "build") return "Asking Calliope to build the model…";
   if (validation.phase === "idle") return "Not yet validated";
   return validation.problems.length
-    ? `${validation.problems.length} problem${validation.problems.length === 1 ? "" : "s"}`
+    ? formatCount(validation.problems.length, "problem")
     : "No problems found";
 });
 
@@ -53,23 +55,35 @@ function revalidate() {
   if (tabs.versionId) validation.validate(tabs.versionId);
 }
 
+/**
+ * When it was last checked, as an ISO string for `format.ts`'s pair: the
+ * relative form on screen, the full one in the tooltip. The store keeps a
+ * number because that is what `Date.now()` hands it.
+ */
 const validatedAt = computed(() =>
-  validation.lastValidatedAt
-    ? new Date(validation.lastValidatedAt).toLocaleTimeString()
-    : null,
+  validation.lastValidatedAt ? new Date(validation.lastValidatedAt).toISOString() : null,
 );
+
+/**
+ * A warning and an error are painted apart, because `severity` arrived on
+ * every problem and was read by nothing — a model that merely warned looked
+ * exactly like one that would not build.
+ */
+const SEVERITY = {
+  error: { glyph: CircleX, tone: "text-danger-text" },
+  warning: { glyph: TriangleAlert, tone: "text-warning-text" },
+} as const;
 </script>
 
 <template>
   <div class="flex min-h-0 flex-1 flex-col" data-testid="validation-tab">
-    <!-- `bg-surface`: the first strip under the tab bar, which the active tab
-         opens onto. -->
-    <PanelHeader class="bg-surface">
-      <ShieldCheck class="size-3.5 shrink-0 text-text-faint" />
+    <PanelHeader tone="surface">
       <span class="text-sm" data-testid="validation-status">{{ status }}</span>
-      <span v-if="validatedAt && !running" class="text-2xs text-text-faint">
-        at {{ validatedAt }}
-      </span>
+      <InfoTip v-if="validatedAt && !running" :label="formatTimestamp(validatedAt)">
+        <span class="text-sm text-text-muted" data-testid="validation-when">
+          {{ formatRelativeTime(validatedAt) }}
+        </span>
+      </InfoTip>
 
       <div class="flex-1" />
 
@@ -80,8 +94,8 @@ const validatedAt = computed(() =>
         :class="SECONDARY_BUTTON"
         @click="validation.cancel()"
       >
-        <X class="size-3.5" />
-        Cancel
+        <Square class="size-3.5" />
+        Cancel validation
       </button>
       <button
         v-else
@@ -138,29 +152,34 @@ const validatedAt = computed(() =>
         :type="locatable(problem) ? 'button' : undefined"
         data-testid="validation-problem"
         :data-tier="problem.tier"
+        :data-severity="problem.severity"
         :data-file="problem.file"
         :data-line="problem.line ?? undefined"
         class="flex w-full flex-col items-start gap-0.5 border-b border-border-subtle px-2 py-1 text-left"
         :class="locatable(problem) && 'hover:bg-hover'"
         @click="open(problem)"
       >
-        <span class="flex w-full items-center gap-1 text-2xs text-text-faint">
+        <span class="flex w-full items-center gap-1 text-sm text-text-muted">
           <span class="truncate">{{ problem.file }}</span>
           <span v-if="problem.line != null">:{{ problem.line }}</span>
           <Badge variant="outline" class="ml-auto">{{ problem.tier }}</Badge>
         </span>
-        <span class="text-sm text-danger-text">{{ problem.message }}</span>
+        <span class="flex items-start gap-1.5 text-sm" :class="SEVERITY[problem.severity].tone">
+          <component :is="SEVERITY[problem.severity].glyph" class="mt-0.5 size-3.5 shrink-0" />
+          <span>{{ problem.message }}</span>
+        </span>
       </component>
 
       <!-- The build tier reports no line numbers, so its rows do not navigate.
            Said once, here, rather than left to look like a broken click. -->
-      <p
+      <StateMessage
         v-if="validation.problems.some((problem) => !locatable(problem))"
-        class="px-2 py-1 text-2xs text-text-faint"
+        variant="note"
+        class="px-2 py-1"
       >
         Calliope does not report line numbers, so build problems cannot be jumped
         to.
-      </p>
+      </StateMessage>
 
       <StateMessage v-if="running" variant="inline" loading>
         Still working…

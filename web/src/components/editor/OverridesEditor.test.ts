@@ -9,10 +9,12 @@ vi.mock("@/api/versions", async () =>
 import * as versions from "@/api/versions";
 import { useTabsStore } from "@/stores/tabs";
 import {
+  answerConfirm,
   mountEditor,
   pressSave,
   resetVersionsApi,
   rowNames,
+  saveByKeyboard,
   section,
   type VersionsApi,
 } from "@/test-helpers/editors";
@@ -63,8 +65,7 @@ describe("OverridesEditor", () => {
     expect(api.readYamlSection).not.toHaveBeenCalled();
     expect(rowNames(mounted)).toEqual(["cheap_gas", "no_storage"]);
 
-    await mounted.find("save").trigger("click");
-    await flushPromises();
+    await saveByKeyboard(mounted);
     expect(api.putOverrides).toHaveBeenCalledWith("v1", "scenarios.yaml", OVERRIDES, "r1");
     expect(api.putYamlSection).not.toHaveBeenCalled();
   });
@@ -106,10 +107,19 @@ describe("OverridesEditor", () => {
     await mounted.find("add-override").trigger("click");
     expect(rowNames(mounted)).toEqual(["cheap_gas", "no_storage", "(unnamed)"]);
     await mounted.findAll("entry-remove")[1]!.trigger("click");
+    await answerConfirm(true);
 
     await mounted.find("save").trigger("click");
     await flushPromises();
     expect(lastWrite()).toEqual({ cheap_gas: OVERRIDES.cheap_gas });
+  });
+
+  it("keeps an override whose removal was declined", async () => {
+    const mounted = await mountEditor(OverridesEditor, { section: "overrides" });
+    await mounted.findAll("entry-remove")[0]!.trigger("click");
+    await answerConfirm(false);
+    expect(rowNames(mounted)).toEqual(["cheap_gas", "no_storage"]);
+    expect(useTabsStore().get(mounted.tabId)?.isDirty).toBe(false);
   });
 
   it("writes an edited setting's value in the type it was typed", async () => {

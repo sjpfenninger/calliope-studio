@@ -105,6 +105,12 @@ async function waitForResolvedGeo(timeout = 60000) {
 
 async function openSection(name) {
   await openEntry(name);
+  // The List/Map choice is remembered across reloads now, so a run that left
+  // the pane on the list — the overlay's button does exactly that — has to ask
+  // for the map back rather than assume it.
+  if ((await testId("editor-map").count()) === 0) {
+    await testId("view-map").click({ timeout: 20000 }).catch(() => {});
+  }
   await testId("editor-map").waitFor({ timeout: 20000 });
   // The element exists before MapLibre has a style, and `map.project()` on a map
   // that has not loaded returns a point for a viewport that is about to change —
@@ -329,8 +335,18 @@ async function run() {
       (await testId("link-to").inputValue()) === "region2",
   );
 
-  // Two clicks draw a link, from the template the picker names.
-  await testId("new-link-template").selectOption("free_transmission");
+  // Two clicks draw a link, from the template the picker names. The picker is
+  // the app's own Select rather than a native one, so it is opened and an
+  // option is picked rather than `selectOption`ed.
+  await testId("new-link-template").click();
+  await page.getByRole("option", { name: "free_transmission", exact: true }).click();
+  // Reka holds `pointer-events: none` on the body until its dismiss layer has
+  // unwound, and a map click inside that window reaches nothing.
+  await until(
+    async () =>
+      (await page.getByRole("listbox").count()) === 0 &&
+      (await page.evaluate(() => document.body.style.pointerEvents !== "none")),
+  );
 
   const first = await screenPoint(coordinates[LINK_FROM]);
   await page.mouse.click(first.x, first.y);

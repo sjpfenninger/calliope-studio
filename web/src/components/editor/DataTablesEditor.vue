@@ -12,6 +12,8 @@
  * is where they meet, so Save there writes both.
  */
 import { computed, onMounted, onUnmounted, ref, toRef, useTemplateRef, watch } from "vue";
+import Banner from "@/components/app/Banner.vue";
+import PanelHeader from "@/components/app/PanelHeader.vue";
 import LockedBanner from "@/components/app/LockedBanner.vue";
 import StateMessage from "@/components/app/StateMessage.vue";
 import { Plus } from "@lucide/vue";
@@ -28,11 +30,14 @@ import {
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
 import { FIELD_LABEL, GHOST_BUTTON, IDENTIFIER } from "@/lib/formClasses";
+import { formatCount } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { useFocusNew } from "./focusNew";
 
 import { rowKey } from "@/lib/entries";
 import { resolveDataPath } from "@/lib/modelPaths";
 import { useCsvGrid } from "@/composables/useCsvGrid";
+import { useConfirmStore } from "@/stores/confirm";
 import { useSectionDataStore } from "@/stores/sectionData";
 import { useTabsStore } from "@/stores/tabs";
 import { useSchemaStore } from "@/stores/schema";
@@ -49,7 +54,10 @@ const tabsStore = useTabsStore();
 const sectionData = useSectionDataStore();
 const schemaStore = useSchemaStore();
 const ui = useUiStore();
+const confirm = useConfirmStore();
 
+/** The name field of a table just added takes the cursor; see `focusNew`. */
+const focus = useFocusNew();
 
 // Each entry holds the table name (dict key) and the raw data object from YAML.
 // SchemaObjectEditor takes care of the comma-separated and key/value shapes.
@@ -198,7 +206,19 @@ watch(
   { flush: "post", immediate: true }
 );
 
-function reloadCsv() {
+/**
+ * Follows the new `table:` path, throwing the grid's edits away — after asking,
+ * in the same words the CSV file tab uses for the same act. It used to be a
+ * bare button with a grey caption, one line above a real confirmation.
+ */
+async function reloadCsv() {
+  const ok = await confirm.ask({
+    title: "Reload this CSV from disk?",
+    message: "The unsaved cell edits in this grid will be lost.",
+    confirmLabel: "Reload",
+    destructive: true,
+  });
+  if (!ok) return;
   const next = pendingPath.value;
   pendingPath.value = null;
   csv.markSaved(); // discarding the edits is the point of the button
@@ -351,7 +371,14 @@ const {
 
 function addEntry() {
   entries.value.push({ name: "", data: {} });
+  focus.request(rowKey(entries.value[entries.value.length - 1]));
   touchForm();
+}
+
+/** What removing this table takes with it, for the confirmation. */
+function owns(entry: DataTableEntry): string {
+  const set = Object.keys(entry.data).length;
+  return set ? formatCount(set, "field") : "";
 }
 
 function removeEntry(index: number) {
@@ -388,7 +415,7 @@ onUnmounted(() => clearTimeout(reloadTimer));
        wrapper leaves it at content height, which would collapse the grid. -->
   <div class="flex h-full min-h-0 flex-col">
     <StateMessage v-if="isLoading" variant="block" loading>
-      Loading data_tables…
+      Loading data tables…
     </StateMessage>
     <StateMessage v-else-if="error" variant="block" tone="danger">{{ error }}</StateMessage>
 
@@ -399,6 +426,7 @@ onUnmounted(() => clearTimeout(reloadTimer));
         :error="saveError"
         :conflict="conflict"
         :file="filePath"
+        :tab-id="tabId"
         @save="save"
         @reload="reload"
       >
@@ -418,9 +446,15 @@ onUnmounted(() => clearTimeout(reloadTimer));
       <StateMessage v-if="!visibleEntries.length" variant="block">
         {{
           entryName
-            ? `No data table called "${entryName}".`
+            ? `No data table called “${entryName}”.`
             : "No data tables defined yet."
         }}
+        <template v-if="!entryName" #action>
+          <button type="button" :class="GHOST_BUTTON" :disabled="locked" @click="addEntry">
+            <Plus class="size-3.5" />
+            Add table
+          </button>
+        </template>
       </StateMessage>
 
       <!-- One table: its configuration above, its CSV below. -->
@@ -431,7 +465,7 @@ onUnmounted(() => clearTimeout(reloadTimer));
         @layout="ui.setDataTableSplit($event)"
       >
         <ResizablePanel :default-size="ui.dataTableSplit[0]" :min-size="20">
-          <fieldset :disabled="locked" class="h-full overflow-auto px-2" data-testid="dt-entry">
+          <fieldset :disabled="locked" class="h-full overflow-auto px-2 py-1" data-testid="dt-entry">
             <DataTableFields
               :name="activeEntry.name"
               :data="activeEntry.data"
@@ -446,32 +480,21 @@ onUnmounted(() => clearTimeout(reloadTimer));
 
         <ResizablePanel :default-size="ui.dataTableSplit[1]" :min-size="20">
           <div class="flex h-full min-h-0 flex-col">
-            <!-- A file path is an identifier, so it gets the same treatment as
-                 the key of a field: mono, at the mono step. -->
-            <div
-              :class="
-                cn(
-                  'flex h-6 shrink-0 items-center gap-2 border-b border-border px-2',
-                  FIELD_LABEL,
-                )
-              "
-            >
-              <span class="truncate">{{ csvPath }}</span>
-            </div>
+            <!-- The path names what the grid below holds, as a card header. -->
+            <PanelHeader tone="card" size="md">
+              <span :class="cn(FIELD_LABEL, 'truncate')">{{ csvPath }}</span>
+            </PanelHeader>
 
-            <p
-              v-if="pendingPath"
-              class="flex shrink-0 items-center gap-2 border-b border-border px-2 py-1 text-2xs text-text-dim"
-            >
-              <span class="truncate">
-                {{ tableKey }}: now points at
-                <span :class="IDENTIFIER">{{ pendingPath }}</span>.
-              </span>
-              <button type="button" :class="GHOST_BUTTON" @click="reloadCsv">
-                Reload grid
-              </button>
-              <span class="text-text-faint">discards unsaved cell edits</span>
-            </p>
+            <Banner v-if="pendingPath" tone="info">
+              {{ tableKey }}: now points at
+              <span :class="IDENTIFIER">{{ pendingPath }}</span>. The grid still shows
+              the file it loaded.
+              <template #action>
+                <button type="button" :class="GHOST_BUTTON" @click="reloadCsv">
+                  Reload grid
+                </button>
+              </template>
+            </Banner>
 
             <LockedBanner
               v-if="csvLockOwner && csvPath"
@@ -480,7 +503,7 @@ onUnmounted(() => clearTimeout(reloadTimer));
             />
 
             <StateMessage v-if="csvLoading" variant="block" loading>
-              Loading…
+              Reading the CSV…
             </StateMessage>
             <StateMessage v-else-if="csvError" variant="block" tone="danger">
               {{ csvError }}
@@ -491,7 +514,7 @@ onUnmounted(() => clearTimeout(reloadTimer));
       </ResizablePanelGroup>
 
       <!-- One table, but nothing openable at its `data:`. -->
-      <div v-else-if="activeEntry" class="min-h-0 flex-1 overflow-auto px-2">
+      <div v-else-if="activeEntry" class="min-h-0 flex-1 overflow-auto px-2 py-1">
         <div data-testid="dt-entry">
           <DataTableFields
             :name="activeEntry.name"
@@ -501,9 +524,9 @@ onUnmounted(() => clearTimeout(reloadTimer));
             @update:data="onEntryDataChange(visibleEntries[0].index, $event)"
           />
         </div>
-        <p class="border-t border-border px-1 py-2 text-2xs text-text-dim">
+        <StateMessage variant="note" class="border-t border-border px-1 py-2">
           {{ noCsvReason }}
-        </p>
+        </StateMessage>
       </div>
 
       <!-- Every table in the file. -->
@@ -511,7 +534,7 @@ onUnmounted(() => clearTimeout(reloadTimer));
         <Accordion
           type="multiple"
           :default-value="visibleEntries.map(({ entry }) => rowKey(entry))"
-          class="px-2"
+          class="px-2 py-1"
         >
           <!-- Keyed by the table's own identity, never by its position.
                `SchemaObjectEditor` keeps text and row drafts seeded once at
@@ -525,16 +548,18 @@ onUnmounted(() => clearTimeout(reloadTimer));
             :value="rowKey(entry)"
             :name="entry.name || '(unnamed)'"
             remove-label="Remove this table"
+            :owns="owns(entry)"
             testid="dt-entry"
             @remove="removeEntry(index)"
           >
-              <DataTableFields
-                :name="entry.name"
-                :data="entry.data"
-                :form-key="filePath + ':dt:' + rowKey(entry)"
-                @update:name="onNameChange(index, $event)"
-                @update:data="onEntryDataChange(index, $event)"
-              />
+            <DataTableFields
+              :ref="(el) => focus.bind(el, rowKey(entry))"
+              :name="entry.name"
+              :data="entry.data"
+              :form-key="filePath + ':dt:' + rowKey(entry)"
+              @update:name="onNameChange(index, $event)"
+              @update:data="onEntryDataChange(index, $event)"
+            />
           </EntryAccordionRow>
         </Accordion>
       </div>

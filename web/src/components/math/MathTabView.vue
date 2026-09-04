@@ -22,7 +22,7 @@
  * asked for once when the tab opens and never silently repeated.
  */
 import { computed, onMounted, watch } from "vue";
-import { FileCode2, RefreshCw, Sigma, X } from "@lucide/vue";
+import { FileCode2, RefreshCw, Sigma, Square } from "@lucide/vue";
 
 import Eyebrow from "@/components/app/Eyebrow.vue";
 import PanelHeader from "@/components/app/PanelHeader.vue";
@@ -30,16 +30,23 @@ import StateMessage from "@/components/app/StateMessage.vue";
 import TreeSearch from "@/components/app/TreeSearch.vue";
 import MathComponentRow from "@/components/math/MathComponentRow.vue";
 import MathFilesPanel from "@/components/math/MathFilesPanel.vue";
+import MathSourceFilter from "@/components/math/MathSourceFilter.vue";
 import { Badge } from "@/components/ui/badge";
 import {
   CODE_BLOCK,
+  CODE_WELL,
+  DISABLED,
   GHOST_BUTTON,
   IDENTIFIER,
+  INLINE_LINK,
   SECONDARY_BUTTON,
   WARNING_BADGE,
 } from "@/lib/formClasses";
+import { formatCount } from "@/lib/format";
 import { renderMarkdown } from "@/lib/markdown";
 import { hasRenderError, renderLatex } from "@/lib/mathRender";
+import { openIntent } from "@/lib/openIntent";
+import { cn } from "@/lib/utils";
 import { componentKey, useMathStore } from "@/stores/math";
 import { useTabsStore } from "@/stores/tabs";
 import type { MathComponent } from "@/api/versions";
@@ -51,19 +58,11 @@ const tabs = useTabsStore();
 
 const rendering = computed(() => math.phase === "rendering");
 
-/**
- * Which sources the filter offers.
- *
- * Only ones that are actually applied: an unapplied file contributes nothing to
- * the rendered formulation, so filtering to it would show an empty list and read
- * as a broken filter rather than as the point being made. The files panel is
- * where an unapplied file is dealt with.
- */
-const filterSources = computed(() => math.sources.filter((source) => source.applied));
-
-const hasUserMath = computed(() =>
-  math.sources.some((source) => source.kind === "user" && source.applied),
-);
+/** Everything the list is narrowed by, undone at once. */
+function clearFilters() {
+  math.query = "";
+  math.focusSource(null);
+}
 
 /**
  * The component list, after the source filter, the user filter and the query.
@@ -128,19 +127,27 @@ const declaredAt = computed(() => {
   return found?.file ? found : null;
 });
 
-function openDeclaration() {
+/**
+ * One click rule for both branches. The line-numbered path used to preview and
+ * the bare one open for keeps — whether the tab stayed depended on whether the
+ * server had found a line number, which is nothing the user can see.
+ */
+function openDeclaration(event: MouseEvent) {
   const found = declaredAt.value;
   if (!found) return;
-  if (found.line != null) tabs.jumpTo(found.file, found.line, 1);
-  else tabs.openFile(found.file);
+  const intent = openIntent(event);
+  if (found.line != null) tabs.jumpTo(found.file, found.line, 1, intent);
+  else tabs.openFile(found.file, intent);
 }
 
 const status = computed(() => {
   if (rendering.value) return "Rendering the math…";
   if (math.phase === "idle") return "Not yet rendered";
-  const count = math.componentCount;
-  return `${count} component${count === 1 ? "" : "s"}`;
+  return formatCount(math.componentCount, "component");
 });
+
+/** "Render" until there is something to render again. */
+const renderLabel = computed(() => (math.payload ? "Render again" : "Render"));
 
 function refresh() {
   math.render(props.versionId);
@@ -167,10 +174,7 @@ watch(
 
 <template>
   <div class="flex min-h-0 flex-1 flex-col" data-testid="math-tab">
-    <!-- `bg-surface`: the first strip under the tab bar, which the tab opens
-         onto. -->
-    <PanelHeader class="bg-surface">
-      <Sigma class="size-3.5 shrink-0 text-text-faint" />
+    <PanelHeader tone="surface">
       <span class="text-sm" data-testid="math-status">{{ status }}</span>
       <Badge v-if="math.payload?.mode && math.payload.mode !== 'base'" variant="outline">
         {{ math.payload.mode }} mode
@@ -185,8 +189,8 @@ watch(
         :class="SECONDARY_BUTTON"
         @click="math.cancel()"
       >
-        <X class="size-3.5" />
-        Cancel
+        <Square class="size-3.5" />
+        Cancel rendering
       </button>
       <button
         v-else
@@ -196,7 +200,7 @@ watch(
         @click="refresh"
       >
         <RefreshCw class="size-3.5" />
-        Render again
+        {{ renderLabel }}
       </button>
     </PanelHeader>
 
@@ -218,7 +222,7 @@ watch(
 
     <div class="flex min-h-0 flex-1">
       <!-- ── Left: sources, filters, component list ───────────────────────── -->
-      <div class="flex w-64 shrink-0 flex-col border-r border-border bg-panel">
+      <div class="flex w-56 shrink-0 flex-col border-r border-border bg-panel">
         <MathFilesPanel :versionId="versionId" />
 
         <TreeSearch
@@ -228,61 +232,11 @@ watch(
           testid="math-filter"
         />
 
-        <div
-          v-if="filterSources.length > 1 || hasUserMath"
-          class="flex flex-col gap-1 border-b border-border-subtle px-2 py-1.5"
-        >
-          <Eyebrow>Source</Eyebrow>
-          <div class="flex flex-wrap gap-1" data-testid="math-source-filter">
-            <button
-              type="button"
-              :class="[
-                'rounded-xs px-1.5 py-0.5 text-2xs',
-                math.sourceFilter === null && !math.userOnly
-                  ? 'bg-accent-soft text-accent-text'
-                  : 'text-text-muted hover:bg-hover',
-              ]"
-              @click="math.focusSource(null)"
-            >
-              All
-            </button>
-            <button
-              v-if="hasUserMath"
-              type="button"
-              data-testid="math-user-only"
-              :class="[
-                'rounded-xs px-1.5 py-0.5 text-2xs',
-                math.userOnly
-                  ? 'bg-accent-soft text-accent-text'
-                  : 'text-text-muted hover:bg-hover',
-              ]"
-              @click="
-                math.sourceFilter = null;
-                math.userOnly = !math.userOnly;
-              "
-            >
-              Mine
-            </button>
-            <button
-              v-for="source in filterSources"
-              :key="source.name"
-              type="button"
-              :class="[
-                'rounded-xs px-1.5 py-0.5 text-2xs',
-                math.sourceFilter === source.name
-                  ? 'bg-accent-soft text-accent-text'
-                  : 'text-text-muted hover:bg-hover',
-              ]"
-              @click="math.focusSource(source.name)"
-            >
-              {{ source.name }}
-            </button>
-          </div>
-        </div>
+        <MathSourceFilter />
 
         <div class="min-h-0 flex-1 overflow-auto" data-testid="math-list">
           <template v-for="group in groups" :key="group.key">
-            <Eyebrow class="sticky top-0 block bg-panel px-2 pt-1.5">
+            <Eyebrow class="sticky top-0 mb-1 block bg-panel px-2 pt-1.5">
               {{ group.label }}
             </Eyebrow>
             <MathComponentRow
@@ -296,7 +250,10 @@ watch(
                  of the formulation, and a reader scanning the constraints of a
                  model should not have to check a badge on every row. -->
             <template v-if="group.deactivated.length">
-              <Eyebrow class="block px-2 pt-1.5" data-testid="math-deactivated">
+              <Eyebrow
+                class="sticky top-0 mb-1 block bg-panel px-2 pt-1.5"
+                data-testid="math-deactivated"
+              >
                 Deactivated ({{ group.deactivated.length }})
               </Eyebrow>
               <MathComponentRow
@@ -308,8 +265,16 @@ watch(
             </template>
           </template>
 
+          <!-- Names the query, because a message that does not is
+               indistinguishable from an empty formulation. -->
           <StateMessage v-if="!total && math.payload" variant="inline">
-            Nothing matches.
+            <template v-if="math.query.trim()">Nothing matches “{{ math.query.trim() }}”</template>
+            <template v-else>Nothing matches this filter</template>
+            <template #action>
+              <button type="button" :class="SECONDARY_BUTTON" @click="clearFilters">
+                Clear
+              </button>
+            </template>
           </StateMessage>
         </div>
       </div>
@@ -335,11 +300,11 @@ watch(
 
         <div v-else class="flex flex-col gap-3 p-3">
           <div class="flex flex-col gap-1">
-            <Eyebrow class="mb-0">{{
+            <Eyebrow>{{
               math.payload.groups.find((group) => group.key === selected!.group)?.label ??
               selected.group
             }}</Eyebrow>
-            <h2 class="text-lg text-foreground">{{ selected.name }}</h2>
+            <h2 class="text-lg font-semibold text-foreground">{{ selected.name }}</h2>
             <p v-if="selected.title" class="text-sm text-text-dim">
               {{ selected.title }}
             </p>
@@ -402,17 +367,20 @@ watch(
             This equation could not be typeset.
           </StateMessage>
 
+          <!-- Each name is a word in a run of text that goes somewhere, which is
+               what `INLINE_LINK` is; a name the rendering did not reach — a
+               parameter the model never set — is left in place but inert. -->
           <div
             v-if="selected.uses.length || selected.used_in.length"
-            class="flex flex-col gap-1.5"
+            class="flex flex-col gap-1.5 text-sm text-text-dim"
           >
             <div v-if="selected.uses.length" class="flex flex-wrap items-baseline gap-1">
-              <Eyebrow class="mb-0">Uses</Eyebrow>
+              <Eyebrow>Uses</Eyebrow>
               <button
                 v-for="name in selected.uses"
                 :key="name"
                 type="button"
-                class="rounded-xs px-1 text-sm text-accent-text hover:bg-hover"
+                :class="cn(INLINE_LINK, DISABLED)"
                 :disabled="!math.componentsByName.has(name)"
                 :data-math-ref="name"
                 @click="math.selectByName(name)"
@@ -424,12 +392,12 @@ watch(
               v-if="selected.used_in.length"
               class="flex flex-wrap items-baseline gap-1"
             >
-              <Eyebrow class="mb-0">Used in</Eyebrow>
+              <Eyebrow>Used in</Eyebrow>
               <button
                 v-for="name in selected.used_in"
                 :key="name"
                 type="button"
-                class="rounded-xs px-1 text-sm text-accent-text hover:bg-hover"
+                :class="cn(INLINE_LINK, DISABLED)"
                 :disabled="!math.componentsByName.has(name)"
                 :data-math-ref="name"
                 @click="math.selectByName(name)"
@@ -442,11 +410,8 @@ watch(
           <!-- The YAML is the *cause* of the notation above it, so somebody
                writing math needs both on one screen. -->
           <div v-if="selected.yaml" class="flex flex-col gap-1">
-            <Eyebrow class="mb-0">Definition</Eyebrow>
-            <pre
-              class="overflow-auto rounded-sm border border-border-subtle bg-panel p-2"
-              :class="CODE_BLOCK"
-            >{{ selected.yaml }}</pre>
+            <Eyebrow>Definition</Eyebrow>
+            <pre :class="cn(CODE_WELL, CODE_BLOCK, 'overflow-auto')">{{ selected.yaml }}</pre>
           </div>
         </div>
       </div>

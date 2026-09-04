@@ -48,8 +48,14 @@ const segments = computed<Segment[]>(() => {
   });
 });
 
+// `done` is green because the status pill beside this strip paints a finished
+// run green: with the segments in accent, a run that had just succeeded showed
+// two colours for one fact. Accent stays on the segment that is *in progress*,
+// which is what accent means on the pill too (`running`). A completed stage of
+// a run that later failed keeps its green — that stage did finish, and the pill
+// is what says how the run as a whole ended.
 const SEGMENT_STYLE: Record<Segment["state"], string> = {
-  done: "bg-accent-border",
+  done: "bg-success",
   active: "bg-primary animate-pulse",
   waiting: "bg-border-strong",
 };
@@ -83,7 +89,7 @@ const SEGMENT_STYLE: Record<Segment["state"], string> = {
     <span
       v-if="stage.detail && running"
       data-testid="run-progress-detail"
-      class="truncate text-2xs text-text-faint"
+      class="truncate text-2xs text-text-muted"
     >
       {{ stage.detail }}
     </span>

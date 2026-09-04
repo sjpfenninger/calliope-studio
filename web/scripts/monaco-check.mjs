@@ -219,10 +219,38 @@ try {
   });
   check("a structured save reaches an open raw buffer", refreshed);
 
-  // Dirty the raw buffer, close its tab past the guard, reopen from the tree.
+  // Cmd+S with focus *outside* the editor. The shortcut used to be Monaco's
+  // own command, which answers only while the editor has focus: click the tab
+  // strip, press Cmd+S, and the browser's Save dialog opened over a dirty
+  // file. The listener is on `window` now, gated on the tab in front.
   await page.locator(".view-lines").first().click();
   await page.keyboard.press(END);
   await page.keyboard.type("\n# scratch\n");
+  await testId("tab-dirty").first().waitFor({ timeout: 5000 });
+  await scenariosTab.click();
+  check(
+    "focus has left the editor",
+    !(await page.evaluate(() => Boolean(document.activeElement?.closest(".monaco-editor")))),
+  );
+  await page.keyboard.press(`${MOD}+s`);
+  const savedFromStrip = await until(
+    async () => (await readFile("scenarios.yaml")).includes("# scratch"),
+    { timeout: 20000 },
+  );
+  check("Cmd+S saves the raw buffer with focus outside the editor", savedFromStrip);
+  const cleanAfterSave = await until(
+    async () =>
+      (await page
+        .locator('[data-testid^="tab-"][data-active] [data-testid="tab-dirty"]')
+        .count()) === 0,
+    { timeout: 5000 },
+  );
+  check("and the tab goes clean", cleanAfterSave);
+
+  // Dirty the raw buffer, close its tab past the guard, reopen from the tree.
+  await page.locator(".view-lines").first().click();
+  await page.keyboard.press(END);
+  await page.keyboard.type("\n# discarded\n");
   await testId("tab-dirty").first().waitFor({ timeout: 5000 });
   await scenariosTab.hover();
   await scenariosTab.getByRole("button", { name: "Close tab" }).click();
@@ -235,7 +263,7 @@ try {
   await until(async () => (await buffer()).includes("cold_fusion"), { timeout: 20000 });
   check(
     "a reopened file shows the disk, not the closed tab's edits",
-    !(await buffer()).includes("scratch"),
+    !(await buffer()).includes("discarded"),
   );
   check(
     "and opens clean",

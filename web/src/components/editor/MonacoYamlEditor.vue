@@ -11,12 +11,13 @@
  */
 import { computed, reactive, ref, watch, onMounted, onUnmounted } from "vue";
 import * as monaco from "monaco-editor";
-import { TriangleAlert } from "@lucide/vue";
 import { stringify as yamlStringify, parse as yamlParse } from "yaml";
 import { errorDetail, isConflict } from "../../api/errors";
 import { putYamlSection, readFile, readYamlSection } from "../../api/versions";
+import Banner from "../app/Banner.vue";
 import LockedBanner from "../app/LockedBanner.vue";
-import { TEXT_BUTTON_SM } from "../../lib/formClasses";
+import ProgressHairline from "../app/ProgressHairline.vue";
+import { GHOST_BUTTON } from "../../lib/formClasses";
 import { useConfirmStore } from "../../stores/confirm";
 import {
   applyMonacoTheme,
@@ -26,6 +27,9 @@ import {
   MONACO_THEME,
 } from "../../editor/monacoTheme";
 import PanelHeader from "../app/PanelHeader.vue";
+import InfoTip from "@/components/app/InfoTip.vue";
+import { shortenPath } from "@/lib/format";
+import EditorModeSwitch from "./EditorModeSwitch.vue";
 import SchemaKindPicker from "./SchemaKindPicker.vue";
 import { fileModelUri } from "../../lib/monacoBuffer";
 import { fileTabId } from "../../lib/tabId";
@@ -57,6 +61,12 @@ const containerRef = ref<HTMLElement | null>(null);
 const saveError = ref<string | null>(null);
 /** The failure was a stale baseline; the strip then offers a reload. */
 const conflict = ref(false);
+/**
+ * A write is in flight. Holding Cmd+S used to fire a PUT per key repeat, and
+ * two writes of one buffer racing to the same file is how the later one's
+ * `markClean` came to bless whichever landed last.
+ */
+const isSaving = ref(false);
 
 /**
  * Files whose bytes were not all UTF-8. The server replaced what it could not
@@ -437,6 +447,13 @@ const filePath = computed(() =>
   activeMonacoTab.value?.kind === "file" ? activeMonacoTab.value.path : null,
 );
 
+/** The section or entry tab whose buffer is showing, or null for a file. */
+const virtualTab = computed(() =>
+  activeMonacoTab.value && activeMonacoTab.value.kind !== "file"
+    ? activeMonacoTab.value
+    : null,
+);
+
 /** The file the active buffer is over, for a virtual tab as well. */
 const activeFile = computed(() => {
   const tab = activeMonacoTab.value;
@@ -482,7 +499,71 @@ watch(
   },
 );
 
+/**
+ * Saves the active buffer, and reports a failure in the strip above the editor.
+ *
+ * On `window` and gated on the tab in front, not Monaco's own `addCommand`:
+ * that bound the shortcut to editor focus, so clicking the tab strip and
+ * pressing Cmd+S opened the browser's Save dialog over a dirty file — the
+ * exact bug `CsvGridEditor`'s docstring records fixing, in the one editor that
+ * still had it. Raw tabs have no toolbar to carry the failure, so the dirty dot
+ * stays on and the strip says why; `markClean` is only reached on success.
+ *
+ * A save is intent to keep, so a previewed tab is promoted once it lands —
+ * as typing into one already promotes it.
+ */
+async function saveActive(): Promise<void> {
+  const tab = activeMonacoTab.value;
+  if (!tab || isSaving.value) return;
+  isSaving.value = true;
+  saveError.value = null;
+  conflict.value = false;
+  try {
+    if (lockOwner.value) {
+      throw new Error(`${lockOwner.value.title} holds unsaved changes to this file.`);
+    }
+    if (tab.kind === "file") {
+      const model = models.get(tab.path);
+      if (!model) return;
+      if (lossyFiles.has(tab.path)) {
+        throw new Error(
+          "This file has bytes that are not UTF-8, so saving it from here would " +
+            "write replacement characters over them. Fix the encoding outside the app.",
+        );
+      }
+      const version = model.getAlternativeVersionId();
+      // Invalidate all section caches for this file — Monaco may have changed
+      // any section. Before the write lands, not after: a form reloading on
+      // the write's own signal must not find the stale entry first.
+      if (props.versionId) sectionDataStore.invalidateFile(props.versionId, tab.path);
+      await tabsStore.saveYamlFile(tab.path, model.getValue());
+      // Typed while the write was in flight: not on disk, so still dirty.
+      if (model.getAlternativeVersionId() !== version) {
+        tabsStore.markDirty(fileTabId(tab.path), "raw");
+      }
+    } else {
+      await saveVirtualTab(tab);
+    }
+    tabsStore.promote(tab.id);
+  } catch (caught) {
+    conflict.value = isConflict(caught);
+    saveError.value = errorDetail(caught, "The file could not be saved.");
+  } finally {
+    isSaving.value = false;
+  }
+}
+
+function onKeydown(event: KeyboardEvent): void {
+  if (!(event.metaKey || event.ctrlKey) || event.key !== "s") return;
+  // Only the buffer on screen: every dirty pane in the app listens on `window`.
+  const tab = activeMonacoTab.value;
+  if (!tab || tabsStore.activeId !== tab.id) return;
+  event.preventDefault();
+  void saveActive();
+}
+
 onMounted(() => {
+  window.addEventListener("keydown", onKeydown);
   if (!containerRef.value) return;
 
   // Defined before `create`, so the editor never paints with a stock theme.
@@ -499,48 +580,6 @@ onMounted(() => {
     scrollBeyondLastLine: false,
     wordWrap: "off",
     automaticLayout: false, // driven by ResizeObserver below
-  });
-
-  // Cmd/Ctrl+S → save (file tab or virtual tab). `addCommand` discards the
-  // returned promise, so without the catch a rejected PUT is an unhandled
-  // rejection and the user is told nothing. The failure renders in the strip
-  // above the editor — raw tabs have no toolbar to carry it — and the dirty
-  // dot stays on, since `markClean` is only reached on success.
-  editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, async () => {
-    const tab = activeMonacoTab.value;
-    if (!tab) return;
-    saveError.value = null;
-    conflict.value = false;
-    try {
-      if (lockOwner.value) {
-        throw new Error(`${lockOwner.value.title} holds unsaved changes to this file.`);
-      }
-      if (tab.kind === "file") {
-        const model = models.get(tab.path);
-        if (!model) return;
-        if (lossyFiles.has(tab.path)) {
-          throw new Error(
-            "This file has bytes that are not UTF-8, so saving it from here would " +
-              "write replacement characters over them. Fix the encoding outside the app.",
-          );
-        }
-        const version = model.getAlternativeVersionId();
-        // Invalidate all section caches for this file — Monaco may have changed
-        // any section. Before the write lands, not after: a form reloading on
-        // the write's own signal must not find the stale entry first.
-        if (props.versionId) sectionDataStore.invalidateFile(props.versionId, tab.path);
-        await tabsStore.saveYamlFile(tab.path, model.getValue());
-        // Typed while the write was in flight: not on disk, so still dirty.
-        if (model.getAlternativeVersionId() !== version) {
-          tabsStore.markDirty(fileTabId(tab.path), "raw");
-        }
-      } else {
-        await saveVirtualTab(tab);
-      }
-    } catch (caught) {
-      conflict.value = isConflict(caught);
-      saveError.value = errorDetail(caught, "The file could not be saved.");
-    }
   });
 
   // Drive layout when the container resizes
@@ -585,6 +624,7 @@ watch(() => tabsStore.jumpTarget, async (target) => {
 });
 
 onUnmounted(() => {
+  window.removeEventListener("keydown", onKeydown);
   const ro = (editor as any)?._resizeObserver as ResizeObserver | undefined;
   ro?.disconnect();
   for (const d of changeDisposables.values()) d.dispose();
@@ -595,47 +635,47 @@ onUnmounted(() => {
 
 <template>
   <div class="flex min-h-0 flex-col">
-    <!-- Only for a real file. A section or entry tab is a model-definition
-         fragment by construction, so it has nothing to choose. -->
-    <!-- `bg-surface`: it is what the active tab opens onto, and Monaco's own
-         background below it is that colour too. -->
-    <PanelHeader v-if="filePath" size="md" class="bg-surface">
-      <SchemaKindPicker :path="filePath" />
+    <!-- A file chooses its schema; a section or entry tab is a model-definition
+         fragment by construction and has nothing to choose, but it has a form
+         to go back to. `lg`, because the picker inside is a 24px control and a
+         control is one size below its strip; `surface`, because this is what the
+         active tab opens onto and Monaco's own background below is that colour. -->
+    <PanelHeader v-if="filePath || virtualTab" size="lg" tone="surface">
+      <SchemaKindPicker v-if="filePath" :path="filePath" />
+      <EditorModeSwitch v-if="virtualTab" :tab-id="virtualTab.id" class="ml-auto" />
+      <!-- The same path `EditorToolbar` shows beside the switch on the form
+           side, so flipping to Source moves nothing at the right end of the
+           strip. Without it the path vanished on the way over and came back
+           on the way back, which read as the toolbar breaking. -->
+      <InfoTip v-if="virtualTab" :label="virtualTab.filePath">
+        <span data-testid="editor-file" class="min-w-0 truncate text-sm text-text-muted">
+          {{ shortenPath(virtualTab.filePath, 2) }}
+        </span>
+      </InfoTip>
     </PanelHeader>
+    <ProgressHairline :active="isSaving" />
     <!-- Appears only on failure, for file and virtual tabs alike — the latter
-         have no header to carry it. Same shape as EditorToolbar's alert, and
+         have no toolbar to carry it. Same shape as EditorToolbar's alert, and
          the same testid, so the failure checks find every save surface one way. -->
-    <div
-      v-if="saveError"
-      role="alert"
-      data-testid="save-error"
-      class="flex items-center gap-1 border-b border-border bg-surface px-2 py-1 text-2xs text-danger-text"
-    >
-      <TriangleAlert class="size-3 shrink-0" />
-      <span class="truncate">{{ saveError }}</span>
-      <button
-        v-if="conflict"
-        type="button"
-        data-testid="reload-from-disk"
-        :class="TEXT_BUTTON_SM"
-        @click="reloadActive"
-      >
-        Reload
-      </button>
-    </div>
+    <Banner v-if="saveError" tone="danger" testid="save-error">
+      {{ saveError }}
+      <template #action>
+        <button
+          v-if="conflict"
+          type="button"
+          data-testid="reload-from-disk"
+          :class="GHOST_BUTTON"
+          @click="reloadActive"
+        >
+          Reload
+        </button>
+      </template>
+    </Banner>
     <LockedBanner v-if="lockOwner && activeFile" :owner="lockOwner" :file="activeFile" />
-    <div
-      v-else-if="activeLossy"
-      role="status"
-      data-testid="lossy-notice"
-      class="flex items-center gap-1 border-b border-border bg-warning-soft px-2 py-1 text-2xs text-warning-text"
-    >
-      <TriangleAlert class="size-3 shrink-0" />
-      <span class="truncate">
-        Read-only: this file has bytes that are not UTF-8, and saving it from
-        here would replace them. Fix the encoding outside the app.
-      </span>
-    </div>
+    <Banner v-else-if="activeLossy" tone="warning" testid="lossy-notice">
+      Read-only: this file has bytes that are not UTF-8, and saving it from here
+      would replace them. Fix the encoding outside the app.
+    </Banner>
     <div ref="containerRef" class="monaco-container min-h-0 flex-1" />
   </div>
 </template>

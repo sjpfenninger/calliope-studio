@@ -9,6 +9,7 @@
  */
 import { onMounted, ref } from "vue";
 import StateMessage from "@/components/app/StateMessage.vue";
+import { INLINE_LINK } from "@/lib/formClasses";
 import { useRoute, useRouter } from "vue-router";
 
 import { listVersions } from "@/api/projects";
@@ -39,7 +40,7 @@ onMounted(async () => {
   <StateMessage v-if="error" variant="fill" tone="danger">
     {{ error }}
     <template #action>
-      <RouterLink :to="{ name: 'projects' }" class="text-accent-text underline">
+      <RouterLink :to="{ name: 'projects' }" :class="INLINE_LINK">
         Recent models
       </RouterLink>
     </template>

@@ -54,9 +54,11 @@ function toggle(section: FilterSection, member: string, checked: boolean) {
 </script>
 
 <template>
+  <!-- The rail owns its width, so the graphs and the tables — which each mount
+       one of these — cannot disagree about it. -->
   <aside
     data-testid="run-filters"
-    class="flex min-h-0 flex-col gap-3 overflow-y-auto border-r border-border bg-panel p-2"
+    class="flex w-56 shrink-0 min-h-0 flex-col gap-3 overflow-y-auto border-r border-border bg-panel p-2"
   >
     <SidebarSection
       v-for="section in store.sections"
@@ -101,14 +103,14 @@ function toggle(section: FilterSection, member: string, checked: boolean) {
           :aria-checked="isChecked(section, member)"
           :data-testid="`filter-${section.name}-${member}`"
           :title="member"
-          class="flex h-6 cursor-pointer items-center gap-1.5 rounded-xs px-1 text-sm hover:bg-hover"
+          class="flex h-6 cursor-pointer items-center gap-1.5 rounded-sm px-1 text-sm hover:bg-hover"
           @click="toggle(section, member, !isChecked(section, member))"
           @keydown.space.prevent="
             toggle(section, member, !isChecked(section, member))
           "
         >
           <Checkbox
-            class="pointer-events-none size-3.5"
+            class="pointer-events-none"
             :model-value="isChecked(section, member)"
           />
           <span class="truncate">{{ section.labels[member] ?? member }}</span>

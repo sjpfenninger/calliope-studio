@@ -11,6 +11,7 @@ import { computed, inject, ref, watch } from "vue";
 import { Download } from "@lucide/vue";
 
 import FigurePanel from "./FigurePanel.vue";
+import StateMessage from "@/components/app/StateMessage.vue";
 import MapLegend from "@/components/map/MapLegend.vue";
 import ModelMap from "@/components/map/ModelMap.vue";
 import TooltipButton from "@/components/app/TooltipButton.vue";
@@ -25,6 +26,7 @@ import type { ResultFrame } from "@/api/results";
 import { ordinalRamp } from "@/charts/theme";
 import type { CsvSource } from "@/lib/frameCsv";
 import { exportFrames, hasData } from "@/lib/frameExport";
+import { FIELD_WIDTH } from "@/lib/formClasses";
 import { nodeSlices, nodeTotals, valueExtent } from "@/lib/mapValues";
 import { unitSuffix, type DisplayUnit } from "@/lib/units";
 import { useRoundingStore } from "@/stores/rounding";
@@ -46,6 +48,14 @@ const props = defineProps<{
   pieUnit: DisplayUnit | null;
   /** Any of the three channels still in flight. */
   loading?: boolean;
+  /**
+   * The first channel that failed, if one did.
+   *
+   * Without it a 500 on a map frame left the previous map on screen with
+   * nothing to say the numbers were stale — the one figure that swallowed its
+   * errors while the two charts beside it showed theirs.
+   */
+  error?: string | null;
 }>();
 
 /** A channel's variable name with its unit, for the legend and the map's hover. */
@@ -181,7 +191,11 @@ const mapVariableName = computed(
         :disabled="channel === 'color' && Boolean(store.mapVariables.pie)"
         @update:model-value="(value) => setChannel(channel, String(value ?? NONE))"
       >
-        <SelectTrigger size="sm" class="w-32" :data-testid="`map-${channel}-variable`">
+        <SelectTrigger
+          size="sm"
+          :class="FIELD_WIDTH.short"
+          :data-testid="`map-${channel}-variable`"
+        >
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
@@ -242,7 +256,17 @@ const mapVariableName = computed(
       :ramp="ramp"
       :pie-label="channelLabel(store.mapVariables.pie, props.pieUnit)"
       :pie-techs="pieTechs"
+      :selected="store.mapNodes.length > 0"
       :precision="rounding.precision"
     />
+    <!-- Over the map *and* its legend, the way `ResultChart` covers its canvas:
+         a legend explaining a map that is not the current answer is worse than
+         no legend. -->
+    <StateMessage
+      v-if="props.error"
+      variant="fill"
+      tone="danger"
+      class="absolute inset-0 z-raised bg-surface"
+    >{{ props.error }}</StateMessage>
   </FigurePanel>
 </template>

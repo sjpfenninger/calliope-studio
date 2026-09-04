@@ -159,9 +159,9 @@ function toggleMode() {
   }
 }
 
-// Mono at the mono step. At `text-2xs` these three read as a footnote in a
-// different typeface than the key they sit under.
-const SUB_LABEL = "w-10 shrink-0 text-right text-sm text-text-faint";
+// The tone a field label gets (`FIELD_LABEL`), at the control size: these three
+// are captions on real fields, and the faint step is the disabled one.
+const SUB_LABEL = "w-10 shrink-0 text-right text-sm text-text-dim";
 </script>
 
 <template>
@@ -171,6 +171,7 @@ const SUB_LABEL = "w-10 shrink-0 text-right text-sm text-text-faint";
       <TooltipButton
         label="Switch to indexed form"
         :icon="Table2"
+        size="xs"
         @click="toggleMode"
       />
     </template>
@@ -211,6 +212,7 @@ const SUB_LABEL = "w-10 shrink-0 text-right text-sm text-text-faint";
       <TooltipButton
         label="Switch to scalar form"
         :icon="MinusCircle"
+        size="xs"
         @click="toggleMode"
       />
     </template>

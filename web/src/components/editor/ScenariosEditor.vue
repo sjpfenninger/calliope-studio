@@ -20,14 +20,19 @@ import StateMessage from "@/components/app/StateMessage.vue";
 import { rowKey } from "@/lib/entries";
 import { ChevronDown, ChevronUp, Plus, TriangleAlert, Trash2, X } from "@lucide/vue";
 
-import { useSectionEditor } from "@/composables/useSectionEditor";
+import { removalRequest, useSectionEditor } from "@/composables/useSectionEditor";
 import EditorToolbar from "./EditorToolbar.vue";
+import { Badge } from "@/components/ui/badge";
 import { MultiSelect } from "@/components/ui/multi-select";
 import FieldRow from "@/components/app/FieldRow.vue";
 import InfoTip from "@/components/app/InfoTip.vue";
 import TooltipButton from "@/components/app/TooltipButton.vue";
-import { FIELD, GHOST_BUTTON } from "@/lib/formClasses";
+import { FIELD, FIELD_WIDTH, GHOST_BUTTON, SECTION, WARNING_BADGE } from "@/lib/formClasses";
+import { formatCount } from "@/lib/format";
+import { cn } from "@/lib/utils";
 import { useComponentTreeStore } from "@/stores/componentTree";
+import { useConfirmStore } from "@/stores/confirm";
+import { useFocusNew } from "./focusNew";
 
 const props = defineProps<{
   versionId: string;
@@ -37,6 +42,9 @@ const props = defineProps<{
 }>();
 
 const componentTree = useComponentTreeStore();
+const confirm = useConfirmStore();
+/** The name field of a row just added takes the cursor; see `focusNew`. */
+const focus = useFocusNew();
 
 interface ScenarioEntry {
   name: string;
@@ -108,10 +116,14 @@ const {
 
 function addEntry() {
   entries.value.push({ name: "", overrides: [] });
+  focus.request(rowKey(entries.value[entries.value.length - 1]));
   onChange();
 }
 
-function removeEntry(entry: ScenarioEntry) {
+/** A scenario owns its list of overrides, so taking it out asks first. */
+async function removeEntry(entry: ScenarioEntry) {
+  const owns = entry.overrides.length ? formatCount(entry.overrides.length, "override") : "";
+  if (!(await confirm.ask(removalRequest(entry.name || "(unnamed)", owns)))) return;
   const at = entries.value.indexOf(entry);
   if (at !== -1) entries.value.splice(at, 1);
   onChange();
@@ -160,6 +172,7 @@ const onChange = markDirty;
         :error="saveError"
         :conflict="conflict"
         :file="filePath"
+        :tab-id="tabId"
         @save="save"
         @reload="reload"
       >
@@ -181,21 +194,28 @@ const onChange = markDirty;
         <StateMessage v-if="!visibleEntries.length" variant="block">
           {{
             entryName
-              ? `No scenario called "${entryName}".`
+              ? `No scenario called “${entryName}”.`
               : "No scenarios defined yet."
           }}
+          <template v-if="!entryName" #action>
+            <button type="button" :class="GHOST_BUTTON" :disabled="locked" @click="addEntry">
+              <Plus class="size-3.5" />
+              Add scenario
+            </button>
+          </template>
         </StateMessage>
 
         <section
           v-for="entry in visibleEntries"
           :key="rowKey(entry)"
-          class="mb-2 flex flex-col gap-1.5 rounded-sm border border-border p-2"
+          :class="cn(SECTION, 'mb-2')"
           data-testid="scenario"
         >
           <FieldRow label="name" width="short">
             <input
               v-model="entry.name"
               type="text"
+              :ref="(el) => focus.bind(el, rowKey(entry))"
               :class="FIELD"
               @input="onChange"
             />
@@ -204,40 +224,41 @@ const onChange = markDirty;
                 :model-value="entry.overrides"
                 :options="knownOverrides"
                 placeholder="Add overrides…"
-                class="w-56"
+                :class="FIELD_WIDTH.wide"
                 @update:model-value="(value) => setOverrides(entry, value)"
               />
               <TooltipButton
-                label="Remove this scenario"
+                :label="`Remove ${entry.name || 'this scenario'}`"
                 :icon="Trash2"
                 tone="danger"
+                size="xs"
+                testid="entry-remove"
                 @click="removeEntry(entry)"
               />
             </template>
           </FieldRow>
 
-          <!-- In order, because later overrides win. -->
+          <!-- In order, because later overrides win. Not a hover row: nothing
+               here is clickable but the buttons, which hover on their own. -->
           <ol class="flex flex-col">
             <li
               v-for="(name, index) in entry.overrides"
               :key="name"
-              class="flex h-6 items-center gap-1 rounded-xs px-1 text-sm hover:bg-hover"
+              class="flex h-6 items-center gap-1 rounded-sm px-1 text-sm"
             >
-              <span class="w-4 shrink-0 text-right text-2xs tabular-nums text-text-faint">
+              <span class="w-4 shrink-0 text-right text-2xs tabular-nums text-text-muted">
                 {{ index + 1 }}
               </span>
               <span class="min-w-0 flex-1 truncate">{{ name }}</span>
 
               <InfoTip
                 v-if="unresolved(entry).includes(name)"
-                label="No override of this name is defined anywhere in the model"
+                label="No override of this name is defined anywhere in the model."
               >
-                <span
-                  class="inline-flex shrink-0 items-center gap-1 rounded-xs bg-warning-soft px-1 text-2xs text-warning-text"
-                >
+                <Badge variant="outline" :class="WARNING_BADGE">
                   <TriangleAlert class="size-3" />
                   unknown
-                </span>
+                </Badge>
               </InfoTip>
 
               <TooltipButton
@@ -255,7 +276,7 @@ const onChange = markDirty;
                 @click="move(entry, index, 1)"
               />
               <TooltipButton
-                label="Remove"
+                :label="`Remove ${name}`"
                 :icon="X"
                 tone="danger"
                 size="xs"
@@ -264,9 +285,9 @@ const onChange = markDirty;
             </li>
           </ol>
 
-          <p v-if="!entry.overrides.length" class="px-1 text-2xs text-text-faint">
+          <StateMessage v-if="!entry.overrides.length" variant="note" class="px-1">
             This scenario composes no overrides.
-          </p>
+          </StateMessage>
         </section>
       </fieldset>
     </template>

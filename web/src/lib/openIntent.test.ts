@@ -60,6 +60,16 @@ describe("openIntent", () => {
     ).toEqual({ preview: false });
   });
 
+  it("opens a tab that stays on Shift+Enter, from the keyboard only", () => {
+    // The keyboard has no double-click, and Cmd-Enter is taken by the browser
+    // on some platforms — so without this the only keyboard path through a
+    // tree could preview and never keep. A Shift-*click* stays a preview: it
+    // is the range-select gesture everywhere else, and the test below pins it.
+    expect(
+      openIntent(new KeyboardEvent("keydown", { key: "Enter", shiftKey: true })),
+    ).toEqual({ preview: false });
+  });
+
   it("ignores the modifiers that mean something else", () => {
     // Shift and Alt are range-select and platform gestures. Treating either as
     // "keep this tab" would make an ordinary selection sweep pin a row.

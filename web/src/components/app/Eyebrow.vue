@@ -13,7 +13,9 @@ const props = defineProps<{ class?: HTMLAttributes["class"] }>();
 </script>
 
 <template>
-  <span :class="cn(SECTION_HEADING, 'mb-1', props.class)">
+  <!-- No margin of its own: twelve of eighteen call sites sat in a `gap-` parent
+       and had to write `mb-0` to cancel one. The few in plain flow say `mb-1`. -->
+  <span :class="cn(SECTION_HEADING, props.class)">
     <slot />
   </span>
 </template>

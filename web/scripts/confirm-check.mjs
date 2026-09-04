@@ -82,9 +82,24 @@ try {
   await testId("tab-dirty").first().waitFor({ timeout: 5000 });
   check("typing into an editor marks its tab unsaved", true);
 
+  // -- removing an entry asks the same way ----------------------------------
+  // A scenario owns its list of overrides, so taking it out of the form goes
+  // through the same dialog; a single override inside one does not.
+  const dialog = testId("confirm-dialog");
+  const scenarios = await testId("scenario").count();
+  await testId("entry-remove").first().click();
+  await dialog.waitFor({ timeout: 8000 });
+  check("removing a scenario asks first", true);
+  check(
+    "and names that act too",
+    (await testId("confirm-accept").innerText()).trim() === "Remove",
+  );
+  await testId("confirm-cancel").click();
+  await dialog.waitFor({ state: "hidden", timeout: 8000 });
+  check("declining keeps the scenario", (await testId("scenario").count()) === scenarios);
+
   // -- cancelling keeps everything ------------------------------------------
   await leave();
-  const dialog = testId("confirm-dialog");
   await dialog.waitFor({ timeout: 8000 });
   check("leaving with unsaved changes asks first", true);
   check(

@@ -68,7 +68,7 @@ async function openSection(name) {
   await calls.idle();
   // nodes and links open on the map; the fields are on the list side.
   if ((await testId("editor-map").count()) === 1) {
-    await testId("view-toggle").click();
+    await testId("view-list").click();
     await testId("editor-map")
       .waitFor({ state: "detached", timeout: 20000 })
       .catch(() => {});

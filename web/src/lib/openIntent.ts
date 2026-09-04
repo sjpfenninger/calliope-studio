@@ -16,8 +16,15 @@ import type { OpenOptions } from "@/stores/tabs";
  * double-click carries `detail === 2`, and re-opening a tab non-previewed is
  * exactly what promotes it. `detail` is on `UIEvent`, so a keyboard selection
  * reads 0 and previews.
+ *
+ * Shift counts only from the keyboard. A Shift-click is a range-select gesture
+ * everywhere else and must stay a preview, but there is no keyboard
+ * double-click, and Cmd-Enter is bound by the browser on some platforms — so
+ * Shift+Enter is the keyboard's second way to say "keep this one".
  */
 export function openIntent(event: MouseEvent | KeyboardEvent): OpenOptions {
-  const newTab = event.metaKey || event.ctrlKey || event.detail > 1;
+  const keyboard = event instanceof KeyboardEvent;
+  const newTab =
+    event.metaKey || event.ctrlKey || event.detail > 1 || (keyboard && event.shiftKey);
   return { preview: !newTab };
 }

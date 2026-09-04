@@ -11,12 +11,20 @@
  * In `shell/` rather than `app/` because it is this shell's chrome and reads the
  * tabs store directly, where the composition layer's components take props.
  */
+import { computed } from "vue";
 import { ArrowLeft, ArrowRight } from "@lucide/vue";
 
 import TooltipButton from "@/components/app/TooltipButton.vue";
 import { useTabsStore } from "@/stores/tabs";
 
 const tabs = useTabsStore();
+
+// `TooltipButton` keeps a disabled control's tooltip reachable precisely so it
+// can say why it is dead; a static "Back" over a dead button says nothing.
+const backLabel = computed(() => (tabs.canGoBack ? "Back" : "Nothing to go back to"));
+const forwardLabel = computed(() =>
+  tabs.canGoForward ? "Forward" : "Nothing to go forward to",
+);
 </script>
 
 <template>
@@ -24,7 +32,7 @@ const tabs = useTabsStore();
        is the top of the tab area, so a tooltip above it would sit over the
        sidebar's header. -->
   <TooltipButton
-    label="Back"
+    :label="backLabel"
     :icon="ArrowLeft"
     side="bottom"
     :disabled="!tabs.canGoBack"
@@ -32,7 +40,7 @@ const tabs = useTabsStore();
     @click="tabs.back()"
   />
   <TooltipButton
-    label="Forward"
+    :label="forwardLabel"
     :icon="ArrowRight"
     side="bottom"
     :disabled="!tabs.canGoForward"

@@ -12,9 +12,9 @@
  */
 import { ref, computed, watch } from "vue";
 import StateMessage from "@/components/app/StateMessage.vue";
-import InfoTip from "@/components/app/InfoTip.vue";
+import TooltipButton from "@/components/app/TooltipButton.vue";
 import { RefreshCw } from "@lucide/vue";
-import { VueFlow, type Node, type Edge, Position } from "@vue-flow/core";
+import { VueFlow, type Node, type Edge, type NodeMouseEvent, Position } from "@vue-flow/core";
 
 import { errorDetail } from "@/api/errors";
 import { getImportGraph } from "@/api/versions";
@@ -25,7 +25,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { ICON_BUTTON } from "@/lib/formClasses";
+import { openIntent } from "@/lib/openIntent";
 
 import { useTabsStore } from "@/stores/tabs";
 import { useUiStore } from "@/stores/ui";
@@ -58,7 +58,7 @@ async function load() {
   try {
     graphData.value = await getImportGraph<GraphData>(props.versionId);
   } catch (caught) {
-    error.value = errorDetail(caught, "Failed to load import graph.");
+    error.value = errorDetail(caught, "The import graph could not be read.");
   } finally {
     isLoading.value = false;
   }
@@ -192,9 +192,11 @@ const flowGraph = computed(() => {
   return computeLayout(graphData.value.nodes, graphData.value.edges);
 });
 
-function onNodeClick(event: { node: Node }) {
-  // A single click, like the tree's: previews rather than piling up a tab.
-  tabsStore.openFile(event.node.id, { preview: true });
+function onNodeClick({ event, node }: NodeMouseEvent) {
+  // The tree's rule, not a rule of its own: a plain click previews, a modifier
+  // or a double-click keeps the tab. A touch carries no modifier and previews.
+  const intent = event instanceof MouseEvent ? openIntent(event) : { preview: true };
+  tabsStore.openFile(node.id, intent);
   emit("update:visible", false);
 }
 </script>
@@ -208,30 +210,23 @@ function onNodeClick(event: { node: Node }) {
       <DialogHeader>
         <div class="flex items-center gap-2">
           <DialogTitle class="flex-1">Import graph</DialogTitle>
-          <!-- Not a `TooltipButton`: the spin belongs to the glyph, and putting
-               it on the button would rotate the hover square with it. -->
-          <InfoTip label="Reload">
-            <button
-              type="button"
-              aria-label="Reload"
-              :class="ICON_BUTTON"
-              @click="load"
-            >
-              <RefreshCw
-                class="size-3.5"
-                :class="isLoading ? 'animate-spin' : ''"
-              />
-            </button>
-          </InfoTip>
+          <!-- No spinning glyph: the body already says it is reading, and a
+               second signal for one state is what a dead button looks like. -->
+          <TooltipButton
+            label="Reload the import graph"
+            :icon="RefreshCw"
+            :disabled="isLoading"
+            @click="load"
+          />
         </div>
         <DialogDescription>
           Every file the model pulls in, and what pulls it in. Click one to open it.
         </DialogDescription>
       </DialogHeader>
 
-      <div class="min-h-0 flex-1 rounded-sm border border-border bg-surface">
+      <div class="min-h-0 flex-1 rounded-md border border-border bg-surface">
         <StateMessage v-if="isLoading" variant="fill" loading>
-          Loading…
+          Reading the import graph…
         </StateMessage>
         <StateMessage v-else-if="error" variant="fill" tone="danger">
           {{ error }}

@@ -15,6 +15,7 @@ import * as versions from "@/api/versions";
 import { useTabsStore } from "@/stores/tabs";
 import { useUiStore } from "@/stores/ui";
 import {
+  answerConfirm,
   mountEditor,
   resetVersionsApi,
   rowNames,
@@ -70,6 +71,9 @@ function escape() {
 enableAutoUnmount(afterEach);
 
 beforeEach(() => {
+  // The map/list choice is persisted, so one test's list view would open the
+  // next test's editor on the list and leave the map stub unmounted.
+  localStorage.clear();
   setActivePinia(createPinia());
   resetVersionsApi(api);
   api.getTemplates.mockResolvedValue(TEMPLATES);
@@ -191,12 +195,28 @@ describe("LinksEditor", () => {
     expect((mounted.find("link-name").element as HTMLInputElement).value).toBe("wire");
 
     await mounted.host.find('[aria-label="Remove this link"]').trigger("click");
-    await flushPromises();
+    await answerConfirm(true);
     expect(mounted.find("link-name").exists()).toBe(false);
 
     await mounted.find("save").trigger("click");
     await flushPromises();
     expect(Object.keys(lastWrite())).toEqual(["ccgt", "r1_to_r2"]);
+  });
+
+  it("keeps a link whose removal was declined, from the map and from the list", async () => {
+    const mounted = await mountEditor(LinksEditor, { section: "techs" });
+    map(mounted).vm.$emit("linkClick", "wire");
+    await flushPromises();
+    await mounted.host.find('[aria-label="Remove this link"]').trigger("click");
+    await answerConfirm(false);
+    expect((mounted.find("link-name").element as HTMLInputElement).value).toBe("wire");
+
+    useUiStore().setSectionView("links", "structured");
+    await flushPromises();
+    await mounted.findAll("entry-remove")[0]!.trigger("click");
+    await answerConfirm(false);
+    expect(rowNames(mounted)).toEqual(["r1_to_r2", "wire"]);
+    expect(useTabsStore().get(mounted.tabId)?.isDirty).toBe(false);
   });
 
   it("switches to the list when a link is added by hand", async () => {

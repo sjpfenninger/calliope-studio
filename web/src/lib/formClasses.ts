@@ -21,6 +21,13 @@
  * second typeface to mark it: it is the thing in the 9rem gutter. A name or a
  * path *inside a sentence* has no position to speak for it, and gets
  * `IDENTIFIER`.
+ *
+ * **12px is the control size; 13px is the reading size.** `--text-base` is 13px
+ * and is what unstyled prose gets — a markdown preview, a dialog description. A
+ * control, a label, a tree row, a menu item and a tab all take `text-sm`, so the
+ * chrome reads a step tighter than the text it frames. The micro step, `text-2xs`,
+ * is for a badge, a footer, a shortcut hint or a numeric annotation — never for a
+ * sentence, which at 10px is a contrast problem as much as a density one.
  */
 
 /**
@@ -53,6 +60,15 @@ export type ControlSize = keyof typeof CONTROL_HEIGHT;
 export const DISABLED = "disabled:opacity-50";
 
 /**
+ * The same fade for a control that is `aria-disabled` rather than `disabled` —
+ * a figure's variable picker while the frame loads, a table's export while it is
+ * empty — which keeps its tooltip and its focus. It was written by hand four
+ * times, once with `text-text-faint` layered on top, which is the faint grey at
+ * half opacity.
+ */
+export const SOFT_DISABLED = "cursor-default opacity-50";
+
+/**
  * A block of code: a solver log, a snapshot file, a YAML fragment, a traceback.
  *
  * The only place in the app that writes `font-mono`, which `design.test.ts`
@@ -63,6 +79,13 @@ export const CODE_BLOCK =
   "font-mono text-sm leading-[var(--cg-code-line-height)]";
 
 /**
+ * The box a `CODE_BLOCK` sits in when it is a well rather than the pane: a math
+ * component's YAML, a run's traceback. `surface-2` because `tokens.css` names it
+ * the code well; it had been `panel`, `surface` and nothing in three files.
+ */
+export const CODE_WELL = "rounded-md border border-border-subtle bg-surface-2 p-2";
+
+/**
  * An identifier inside a sentence: a path, a key, a technology name.
  *
  * The same chip `assets/markdown.css` draws around inline `code`, so a path in
@@ -70,9 +93,17 @@ export const CODE_BLOCK =
  */
 export const IDENTIFIER = "rounded-xs bg-surface-2 px-1 text-text-dim";
 
-/** A 24px text/number/select control that fills its column. */
+/**
+ * A 24px text/number/select control that fills its column.
+ *
+ * An invalid value is said with `aria-invalid`, the way `ui/select` and
+ * `ui/checkbox` already say it, and the border it turns is the *soft* danger
+ * step rather than the saturated one: `WARNING_BADGE` below explains why a
+ * saturated token makes a poor hairline, and two sidebar panels had learned
+ * that the hard way with a `border-danger` bolted on at the call site.
+ */
 export const FIELD =
-  `h-6 w-full min-w-0 rounded-sm border border-input bg-surface px-1.5 text-sm transition-colors focus-visible:border-ring ${DISABLED}`;
+  `h-6 w-full min-w-0 rounded-sm border border-input bg-surface px-1.5 text-sm transition-colors focus-visible:border-ring aria-invalid:border-destructive ${DISABLED}`;
 
 /**
  * The same at 20px, for a control inside a 24px row.
@@ -83,7 +114,7 @@ export const FIELD =
  * `DANGER_ICON_BUTTON_SM` was added for: 20px at the wrong roundness.
  */
 export const FIELD_SM =
-  `h-5 w-full min-w-0 rounded-xs border border-input bg-surface px-1 text-2xs transition-colors focus-visible:border-ring ${DISABLED}`;
+  `h-5 w-full min-w-0 rounded-xs border border-input bg-surface px-1 text-2xs transition-colors focus-visible:border-ring aria-invalid:border-destructive ${DISABLED}`;
 
 /** The label naming the key a field edits. */
 export const FIELD_LABEL = "text-sm text-text-dim";
@@ -133,6 +164,8 @@ export const FIELD_WIDTH = {
    * instead of sitting at a ragged right edge.
    */
   value: "w-64 shrink-0",
+  /** 224px — a multi-select, or the key gutter of a summary table. */
+  wide: "w-56 shrink-0",
   /** The rest of the row — free text, a comma-separated list, a path. */
   fill: "min-w-0 flex-1",
   /** No width at all, for a control that sizes itself: a switch. */
@@ -157,6 +190,19 @@ export const SECTION_HEADING =
  */
 export const WARNING_BADGE =
   "shrink-0 border-border-subtle bg-warning-soft px-1 font-normal text-warning-text";
+
+/**
+ * A badge that names a state rather than warning about one: "active", "in
+ * effect", "current". The full triple — soft fill, accent hairline, accent text —
+ * because that is what `PRIMARY_BUTTON` and the import graph already draw; it
+ * existed as four recipes (border only, fill only, bare word, all three) across
+ * four files.
+ */
+export const ACCENT_BADGE =
+  "shrink-0 border-accent-border bg-accent-soft px-1 font-normal text-accent-text";
+
+/** A badge that only counts or names, in the tone of a secondary label. */
+export const NEUTRAL_BADGE = "shrink-0 border-border-subtle px-1 font-normal text-text-dim";
 
 /** A bordered card wrapping one section of a form. */
 export const SECTION = "flex flex-col gap-2 rounded-md border border-border p-2";
@@ -199,19 +245,21 @@ export const DANGER_BUTTON_MD =
 export const GHOST_BUTTON =
   `inline-flex h-6 items-center gap-1.5 rounded-sm px-2 text-sm text-text-dim transition-colors hover:bg-hover hover:text-foreground ${DISABLED}`;
 
+/** The 28px ghost action — the model switcher at the head of the sidebar. */
+export const GHOST_BUTTON_MD =
+  `inline-flex h-7 items-center gap-1.5 rounded-sm px-2 text-sm text-text-dim transition-colors hover:bg-hover hover:text-foreground ${DISABLED}`;
+
 /** A neutral, bordered action — the "Cancel" beside a primary button. */
 export const SECONDARY_BUTTON =
   `inline-flex h-6 items-center gap-1.5 rounded-sm border border-border px-2 text-sm transition-colors hover:bg-hover ${DISABLED}`;
 
 /**
- * A destructive primary action, for a confirmation dialog.
- *
- * Tinted at rest like the primary action, but it goes *solid* on hover — the
- * one place in the app where a filled saturated block is earned, because the
- * pointer is already on the button that deletes something.
+ * The same at 20px, for an action inside a 28px strip — the log panel's
+ * "Cancel run". It was a one-off class string, and the only text button in the
+ * app with no constant behind it.
  */
-export const DANGER_BUTTON =
-  `inline-flex h-6 items-center gap-1.5 rounded-sm border border-danger-soft bg-danger-soft px-2 text-sm font-medium text-danger-text transition-colors hover:border-destructive hover:bg-destructive hover:text-destructive-foreground ${DISABLED}`;
+export const SECONDARY_BUTTON_SM =
+  `inline-flex h-5 items-center gap-1 rounded-xs border border-border px-1.5 text-2xs transition-colors hover:bg-hover ${DISABLED}`;
 
 /**
  * A bare text action at the micro step: "All", "None", "Reset", "Clear".
@@ -263,3 +311,26 @@ export const DANGER_ICON_BUTTON =
  */
 export const DANGER_ICON_BUTTON_SM =
   `grid size-5 shrink-0 place-items-center rounded-xs text-text-faint transition-colors hover:bg-danger-soft hover:text-danger-text ${DISABLED}`;
+
+/**
+ * A 16px icon button, for a glyph inside a 28px tab: the tab bar's close
+ * button, which is the one place two steps down is right — a 20px square in a
+ * 28px tab leaves 4px of tab above and below, and the glyph is 12px.
+ */
+export const ICON_BUTTON_XS =
+  `grid size-4 shrink-0 place-items-center rounded-xs text-text-faint transition-colors hover:bg-hover hover:text-foreground ${DISABLED}`;
+
+/**
+ * An icon button that lives on a row which is itself `hover:bg-hover`.
+ *
+ * `hover:bg-hover` on the button is invisible there — it is the colour the row
+ * is already painted — so the button takes the next step, `active`. This is the
+ * one role `--cg-active` actually has in the app; `tokens.css` says so beside
+ * the token. Three rows had written it by hand.
+ */
+export const ICON_BUTTON_ON_ROW =
+  `grid size-6 shrink-0 place-items-center rounded-sm text-text-faint transition-colors hover:bg-active hover:text-foreground ${DISABLED}`;
+
+/** The same at 20px, for a 24px row. */
+export const ICON_BUTTON_ON_ROW_SM =
+  `grid size-5 shrink-0 place-items-center rounded-xs text-text-faint transition-colors hover:bg-active hover:text-foreground ${DISABLED}`;

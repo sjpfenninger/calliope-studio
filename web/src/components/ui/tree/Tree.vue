@@ -47,7 +47,10 @@ const expanded = defineModel<string[]>("expanded", { default: () => [] });
  * you had just closed did nothing at all.
  *
  * Reka dispatches its own `select` for both a click and Enter/Space, carrying
- * the originating event in `detail`, so this covers the keyboard too.
+ * the originating event in `detail`, so this covers the keyboard too — and it
+ * matches the key without `exact`, so Shift+Enter and Cmd+Enter arrive with
+ * their modifiers intact, which is what `lib/openIntent` reads to open a tab
+ * that stays from the keyboard.
  */
 const emit = defineEmits<{
   select: [item: T, event: MouseEvent | KeyboardEvent];

@@ -53,6 +53,10 @@ export function buildTheme() {
   const divider = resolvedColor("--cg-border", "#dcdcdc");
   const surface = resolvedColor("--cg-surface", "#ffffff");
   const accent = resolvedColor("--cg-accent", "#026fff");
+  // The zoom slider's selected span is a fill, so it takes the fill step of the
+  // accent ramp; it was `muted`, a *text* token, which is the same mistake the
+  // `bg-text-faint` rule in `design.test.ts` catches in a template.
+  const accentBorder = resolvedColor("--cg-accent-border", "#a4c6fc");
   const fontFamily = cssVar("--cg-font-sans", "system-ui, sans-serif");
   const fontSize = cssVarPx("--cg-font-size-sm", 12);
 
@@ -103,8 +107,8 @@ export function buildTheme() {
           areaStyle: { color: border },
         },
         selectedDataBackground: {
-          lineStyle: { color: muted },
-          areaStyle: { color: muted },
+          lineStyle: { color: accentBorder },
+          areaStyle: { color: accentBorder },
         },
         textStyle: { color: muted, fontFamily, fontSize: cssVarPx("--cg-font-size-2xs", 10) },
       },

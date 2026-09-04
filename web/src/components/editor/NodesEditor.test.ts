@@ -15,6 +15,7 @@ import * as versions from "@/api/versions";
 import { useTabsStore } from "@/stores/tabs";
 import { useUiStore } from "@/stores/ui";
 import {
+  answerConfirm,
   mountEditor,
   resetVersionsApi,
   rowNames,
@@ -55,6 +56,9 @@ function written(): Record<string, any> {
 enableAutoUnmount(afterEach);
 
 beforeEach(() => {
+  // The map/list choice is persisted, so one test's list view would open the
+  // next test's editor on the list and leave the map stub unmounted.
+  localStorage.clear();
   setActivePinia(createPinia());
   resetVersionsApi(api);
   api.readYamlSection.mockResolvedValue(section(TWO_NODES));
@@ -66,9 +70,19 @@ describe("NodesEditor", () => {
     expect(mounted.find("editor-map").exists()).toBe(true);
     expect(mounted.findAll("entry-row")).toHaveLength(0);
 
-    await mounted.find("view-toggle").trigger("click");
+    await mounted.find("view-list").trigger("click");
     expect(mounted.find("editor-map").exists()).toBe(false);
     expect(rowNames(mounted)).toEqual(["r1", "r2"]);
+  });
+
+  it("disables the map view, with a reason, while no node has coordinates", async () => {
+    // A map of none of the nodes is a scrim over nothing; the fix is in the
+    // list, so the segment says so rather than leading there.
+    api.readYamlSection.mockResolvedValue(section({ r1: {}, r2: { template: "city" } }));
+    useUiStore().setSectionView("nodes", "structured");
+    const mounted = await mountEditor(NodesEditor, { section: "nodes" });
+    expect(mounted.find("view-map").attributes("disabled")).toBeDefined();
+    expect(mounted.find("view-list").attributes("disabled")).toBeUndefined();
   });
 
   it("writes a dragged node's position rounded to five decimals, as numbers", async () => {
@@ -101,6 +115,12 @@ describe("NodesEditor", () => {
     map(mounted).vm.$emit("nodeMoved", { node: "elsewhere", latitude: 1, longitude: 2 });
     await flushPromises();
     expect(useTabsStore().get(mounted.tabId)?.isDirty).toBe(false);
+    // Nothing to save, so the button says so; a real edit proves no entry
+    // was created for the foreign node.
+    expect(mounted.find("save").attributes("disabled")).toBeDefined();
+    useUiStore().setSectionView("nodes", "structured");
+    await flushPromises();
+    await mounted.findAll("node-latitude")[0]!.setValue("52");
     await mounted.find("save").trigger("click");
     await flushPromises();
     expect(Object.keys(written())).toEqual(["r1", "r2"]);
@@ -140,6 +160,8 @@ describe("NodesEditor", () => {
     await flushPromises();
     expect(rowNames(mounted)).toEqual(["r1_renamed", "r2"]);
     await mounted.findAll("entry-remove")[0]!.trigger("click");
+    await answerConfirm(true);
+    expect(rowNames(mounted)).toEqual(["r2"]);
 
     useUiStore().setSectionView("nodes", "map");
     await flushPromises();
@@ -148,6 +170,15 @@ describe("NodesEditor", () => {
       false,
     );
     expect(mounted.find("editor-map-detail").text()).toContain("Click a node to edit it");
+  });
+
+  it("keeps a node whose removal was declined", async () => {
+    useUiStore().setSectionView("nodes", "structured");
+    const mounted = await mountEditor(NodesEditor, { section: "nodes" });
+    await mounted.findAll("entry-remove")[0]!.trigger("click");
+    await answerConfirm(false);
+    expect(rowNames(mounted)).toEqual(["r1", "r2"]);
+    expect(useTabsStore().get(mounted.tabId)?.isDirty).toBe(false);
   });
 
   it("writes the whole section back, not only the row that changed", async () => {

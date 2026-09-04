@@ -101,16 +101,36 @@ describe("useSchemaStore", () => {
     expect(store.isLoaded).toBe(true);
   });
 
-  it("degrades quietly when the schema cannot be fetched", async () => {
+  it("degrades, and says so, when the schema cannot be fetched", async () => {
     // An editor with no schema shows the fields it draws by hand; an editor that
-    // threw would show nothing at all.
+    // threw would show nothing at all. But "quietly" was the bug: the failure was
+    // swallowed whole, so the config form went empty with nothing on screen or
+    // in the console to say why. `unavailable` is what the editors render.
     api.get.mockRejectedValue(new Error("503"));
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
 
     const store = useSchemaStore();
     await store.load();
 
     expect(store.isLoaded).toBe(false);
+    expect(store.unavailable).toBe(true);
     expect(store.subschema("config.init")).toBeNull();
+    expect(logged).toHaveBeenCalledOnce();
+    logged.mockRestore();
+  });
+
+  it("clears the unavailable flag once a later load succeeds", async () => {
+    api.get.mockRejectedValueOnce(new Error("503"));
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const store = useSchemaStore();
+    await store.load();
+    expect(store.unavailable).toBe(true);
+
+    api.get.mockResolvedValue({ data: { properties: {} } });
+    await store.load();
+    expect(store.unavailable).toBe(false);
+    expect(store.isLoaded).toBe(true);
+    vi.restoreAllMocks();
   });
 
   it("returns null for a path that is not there", async () => {

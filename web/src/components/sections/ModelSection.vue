@@ -19,8 +19,17 @@ import StateMessage from "@/components/app/StateMessage.vue";
 import TooltipButton from "@/components/app/TooltipButton.vue";
 import TreeSearch from "@/components/app/TreeSearch.vue";
 import { shortenPath } from "@/lib/format";
-import { GHOST_BUTTON } from "@/lib/formClasses";
-import { Loader2, Network, RefreshCw, SearchX, ShieldCheck } from "@lucide/vue";
+import { GHOST_BUTTON, NEUTRAL_BADGE, WARNING_BADGE } from "@/lib/formClasses";
+import { cn } from "@/lib/utils";
+import {
+  ChevronsDownUp,
+  ChevronsUpDown,
+  Loader2,
+  Network,
+  RefreshCw,
+  SearchX,
+  ShieldCheck,
+} from "@lucide/vue";
 
 import ImportGraphDialog from "@/components/layout/ImportGraphDialog.vue";
 import { Tree } from "@/components/ui/tree";
@@ -73,6 +82,9 @@ const {
   items: visible,
   expanded,
   isEmpty,
+  hasBranches,
+  allExpanded,
+  toggleAll,
 } = useTreeSearch("model", nodes, (node) => node.label, selected);
 
 // The version arrives from the route after this mounts, so loading only on
@@ -173,6 +185,16 @@ const validating = computed(
 
 const canValidate = computed(() => !validating.value && !!tabs.versionId);
 
+// The wrapper below keeps a disabled button's tooltip reachable precisely so
+// it can say why; a static label over a dead button wastes that.
+const validateTip = computed(() =>
+  !tabs.versionId
+    ? "No model is open."
+    : validating.value
+      ? "Validation is already running."
+      : "Parse the YAML, then ask Calliope to build the model.",
+);
+
 // The tab opens first, so that the build tier — which can run for minutes — has
 // somewhere to report from for the whole of that time rather than at the end.
 function validate() {
@@ -188,7 +210,7 @@ function validate() {
       <!-- The trigger is the wrapper, not the button: a disabled control fires
            no pointer events, so a tooltip on one never opens. It only takes the
            button's place in the tab order while the button is out of it. -->
-      <InfoTip label="Parse the YAML, then ask Calliope to build the model">
+      <InfoTip :label="validateTip">
         <span class="inline-flex" :tabindex="canValidate ? undefined : 0">
           <button
             type="button"
@@ -207,12 +229,23 @@ function validate() {
         </span>
       </InfoTip>
       <div class="flex-1" />
+      <!-- What the file tree beside it has had all along; `useTreeSearch`
+           returned it for both and only one rendered it. Icon-only where Files
+           spells it out, because this strip already holds a text button and
+           the sidebar's floor is 200px. -->
       <TooltipButton
-        label="Import graph"
+        :label="allExpanded ? 'Collapse all' : 'Expand all'"
+        :icon="allExpanded ? ChevronsDownUp : ChevronsUpDown"
+        :disabled="!hasBranches"
+        testid="toggle-sections"
+        @click="toggleAll"
+      />
+      <TooltipButton
+        label="Import graph…"
         :icon="Network"
         @click="showImportGraph = true"
       />
-      <TooltipButton label="Reload the model tree" :icon="RefreshCw" @click="refresh" />
+      <TooltipButton label="Reload the model tree." :icon="RefreshCw" @click="refresh" />
     </PanelHeader>
 
     <TreeSearch
@@ -223,8 +256,28 @@ function validate() {
     />
 
     <!-- Above the tree, not instead of it: the `role="tree"` element stays
-         mounted, so every `data-testid` selector keeps resolving. -->
-    <StateMessage v-if="isEmpty" variant="inline" :icon="SearchX">
+         mounted, so every `data-testid` selector keeps resolving.
+
+         The store set `error` and `isLoading` and nothing read either, so a
+         model whose structure could not be read was an empty tree that looked
+         finished. -->
+    <StateMessage
+      v-if="componentTree.error"
+      variant="inline"
+      tone="danger"
+      data-testid="model-tree-error"
+    >
+      {{ componentTree.error }}
+    </StateMessage>
+    <StateMessage
+      v-else-if="componentTree.isLoading && !nodes.length"
+      variant="inline"
+      loading
+      data-testid="model-tree-loading"
+    >
+      Reading the model's structure…
+    </StateMessage>
+    <StateMessage v-else-if="isEmpty" variant="inline" :icon="SearchX">
       Nothing in the model matches “{{ query }}”
     </StateMessage>
 
@@ -282,7 +335,7 @@ function validate() {
           v-if="!(item as ModelTreeNode).entryName && (item as ModelTreeNode).file"
           aria-hidden="true"
           :title="(item as ModelTreeNode).file"
-          class="ml-auto hidden max-w-1/2 shrink-[100] truncate text-2xs text-text-faint @[200px]:block"
+          class="ml-auto hidden max-w-1/2 shrink-[100] truncate text-2xs text-text-muted @[200px]:block"
         >
           {{ shortenPath((item as ModelTreeNode).file, 2) }}
         </span>
@@ -290,16 +343,13 @@ function validate() {
           v-else-if="(item as ModelTreeNode).template"
           :label="`From template ${(item as ModelTreeNode).template}`"
         >
-          <Badge
-            variant="outline"
-            class="ml-auto shrink-0 border-border-subtle px-1 font-normal text-text-faint"
-          >
+          <Badge variant="outline" :class="cn('ml-auto', NEUTRAL_BADGE)">
             {{ (item as ModelTreeNode).template }}
           </Badge>
         </InfoTip>
         <span
           v-else-if="(item as ModelTreeNode).settingCount"
-          class="ml-auto shrink-0 text-2xs tabular-nums text-text-faint"
+          class="ml-auto shrink-0 text-2xs tabular-nums text-text-muted"
         >
           {{ (item as ModelTreeNode).settingCount }}
         </span>
@@ -314,12 +364,14 @@ function validate() {
         >
           <Badge
             variant="outline"
-            :class="[
-              'ml-auto shrink-0 px-1 font-normal',
-              mathNote(item as ModelTreeNode)!.tone === 'warning'
-                ? 'border-border-subtle bg-warning-soft text-warning-text'
-                : 'border-border-subtle text-text-faint',
-            ]"
+            :class="
+              cn(
+                'ml-auto',
+                mathNote(item as ModelTreeNode)!.tone === 'warning'
+                  ? WARNING_BADGE
+                  : NEUTRAL_BADGE,
+              )
+            "
           >
             {{ mathNote(item as ModelTreeNode)!.text }}
           </Badge>

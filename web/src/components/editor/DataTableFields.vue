@@ -7,11 +7,12 @@
  * top half of a splitter above its CSV. Duplicating the markup meant the two
  * could drift, and the widget overlay below is the part that must not.
  */
-import { computed } from "vue";
+import { computed, ref } from "vue";
 
 import FieldRow from "@/components/app/FieldRow.vue";
 import { FIELD } from "@/lib/formClasses";
 import { useSchemaStore } from "@/stores/schema";
+import { focusNextFrame } from "./focusNew";
 import SchemaObjectEditor, { type FieldOverlay } from "./SchemaObjectEditor.vue";
 
 const props = defineProps<{
@@ -27,6 +28,10 @@ const emit = defineEmits<{
 }>();
 
 const schemaStore = useSchemaStore();
+
+const nameField = ref<HTMLInputElement | null>(null);
+/** For the editor that just added this table; see `focusNew`. */
+defineExpose({ focusName: () => focusNextFrame(nameField.value) });
 
 // The CalliopeDataTable schema. It uses patternProperties; the first (and only)
 // value is the per-entry schema.
@@ -59,6 +64,7 @@ const dataTableOverlay: FieldOverlay = {
     <!-- name is the mapping key, not a schema property. -->
     <FieldRow label="name" width="short">
       <input
+        ref="nameField"
         :value="props.name"
         type="text"
         :class="FIELD"

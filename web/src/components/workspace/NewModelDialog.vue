@@ -12,14 +12,15 @@
  * the request rather than after it.
  */
 import { computed, ref, watch } from "vue";
+import FieldRow from "@/components/app/FieldRow.vue";
 import StateMessage from "@/components/app/StateMessage.vue";
 import {
   FIELD,
+  FIELD_WIDTH,
   IDENTIFIER,
   PRIMARY_BUTTON_MD,
   SECONDARY_BUTTON_MD,
 } from "@/lib/formClasses";
-import { cn } from "@/lib/utils";
 
 import { errorDetail } from "@/api/errors";
 import { createProject } from "@/api/projects";
@@ -53,6 +54,7 @@ const template = ref("national_scale");
 const templates = ref<string[]>([]);
 const error = ref<string | null>(null);
 const creating = ref(false);
+const field = ref<HTMLInputElement>();
 
 watch(open, async (isOpen) => {
   if (!isOpen) return;
@@ -66,8 +68,8 @@ watch(open, async (isOpen) => {
     const body = await getModelTemplates();
     templates.value = body.templates;
     if (body.templates.includes(body.default)) template.value = body.default;
-  } catch {
-    error.value = "The list of templates could not be read.";
+  } catch (caught) {
+    error.value = errorDetail(caught, "The list of templates could not be read.");
   }
 });
 
@@ -95,7 +97,32 @@ const problem = computed(() => {
   return null;
 });
 
+/**
+ * The one line under the form, whichever of four things it has to say.
+ *
+ * Four mutually exclusive elements at three sizes and two tones made the dialog
+ * jump as the user typed; one message in one place holds still.
+ */
+const note = computed<{ tone: "danger" | "muted"; text: string | null }>(() => {
+  if (error.value) return { tone: "danger", text: error.value };
+  if (problem.value) return { tone: "danger", text: problem.value };
+  if (target.value) return { tone: "muted", text: null };
+  return { tone: "muted", text: "Browse to where the model should go, then give it a name." };
+});
+
 const canCreate = computed(() => Boolean(target.value) && !problem.value && !creating.value);
+
+/**
+ * The cursor lands in the name box, as it does in `NewFileDialog`: the folder
+ * is usually already right, so typing is the first thing to do. Through Reka's
+ * own focus pass rather than a `nextTick` after it, because that pass would
+ * otherwise take the first focusable thing in the content — the folder
+ * browser's Up button — a tick after ours.
+ */
+function focusName(event: Event) {
+  event.preventDefault();
+  field.value?.focus();
+}
 
 async function create() {
   if (!canCreate.value || !listing.value) return;
@@ -120,7 +147,13 @@ async function create() {
 
 <template>
   <Dialog v-model:open="open">
-    <DialogContent class="max-w-2xl" data-testid="new-model-dialog">
+    <!-- `sm:` on purpose: unprefixed, this is the same tailwind-merge group as
+         the primitive's small-viewport guard and replaces it. -->
+    <DialogContent
+      class="sm:max-w-2xl"
+      data-testid="new-model-dialog"
+      @open-auto-focus="focusName"
+    >
       <DialogHeader>
         <DialogTitle>New model</DialogTitle>
         <DialogDescription>
@@ -131,37 +164,40 @@ async function create() {
 
       <FolderBrowser v-model:listing="listing" />
 
-      <div class="flex items-center gap-2">
-        <label class="shrink-0 text-sm text-text-dim" for="new-model-name">Name</label>
-        <input
-          id="new-model-name"
-          v-model="name"
-          data-testid="new-model-name"
-          placeholder="my-model"
-          :class="cn(FIELD, 'flex-1')"
-          @keydown.enter="create"
-        />
-        <label class="shrink-0 text-sm text-text-dim">Template</label>
-        <Select v-model="template">
-          <SelectTrigger size="sm" class="w-36" data-testid="new-model-template">
-            <SelectValue placeholder="Template" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem v-for="option in templates" :key="option" :value="option">
-              {{ option }}
-            </SelectItem>
-          </SelectContent>
-        </Select>
+      <div class="flex flex-col gap-1.5">
+        <FieldRow label="Name">
+          <input
+            ref="field"
+            v-model="name"
+            data-testid="new-model-name"
+            placeholder="my-model"
+            aria-label="Name of the new model"
+            :class="FIELD"
+            @keydown.enter="create"
+          />
+        </FieldRow>
+        <FieldRow label="Template">
+          <Select v-model="template">
+            <SelectTrigger
+              size="sm"
+              :class="FIELD_WIDTH.short"
+              data-testid="new-model-template"
+            >
+              <SelectValue placeholder="Template" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem v-for="option in templates" :key="option" :value="option">
+                {{ option }}
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        </FieldRow>
       </div>
 
-      <StateMessage v-if="error" variant="inline" tone="danger">{{ error }}</StateMessage>
-      <p v-else-if="problem" class="text-2xs text-danger-text">{{ problem }}</p>
-      <p v-else-if="target" data-testid="new-model-target" class="truncate text-sm text-text-faint">
-        {{ target }}
-      </p>
-      <p v-else class="text-2xs text-text-faint">
-        Browse to where the model should go, then give it a name.
-      </p>
+      <StateMessage variant="note" :tone="note.tone">
+        <template v-if="note.text">{{ note.text }}</template>
+        <span v-else data-testid="new-model-target" class="truncate">{{ target }}</span>
+      </StateMessage>
 
       <DialogFooter>
         <button

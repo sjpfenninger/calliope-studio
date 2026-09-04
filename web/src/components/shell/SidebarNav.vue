@@ -46,6 +46,14 @@ const props = defineProps<{
 
 const validation = useValidationStore();
 
+/**
+ * A model whose only problems are warnings is not broken, and a red badge says
+ * it is. `severity` was carried on every problem and read by nothing.
+ */
+const warningsOnly = computed(
+  () => validation.problems.length > 0 && validation.errorCount === 0,
+);
+
 const items = computed(() => [
   {
     name: "model" as const,
@@ -82,6 +90,7 @@ const segments = computed(() =>
     label: item.label,
     icon: item.icon,
     badge: item.count || undefined,
+    badgeVariant: warningsOnly.value ? ("secondary" as const) : ("destructive" as const),
     disabled: !item.enabled,
     tip: item.enabled ? undefined : "Not available for a results file",
     to: item.enabled ? target(item.name) : undefined,
@@ -106,7 +115,7 @@ const active = computed(() =>
     :items="segments"
     mode="nav"
     seam="panel"
-    size="md"
+    size="lg"
     fill
     edges
     class="border-b border-border bg-background"

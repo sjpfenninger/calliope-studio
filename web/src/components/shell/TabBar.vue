@@ -44,6 +44,7 @@ import {
   SEGMENT_STRIP_LINE_SCROLLED,
 } from "@/components/app/segmented";
 import TabHistory from "./TabHistory.vue";
+import { ICON_BUTTON_XS } from "@/lib/formClasses";
 import { fileIcon, ICON_STROKE_WIDTH_TIGHT, MathIcon, sectionIcon } from "@/lib/icons";
 import { cn } from "@/lib/utils";
 import { useConfirmStore } from "@/stores/confirm";
@@ -57,7 +58,19 @@ const TAB_CLASS = cn(
   SEGMENT_NAV_ACTIVE,
   SEGMENT_NAV_SEAM.surface,
   SEGMENT_NAV_EDGES_RULED,
-  "px-3 data-[preview]:italic data-[dragging]:opacity-40 hover:bg-hover",
+  // No hover background: every other segmented strip marks hover with text
+  // alone, and this was the one that also painted the segment.
+  "px-3 data-[preview]:italic data-[dragging]:opacity-40",
+);
+
+/**
+ * The close glyph. Shown only while its tab is hovered or focused, and focusable
+ * in its own right: it is `role="button"`, and a button a keyboard cannot reach
+ * is a claim the markup makes and the page does not keep.
+ */
+const CLOSE_CLASS = cn(
+  ICON_BUTTON_XS,
+  "-mr-1 opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 focus-visible:opacity-100",
 );
 
 const strip = ref<HTMLElement | null>(null);
@@ -227,16 +240,22 @@ function onAuxClick(id: string, event: MouseEvent) {
 /**
  * Delete or Backspace on the focused tab closes it.
  *
- * The close control is a `span role="button"` nested inside this button — an
- * element the drag code owns and that cannot take a tabindex of its own without
- * becoming a second tab stop per tab — so until this there was no keyboard way
- * to close a tab at all. Both keys, because which one "delete" means is a
- * keyboard-layout question the user should not have to answer.
+ * The close glyph is a tab stop of its own, but this is the faster path from
+ * the tab itself, and it predates the glyph being reachable at all. Both keys,
+ * because which one "delete" means is a keyboard-layout question the user
+ * should not have to answer.
  */
 function onKeydown(id: string, event: KeyboardEvent) {
   if (event.key !== "Delete" && event.key !== "Backspace") return;
   event.preventDefault();
   void closeGuarded(id);
+}
+
+/** Enter or Space on the focused close glyph, which is what `role="button"` promises. */
+function onCloseKeydown(id: string, event: KeyboardEvent) {
+  if (event.key !== "Enter" && event.key !== " ") return;
+  event.preventDefault();
+  close(id, event);
 }
 </script>
 
@@ -320,7 +339,7 @@ function onKeydown(id: string, event: KeyboardEvent) {
         <span class="max-w-40 truncate">{{ label(tab) }}</span>
         <span
           v-if="tab.kind === 'entry'"
-          class="text-2xs text-text-faint"
+          class="text-2xs text-text-muted"
         >· {{ tab.section }}</span>
 
         <!-- The dot takes the close button's place until hovered, so the tab
@@ -342,11 +361,12 @@ function onKeydown(id: string, event: KeyboardEvent) {
              other way a tab is singled out, and Delete only reads as available
              if the glyph it maps onto is on screen. -->
         <span
-          class="-mr-1 grid size-4 shrink-0 place-items-center rounded-xs text-text-faint opacity-0 hover:bg-active hover:text-foreground group-hover:opacity-100 group-focus-visible:opacity-100"
-          :class="tab.isDirty ? 'hidden group-hover:grid group-focus-visible:grid' : ''"
+          :class="cn(CLOSE_CLASS, tab.isDirty && 'hidden group-hover:grid group-focus-visible:grid')"
           role="button"
+          tabindex="0"
           aria-label="Close tab"
           @click="close(tab.id, $event)"
+          @keydown="onCloseKeydown(tab.id, $event)"
         >
           <X class="size-3" :stroke-width="ICON_STROKE_WIDTH_TIGHT" />
         </span>

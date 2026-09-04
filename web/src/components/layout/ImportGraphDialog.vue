@@ -1,23 +1,32 @@
 <script setup lang="ts">
 /**
- * The model's `import:` graph, as a DAG.
+ * Every file the model reads, as a DAG.
  *
- * A Calliope model is spread over as many files as its author likes, and the
- * only statement of how they fit together is a chain of `import:` lists. This is
- * that chain, drawn: nodes are YAML files, edges are imports, the entry point is
- * marked, and clicking a node opens it.
+ * A Calliope model is spread over as many files as its author likes, and it
+ * names them three ways: `import:` chains, `config.init.math_paths`, and the
+ * CSVs behind `data_tables[*].table`. Only the first is a chain the graph could
+ * follow on its own, so all three come from the server — which reads them with
+ * the same walk a run snapshot is frozen from. Clicking a node opens it.
  *
  * Laid out by hand rather than with a layout library — a topological sort into
- * columns is all an import graph needs, and it has no cycles by construction.
+ * columns is all this needs. `lib/importGraph.ts` has it, and the styling.
  */
 import { ref, computed, watch } from "vue";
 import StateMessage from "@/components/app/StateMessage.vue";
+import PanelFooter from "@/components/app/PanelFooter.vue";
 import TooltipButton from "@/components/app/TooltipButton.vue";
-import { RefreshCw } from "@lucide/vue";
-import { VueFlow, type Node, type Edge, type NodeMouseEvent, Position } from "@vue-flow/core";
+import { RefreshCw, X } from "@lucide/vue";
+import {
+  VueFlow,
+  useVueFlow,
+  type Node,
+  type Edge,
+  type NodeMouseEvent,
+  Position,
+} from "@vue-flow/core";
 
 import { errorDetail } from "@/api/errors";
-import { getImportGraph } from "@/api/versions";
+import { getImportGraph, type ImportGraph } from "@/api/versions";
 import {
   Dialog,
   DialogContent,
@@ -25,6 +34,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  LEGEND,
+  computeLayout,
+  edgeStyle,
+  isOpenable,
+  nodeStyle,
+  swatchStyle,
+} from "@/lib/importGraph";
 import { openIntent } from "@/lib/openIntent";
 
 import { useTabsStore } from "@/stores/tabs";
@@ -42,12 +59,25 @@ const emit = defineEmits<{
 const tabsStore = useTabsStore();
 const ui = useUiStore();
 
-interface GraphData {
-  nodes: Array<{ id: string; label: string; type: string }>;
-  edges: Array<{ source: string; target: string }>;
+const { fitView } = useVueFlow();
+
+/**
+ * Fitted by hand rather than with `fit-view-on-init`, for the two bounds.
+ *
+ * `maxZoom: 1` because a five-file model would otherwise be scaled up until its
+ * labels were half again the size of every other label in the app — fitting is
+ * meant to bring a big graph into view, not to magnify a small one. And a
+ * `minZoom` under the store's default 0.5, because one file naming twenty CSVs
+ * is a 1300px column: clamped at 0.5 the graph is silently cut off, with no
+ * scrollbar and nothing on screen to say there is more.
+ */
+const MIN_ZOOM = 0.15;
+
+function fit() {
+  void fitView({ maxZoom: 1, padding: 0.1 });
 }
 
-const graphData = ref<GraphData | null>(null);
+const graphData = ref<ImportGraph | null>(null);
 const isLoading = ref(false);
 const error = ref<string | null>(null);
 
@@ -56,7 +86,7 @@ async function load() {
   isLoading.value = true;
   error.value = null;
   try {
-    graphData.value = await getImportGraph<GraphData>(props.versionId);
+    graphData.value = await getImportGraph(props.versionId);
   } catch (caught) {
     error.value = errorDetail(caught, "The import graph could not be read.");
   } finally {
@@ -71,10 +101,10 @@ watch(
   },
 );
 
-// The graph is one model's import chain and nothing about it carries over.
-// Dropped rather than reloaded: this only ever fetches on open, so reopening
-// on the new model is what asks again — and a dialog that is not showing has
-// no business making a request.
+// The graph is one model's files and nothing about it carries over. Dropped
+// rather than reloaded: this only ever fetches on open, so reopening on the new
+// model is what asks again — and a dialog that is not showing has no business
+// making a request.
 watch(
   () => props.versionId,
   () => {
@@ -84,115 +114,44 @@ watch(
   },
 );
 
-// ---------------------------------------------------------------------------
-// Convert graph data to Vue Flow nodes + edges with a simple horizontal layout
-// ---------------------------------------------------------------------------
-
-const HORIZONTAL_SPACING = 220;
-const VERTICAL_SPACING = 70;
-
-/**
- * Node styling, from the design tokens.
- *
- * Vue Flow renders in the DOM, so unlike the canvas renderers it can read
- * `var(--cg-*)` directly — but these are inline styles, so they are computed
- * fresh when the theme's revision changes rather than being re-resolved by the
- * cascade.
- */
-function nodeStyle(isRoot: boolean) {
-  return {
-    background: isRoot ? "var(--cg-accent-soft)" : "var(--cg-surface)",
-    border: `1px solid ${isRoot ? "var(--cg-accent-border)" : "var(--cg-border)"}`,
-    color: isRoot ? "var(--cg-accent-text)" : "var(--cg-text)",
-    borderRadius: "var(--cg-radius-sm)",
-    padding: "4px 10px",
-    fontSize: "var(--cg-font-size-sm)",
-    fontFamily: "var(--cg-font-sans)",
-    // Vue Flow's default node has a fixed width, which truncates every path
-    // longer than about twenty characters — which is most of them.
-    width: "auto",
-    whiteSpace: "nowrap",
-  };
-}
-
-function computeLayout(
-  rawNodes: GraphData["nodes"],
-  rawEdges: GraphData["edges"],
-): { nodes: Node[]; edges: Edge[] } {
-  // Topological sort to assign columns (depths) and rows (order within depth).
-  const inDegree: Record<string, number> = {};
-  const adj: Record<string, string[]> = {};
-  for (const n of rawNodes) {
-    inDegree[n.id] = 0;
-    adj[n.id] = [];
-  }
-  for (const e of rawEdges) {
-    adj[e.source].push(e.target);
-    inDegree[e.target] = (inDegree[e.target] ?? 0) + 1;
-  }
-
-  const depth: Record<string, number> = {};
-  const queue: string[] = rawNodes.filter((n) => inDegree[n.id] === 0).map((n) => n.id);
-  for (const id of queue) depth[id] = 0;
-  let head = 0;
-  while (head < queue.length) {
-    const id = queue[head++];
-    for (const child of adj[id]) {
-      depth[child] = Math.max(depth[child] ?? 0, depth[id] + 1);
-      inDegree[child]--;
-      if (inDegree[child] === 0) queue.push(child);
-    }
-  }
-  // Assign unvisited nodes depth 0
-  for (const n of rawNodes) {
-    if (depth[n.id] === undefined) depth[n.id] = 0;
-  }
-
-  const byDepth: Record<number, string[]> = {};
-  for (const [id, d] of Object.entries(depth)) {
-    (byDepth[d] = byDepth[d] ?? []).push(id);
-  }
-
-  const positions: Record<string, { x: number; y: number }> = {};
-  for (const [dStr, ids] of Object.entries(byDepth)) {
-    const d = Number(dStr);
-    ids.forEach((id, i) => {
-      positions[id] = {
-        x: d * HORIZONTAL_SPACING,
-        y: i * VERTICAL_SPACING,
-      };
-    });
-  }
-
-  const nodes: Node[] = rawNodes.map((n) => ({
-    id: n.id,
-    label: n.label,
-    position: positions[n.id] ?? { x: 0, y: 0 },
-    type: "default",
-    style: nodeStyle(n.type === "root"),
-    sourcePosition: Position.Right,
-    targetPosition: Position.Left,
-  }));
-
-  const edges: Edge[] = rawEdges.map((e, i) => ({
-    id: `e${i}`,
-    source: e.source,
-    target: e.target,
-    type: "smoothstep",
-  }));
-
-  return { nodes, edges };
-}
-
-const flowGraph = computed(() => {
+const flowGraph = computed<{ nodes: Node[]; edges: Edge[] }>(() => {
   // Depending on the revision as well as the data: the node styles are inline,
   // so a theme change has to rebuild them.
   void ui.revision;
   if (!graphData.value) return { nodes: [], edges: [] };
-  return computeLayout(graphData.value.nodes, graphData.value.edges);
+  const layout = computeLayout(graphData.value);
+  const typeOf = new Map(layout.nodes.map((node) => [node.id, node.type]));
+  return {
+    nodes: layout.nodes.map((node) => ({
+      id: node.id,
+      label: node.label,
+      position: { x: node.x, y: node.y },
+      type: "default",
+      style: nodeStyle(node.type),
+      data: { reason: node.reason, openable: isOpenable(node) },
+      sourcePosition: Position.Right,
+      targetPosition: Position.Left,
+    })),
+    edges: layout.edges.map((edge, i) => ({
+      id: `e${i}`,
+      source: edge.source,
+      target: edge.target,
+      type: "smoothstep",
+      style: edgeStyle(typeOf.get(edge.target) ?? "file"),
+    })),
+  };
+});
+
+/** Only the kinds actually present, so a healthy model says nothing about missing files. */
+const legend = computed(() => {
+  const present = new Set(graphData.value?.nodes.map((node) => node.type));
+  return LEGEND.filter((item) => present.has(item.type));
 });
 
 function onNodeClick({ event, node }: NodeMouseEvent) {
+  // Nothing to open: `openFile` on a path that is not there opens a tab that
+  // 404s, which is a worse answer than the node's own styling already gives.
+  if (!node.data?.openable) return;
   // The tree's rule, not a rule of its own: a plain click previews, a modifier
   // or a double-click keeps the tab. A touch carries no modifier and previews.
   const intent = event instanceof MouseEvent ? openIntent(event) : { preview: true };
@@ -203,12 +162,19 @@ function onNodeClick({ event, node }: NodeMouseEvent) {
 
 <template>
   <Dialog :open="visible" @update:open="emit('update:visible', $event)">
+    <!-- `sm:max-w-[80vw]`, because `DialogContent`'s own base caps at
+         `sm:max-w-lg` and an unprefixed override loses to it at every width that
+         matters: the 80vw this asked for has never been what it got. A graph of
+         every file the model reads needs the room more than a chain of four did. -->
     <DialogContent
-      class="flex h-[70vh] max-w-[80vw] flex-col"
+      class="flex h-[70vh] flex-col sm:max-w-[80vw]"
       data-testid="import-graph"
+      :show-close-button="false"
     >
       <DialogHeader>
-        <div class="flex items-center gap-2">
+        <!-- Both buttons in the row, which is why the content's own absolutely
+             positioned close is turned off: it lands in exactly this corner. -->
+        <div class="flex items-center gap-1">
           <DialogTitle class="flex-1">Import graph</DialogTitle>
           <!-- No spinning glyph: the body already says it is reading, and a
                second signal for one state is what a dead button looks like. -->
@@ -218,13 +184,19 @@ function onNodeClick({ event, node }: NodeMouseEvent) {
             :disabled="isLoading"
             @click="load"
           />
+          <TooltipButton
+            label="Close"
+            :icon="X"
+            testid="import-graph-close"
+            @click="emit('update:visible', false)"
+          />
         </div>
-        <DialogDescription>
-          Every file the model pulls in, and what pulls it in. Click one to open it.
-        </DialogDescription>
+        <DialogDescription>Click a file to open it.</DialogDescription>
       </DialogHeader>
 
-      <div class="min-h-0 flex-1 rounded-md border border-border bg-surface">
+      <div
+        class="flex min-h-0 flex-1 flex-col rounded-md border border-border bg-surface"
+      >
         <StateMessage v-if="isLoading" variant="fill" loading>
           Reading the import graph…
         </StateMessage>
@@ -232,18 +204,34 @@ function onNodeClick({ event, node }: NodeMouseEvent) {
           {{ error }}
         </StateMessage>
         <StateMessage v-else-if="!flowGraph.nodes.length" variant="fill">
-          No import relationships found.
+          No files found.
         </StateMessage>
-        <VueFlow
-          v-else
-          :nodes="flowGraph.nodes"
-          :edges="flowGraph.edges"
-          :nodes-connectable="false"
-          :nodes-draggable="true"
-          fit-view-on-init
-          class="size-full"
-          @node-click="onNodeClick"
-        />
+        <template v-else>
+          <VueFlow
+            :nodes="flowGraph.nodes"
+            :edges="flowGraph.edges"
+            :nodes-connectable="false"
+            :nodes-draggable="true"
+            :min-zoom="MIN_ZOOM"
+            class="min-h-0 flex-1"
+            @nodes-initialized="fit"
+            @node-click="onNodeClick"
+          />
+          <!-- The treatments are deliberately quiet, so nothing else on screen
+               says what a dashed border means. -->
+          <PanelFooter>
+            <span class="flex items-center gap-3">
+              <span
+                v-for="item in legend"
+                :key="item.type"
+                class="flex items-center gap-1"
+              >
+                <span class="size-2.5 shrink-0" :style="swatchStyle(item.type)" />
+                {{ item.label }}
+              </span>
+            </span>
+          </PanelFooter>
+        </template>
       </div>
     </DialogContent>
   </Dialog>

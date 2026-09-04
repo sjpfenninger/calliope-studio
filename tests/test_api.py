@@ -453,6 +453,9 @@ class TestStructure:
         roots = [node for node in graph["nodes"] if node["type"] == "root"]
         assert [node["id"] for node in roots] == ["model.yaml"]
         assert graph["edges"]
+        # The route is a pass-through, so the substance is in `test_imports.py`;
+        # this only proves the other two naming routes reach the wire at all.
+        assert any(node["type"] == "data_table" for node in graph["nodes"])
 
     @pytest.mark.parametrize("kind", ["tech", "node"])
     def test_data_table_params(self, client, ws, kind):

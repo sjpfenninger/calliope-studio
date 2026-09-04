@@ -117,8 +117,38 @@ def reachable_files(base: Path) -> list[Path]:
     return unique
 
 
+#: Node types in precedence order, most specific first.
+#:
+#: A file can be reached more than one way, and what it *is* beats how it was
+#: reached: `urban_scale`'s `additional_math.yaml` would be typed by whichever
+#: route the walk happened to visit first, which is the kind of order-dependent
+#: answer this project keeps having to unpick. `filekinds.classify` resolves the
+#: same collision the same way and for the same reason.
+_TYPE_RANK = {"root": 0, "math": 1, "data_table": 2, "file": 3, "missing": 4}
+
+#: What each of `snapshot.Reference`'s kinds draws as.
+_KIND_TYPE = {"import": "file", "math": "math", "data_table": "data_table"}
+
+
 def import_graph(base: Path) -> dict:
-    """The `import:` DAG, as nodes and edges for the frontend's graph view."""
+    """Every file the model names, and what names it.
+
+    Three routes, not one. `import:` chains are only the first: `urban_scale`
+    reaches `additional_math.yaml` through `config.init.math_paths`, which the
+    import chain structurally cannot see, and every model's real numbers are in
+    the CSVs behind `data_tables[*].table`. All three come from
+    `snapshot.walk_references`, which is also what a run snapshot is captured
+    from — so the graph shows exactly the set a run would freeze rather than a
+    subset of it.
+
+    A reference that does not resolve is drawn as a `missing` node rather than
+    dropped. A typo in a `table:` path is otherwise silent until it surfaces as
+    a Calliope traceback minutes into a run.
+    """
+    # Local: `snapshot` imports this module, so the dependency only goes one way
+    # at module level. Same shape as `component_tree` below.
+    from calliope_studio.modeldef.snapshot import walk_references
+
     base = Path(base).resolve()
     root = find_model_yaml(base)
     if root is None:
@@ -126,18 +156,47 @@ def import_graph(base: Path) -> dict:
 
     nodes: dict[str, dict] = {}
 
-    def add(path: Path, node_type: str = "file") -> str:
-        relative = path.relative_to(base).as_posix()
-        if relative not in nodes:
-            nodes[relative] = {"id": relative, "label": relative, "type": node_type}
-        return relative
+    def add(node_id: str, label: str, node_type: str) -> str:
+        node = nodes.get(node_id)
+        if node is None:
+            nodes[node_id] = {"id": node_id, "label": label, "type": node_type}
+        elif _TYPE_RANK[node_type] < _TYPE_RANK[node["type"]]:
+            node["type"] = node_type
+        return node_id
 
-    add(root, "root")
-    edges = [
-        {"source": add(parent), "target": add(child)}
-        for parent, child in collect_imports(root, base)
-    ]
-    return {"nodes": list(nodes.values()), "edges": edges}
+    def add_file(path: Path, node_type: str = "file") -> str:
+        relative = path.relative_to(base).as_posix()
+        return add(relative, relative, node_type)
+
+    add_file(root, "root")
+
+    # Keyed on the pair rather than on (pair, kind): two edges between one pair
+    # draw identical geometry, so a second is invisible ink in a bigger payload.
+    edges: dict[tuple[str, str], dict] = {}
+
+    def connect(source: str, target: str, kind: str) -> None:
+        edge = edges.get((source, target))
+        if edge is None:
+            edges[(source, target)] = {"source": source, "target": target, "kind": kind}
+        elif _TYPE_RANK[_KIND_TYPE[kind]] < _TYPE_RANK[_KIND_TYPE[edge["kind"]]]:
+            # Drawn like the node it lands on, which took the same precedence.
+            edge["kind"] = kind
+
+    for reference in walk_references(base):
+        resolved = reference.target.resolve()
+        inside = resolved.is_relative_to(base)
+        if inside and resolved.is_file():
+            target = add_file(resolved, _KIND_TYPE[reference.kind])
+        else:
+            # Keyed on the absolute path so two files each naming a different
+            # missing `costs.csv` stay two nodes; labelled with what was
+            # written, which is both what the user has to fix and the only
+            # spelling that does not leak a home directory into the dialog.
+            target = add(f"missing:{resolved}", reference.raw, "missing")
+            nodes[target]["reason"] = "not found" if inside else "outside the workspace"
+        connect(add_file(reference.source), target, reference.kind)
+
+    return {"nodes": list(nodes.values()), "edges": list(edges.values())}
 
 
 def _summarise(section: str, value: Any) -> dict:

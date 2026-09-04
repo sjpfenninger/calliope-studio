@@ -22,13 +22,13 @@
  * menu's had none. The two menus wrapped that way were broken; the one that was
  * not was fine. Nothing about that is visible in a diff, so it is checked here.
  */
-import { health, open, quiet, requireMode, results, trackRequests } from "./harness.mjs";
+import { health, open, quiet, requireMode, results, trackRequests, until } from "./harness.mjs";
 
 const BASE = process.argv[2] ?? "http://127.0.0.1:8000";
 const payload = requireMode(await health(BASE), "workspace", BASE);
 
 const { check, finish } = results("menus");
-const { browser, page, testId, consoleErrors } = await open();
+const { browser, page, testId, consoleErrors, stable } = await open();
 const calls = trackRequests(page, (request) => request.url().includes("/api/"));
 
 /**
@@ -85,6 +85,60 @@ try {
   // The model switcher: the one dropdown with no tooltip around it, and so the
   // control that showed the other two were the odd ones out.
   await popup("the model switcher menu", () => testId("project-switcher").click());
+
+  // Not a popper, but the same class of failure and the same reason it belongs
+  // in a browser: the import graph's reload button sits in the header row while
+  // `DialogContent` puts its close at `absolute top-4 right-4`, so the two used
+  // to be drawn on top of each other. Two boxes overlapping throws nothing,
+  // renders, type-checks and reviews clean.
+  await calls.settle(() => testId("open-import-graph").click());
+  await testId("import-graph").waitFor({ timeout: 10000 });
+  // The dialog animates in, so the boxes are still moving when it first appears
+  // — measured once too early, two overlapping buttons would read as disjoint.
+  const header = () =>
+    page.evaluate(() =>
+      [...document.querySelectorAll('[data-testid="import-graph"] button')].map((b) =>
+        Math.round(b.getBoundingClientRect().x),
+      ),
+    );
+  await stable(header);
+  const buttons = await page.evaluate(() => {
+    const dialog = document.querySelector('[data-testid="import-graph"]');
+    const boxes = [...dialog.querySelectorAll("button")]
+      .filter((b) => b.getAttribute("aria-label"))
+      .map((b) => b.getBoundingClientRect());
+    const overlapping = boxes.some((a, i) =>
+      boxes.some(
+        (b, j) =>
+          i !== j &&
+          a.left < b.right &&
+          b.left < a.right &&
+          a.top < b.bottom &&
+          b.top < a.bottom,
+      ),
+    );
+    const outside = boxes.some((b) => {
+      const box = dialog.getBoundingClientRect();
+      return b.left < box.left || b.right > box.right || b.top < box.top;
+    });
+    const heights = [...new Set(boxes.map((b) => Math.round(b.height)))];
+    return { count: boxes.length, overlapping, outside, heights };
+  });
+  check("the graph's header holds both buttons", buttons.count === 2, JSON.stringify(buttons));
+  check("they do not overlap", buttons.overlapping === false, JSON.stringify(buttons));
+  check("they are inside the dialog", buttons.outside === false, JSON.stringify(buttons));
+  check("they are one size", buttons.heights.length === 1, JSON.stringify(buttons));
+  await testId("import-graph-close").click();
+  await testId("import-graph").waitFor({ state: "detached", timeout: 8000 });
+  // Closing hands focus back to the trigger, which reopens its tooltip over the
+  // nav bar — so the next click lands on the tooltip instead. Moving the pointer
+  // away and waiting for it to go is the honest way past that; a fixed pause
+  // would be racing it.
+  await page.mouse.move(0, 0);
+  await page.evaluate(() => document.activeElement?.blur());
+  await until(
+    async () => (await page.locator('[data-slot="tooltip-content"]').count()) === 0,
+  );
 
   await calls.settle(() => page.getByRole("link", { name: /Runs/i }).first().click());
   await quiet(400);

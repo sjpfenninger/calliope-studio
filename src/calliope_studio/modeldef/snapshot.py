@@ -136,6 +136,60 @@ def _data_files(config: dict) -> list[str]:
         return []
 
 
+@dataclass(frozen=True)
+class Reference:
+    """One file naming another, and how Calliope will reach it."""
+
+    #: The declaring file, absolute.
+    source: Path
+    #: Where the reference points. Joined but deliberately *not* resolved, so
+    #: that `collect` can report it back as written.
+    target: Path
+    #: `"import"`, `"math"` or `"data_table"`.
+    kind: str
+    #: The reference exactly as the YAML spells it.
+    raw: str
+
+
+def walk_references(workspace: Path) -> list[Reference]:
+    """Every file the model definition names, and which file names it.
+
+    The three routes of this module's docstring, walked once. Two callers need
+    the same answer for different reasons: a snapshot must copy each file, and
+    the import graph must draw the edge — which is why the parent is carried
+    rather than the flat set `collect` used to build on its own.
+
+    The `import:` lists are re-read here rather than trusting `reachable_files`,
+    which is the *closure inside the workspace*: `collect_imports` drops an
+    import resolving outside it, or naming a file that is not there. Those have
+    to be reported, not lost — a snapshot that quietly claimed to be complete
+    would be solved from, and would fail a run that reading the live workspace
+    would have completed.
+
+    Order is per file, imports before math before data tables, over
+    `reachable_files` — which is what makes a snapshot's file list stable.
+    """
+    root = Path(workspace).resolve()
+    if find_model_yaml(root) is None:
+        return []
+
+    references: list[Reference] = []
+    for path in reachable_files(root):
+        document = load_quietly(path)
+        if not isinstance(document, dict):
+            continue
+        for name in _import_entries(document):
+            references.append(Reference(path, path.parent / name, "import", name))
+        for name in math_paths(document):
+            references.append(
+                Reference(path, resolve_math_path(root, name), "math", name)
+            )
+        for _, config, directory in collect_data_tables(path):
+            for name in _data_files(config):
+                references.append(Reference(path, directory / name, "data_table", name))
+    return references
+
+
 def collect(workspace: Path) -> Collected:
     """Every file the model definition needs, as workspace-relative paths."""
     root = Path(workspace).resolve()
@@ -169,28 +223,13 @@ def collect(workspace: Path) -> Collected:
     if find_model_yaml(root) is None:
         return collected
 
-    yaml_paths = reachable_files(root)
-    for path in yaml_paths:
+    for path in reachable_files(root):
         add(path, path, "import")
 
-    for path in yaml_paths:
-        document = load_quietly(path)
-        if not isinstance(document, dict):
-            continue
-        # Re-read the `import:` lists rather than trusting `reachable_files`,
-        # which is the *closure inside the workspace*: `collect_imports` drops an
-        # import resolving outside it, or naming a file that is not there. Those
-        # have to be reported, not lost — a snapshot that quietly claimed to be
-        # complete would be solved from, and would fail a run that reading the
-        # live workspace would have completed. Entries resolving inside are
-        # already captured above and skipped here as duplicates.
-        for name in _import_entries(document):
-            add(path.parent / name, path, "import")
-        for name in math_paths(document):
-            add(resolve_math_path(root, name), path, "math")
-        for _, config, directory in collect_data_tables(path):
-            for name in _data_files(config):
-                add(directory / name, path, "data_table")
+    # Entries resolving inside the workspace are already captured above and are
+    # skipped here as duplicates; what this pass adds is the ones that are not.
+    for reference in walk_references(root):
+        add(reference.target, reference.source, reference.kind)
 
     return collected
 

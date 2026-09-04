@@ -125,6 +125,20 @@
      paints it — no canvas renderer has to parse it. */
   --cg-scrim: oklch(0% 0 0 / 0.45);
 
+  /* ── Math violet. The one categorical hue in the app, and it has exactly one
+        job: telling a custom-math file apart from every other file in the
+        import graph. Nothing else there may take a colour — the entry point has
+        the accent, and everything else is on the achromatic ramp — so a
+        second hue is what makes "this file changes what the optimisation is"
+        legible at a glance. Deliberately not a status token (those are for a
+        dot or a 2px edge, never a fill, and a math file is neither good news
+        nor bad) and not the chart ramp (which is ordinal by construction and
+        must never read as identity). 305 is 45° off the accent and clear of
+        every hue in the ramp, which runs blue to green. ── */
+  --cg-math-text: oklch(50% 0.2 305); /* #7f36bc — 5.9:1 on its own soft fill */
+  --cg-math-soft: oklch(96% 0.025 305); /* #f6eeff — the node's fill */
+  --cg-math-border: oklch(80% 0.11 305); /* #ceacf7 — the node's edge */
+
   /* ── Status. Small areas only: a dot, a pill, a 2px row edge, an icon.
         Never a large fill — that is what would break the achromatic ramp. ── */
   --cg-success: oklch(57% 0.145 150); /* #1e8e46 */
@@ -265,6 +279,10 @@
   --cg-focus-ring: oklch(62% 0.205 258 / 0.45);
 
   --cg-scrim: oklch(0% 0 0 / 0.65);
+
+  --cg-math-text: oklch(76% 0.13 305); /* #c49bf3 — 6.4:1 on its own soft fill */
+  --cg-math-soft: oklch(29% 0.055 305); /* #322441 */
+  --cg-math-border: oklch(44% 0.12 305); /* #623e87 */
 
   --cg-success: oklch(74% 0.155 152); /* #4fc678 */
   --cg-success-text: oklch(80% 0.13 152); /* #78d694 */

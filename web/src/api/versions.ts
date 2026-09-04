@@ -333,8 +333,44 @@ export async function getDataTableParams<T>(
   return res.data.params ?? {};
 }
 
-export async function getImportGraph<T>(versionId: string): Promise<T> {
-  const res = await client.get<T>(`/api/versions/${seg(versionId)}/import-graph/`);
+/**
+ * What a node in the import graph is, most specific first.
+ *
+ * `file` means the import chain led here; `math` and `data_table` are the two
+ * routes it cannot see. `missing` is a reference that resolves to nothing, or
+ * to somewhere outside the model folder — kept rather than dropped, because a
+ * typo in a `table:` path is otherwise silent until a run fails on it.
+ */
+export type ImportGraphNodeType = "root" | "file" | "math" | "data_table" | "missing";
+
+export interface ImportGraphNode {
+  /** A model-relative path, or `missing:<absolute>` for an unresolved one. */
+  id: string;
+  label: string;
+  type: ImportGraphNodeType;
+  /** Only on a `missing` node: "not found" or "outside the workspace". */
+  reason?: string;
+}
+
+export interface ImportGraphEdge {
+  source: string;
+  target: string;
+  /**
+   * How the source names the target. Not always the target's own type: a file
+   * both imported and named as math is a `math` node with an `import` edge.
+   */
+  kind: "import" | "math" | "data_table";
+}
+
+export interface ImportGraph {
+  nodes: ImportGraphNode[];
+  edges: ImportGraphEdge[];
+}
+
+export async function getImportGraph(versionId: string): Promise<ImportGraph> {
+  const res = await client.get<ImportGraph>(
+    `/api/versions/${seg(versionId)}/import-graph/`,
+  );
   return res.data;
 }
 

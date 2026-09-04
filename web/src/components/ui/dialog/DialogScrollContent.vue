@@ -10,6 +10,7 @@ import {
   DialogPortal,
   useForwardPropsEmits,
 } from "reka-ui"
+import { ICON_BUTTON } from "@/lib/formClasses"
 import { cn } from "@/lib/utils"
 
 defineOptions({
@@ -47,10 +48,10 @@ const forwarded = useForwardPropsEmits(delegatedProps, emits)
       >
         <slot />
 
-        <DialogClose
-          class="absolute top-4 right-4 p-0.5 transition-colors rounded-md hover:bg-secondary"
-        >
-          <X class="w-4 h-4" />
+        <!-- The same geometry as `DialogContent`'s, so a first use of this
+             does not inherit a third spelling of "close a dialog". -->
+        <DialogClose :class="cn(ICON_BUTTON, 'absolute top-4 right-4')">
+          <X class="size-3.5" />
           <span class="sr-only">Close</span>
         </DialogClose>
       </DialogContent>

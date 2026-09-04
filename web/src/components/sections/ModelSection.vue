@@ -241,6 +241,7 @@ function validate() {
       <TooltipButton
         label="Import graph…"
         :icon="Network"
+        testid="open-import-graph"
         @click="showImportGraph = true"
       />
       <TooltipButton label="Reload the model tree." :icon="RefreshCw" @click="refresh" />

@@ -9,6 +9,7 @@ import {
   DialogPortal,
   useForwardPropsEmits,
 } from "reka-ui"
+import { ICON_BUTTON } from "@/lib/formClasses"
 import { cn } from "@/lib/utils"
 import DialogOverlay from "./DialogOverlay.vue"
 
@@ -40,12 +41,17 @@ const forwarded = useForwardPropsEmits(delegatedProps, emits)
     >
       <slot />
 
+      <!-- `ICON_BUTTON`, not shadcn's own opacity fade: a bare button around a
+           14px glyph is a ~14px hit target, and the fade is a hover treatment
+           used nowhere else here. `top-4 right-4` is the content's own `p-4`
+           edge, so nothing moves. A dialog with a header action turns this off
+           and puts its own close in the row — see `ImportGraphDialog`. -->
       <DialogClose
         v-if="showCloseButton"
         data-slot="dialog-close"
-        class="data-[state=open]:bg-accent data-[state=open]:text-muted-foreground absolute top-4 right-4 rounded-xs opacity-70 transition-opacity hover:opacity-100 disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5"
+        :class="cn(ICON_BUTTON, 'absolute top-4 right-4')"
       >
-        <X />
+        <X class="size-3.5" />
         <span class="sr-only">Close</span>
       </DialogClose>
     </DialogContent>

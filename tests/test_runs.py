@@ -454,8 +454,13 @@ class TestFrozenConfig:
         tree = client.get(f"/api/runs/{finished}/component-tree/").json()
         assert "techs" in tree
 
+        # One assertion, two claims: the snapshot captured the CSVs behind the
+        # data tables — which no `import:` chain would have led it to — and the
+        # graph reads them back out of the frozen tree. That pair is what the
+        # whole run-history premise rests on.
         graph = client.get(f"/api/runs/{finished}/import-graph/").json()
-        assert graph["nodes"]
+        assert any(node["type"] == "data_table" for node in graph["nodes"])
+        assert not any(node["type"] == "missing" for node in graph["nodes"])
 
     def test_there_is_no_way_to_write_to_a_snapshot(self, client, finished):
         """History is not editable."""

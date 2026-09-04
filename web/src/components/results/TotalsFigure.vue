@@ -5,7 +5,7 @@
  * Its frame is fetched by the pane above and passed in — see `MapFigure` for why
  * none of the three figures owns a request.
  */
-import { computed, inject } from "vue";
+import { computed, inject, onBeforeUnmount } from "vue";
 
 import { Download } from "@lucide/vue";
 
@@ -53,6 +53,26 @@ const indexColors = computed(() =>
 function chooseSumFor(next: unknown, current: SumBy, variable: string | null): SumBy {
   return chooseSum(next, current, (value) => Boolean(store.sumLock(variable, value)));
 }
+
+/**
+ * Hands the bar under the pointer to the map, when a bar is a node.
+ *
+ * Decided here on the frame's own `indexName`, not on the sum-by: the chart
+ * knows nothing about Calliope, and which dimension lands on the axis is the
+ * server's choice — `choose_index` takes the largest one left, so summing the
+ * techs away puts nodes on the axis only when there are more of them than
+ * carriers. Anything else on the axis clears the map rather than leaving a
+ * stale node lit.
+ */
+function onHoverIndex(value: string | null) {
+  store.hoveredNode = value !== null && props.frame?.indexName === "nodes" ? value : null;
+}
+
+// A layout without this figure must not keep the map pointing at a bar that is
+// no longer on screen.
+onBeforeUnmount(() => {
+  store.hoveredNode = null;
+});
 </script>
 
 <template>
@@ -134,6 +154,7 @@ function chooseSumFor(next: unknown, current: SumBy, variable: string | null): S
       :precision="rounding.precision"
       height="100%"
       class="min-h-0 flex-1"
+      @hover-index="onHoverIndex"
     />
   </FigurePanel>
 </template>

@@ -78,7 +78,32 @@ const props = withDefaults(
   { labels: () => ({}), indexColors: null, unit: null, precision: null, name: null },
 );
 
+const emit = defineEmits<{
+  /**
+   * The index value under the axis pointer, or null when there is none.
+   *
+   * The raw value as text — the same string `indexColors` is keyed on and a map
+   * feature is identified by — never the display label, which `axisValues` may
+   * have substituted. Follows the axis pointer rather than the painted
+   * rectangle: the tooltip is axis-triggered, so its shadow band is what the
+   * reader is pointing at, and the highlight has to agree with what the tooltip
+   * is talking about. Null on leaving the chart, on the legend or the zoom
+   * slider, and whenever the frame changes. A time axis emits nothing: a
+   * timestep is not a thing anything else can point at.
+   */
+  hoverIndex: [value: string | null];
+}>();
+
 const unit = computed(() => props.unit ?? NO_UNIT);
+
+/** The last value emitted, because the axis pointer fires on every mousemove. */
+let lastHover: string | null = null;
+
+function emitHover(value: string | null) {
+  if (value === lastHover) return;
+  lastHover = value;
+  emit("hoverIndex", value);
+}
 
 function nameOf(frame: ResultFrame, series: ResultFrame["series"][number]) {
   return seriesLabel(series, frame.seriesDims, props.labels);
@@ -322,6 +347,11 @@ function timeExtent(frame: ResultFrame): Extent | null {
 
 function render() {
   if (!chart.value) return;
+  // Whatever the pointer was over is gone: a clear or a `notMerge` replace
+  // removes the axis pointer without any pointer event, and a frame that
+  // changed under a standing pointer may have a different dimension on its
+  // axis. The next mousemove re-emits against the new frame.
+  emitHover(null);
   if (!props.frame || props.frame.series.length === 0) {
     chart.value.clear();
     lastShape = "";
@@ -461,6 +491,22 @@ function mount() {
   // gutter is, and for the length of the animation the button would sit where
   // the slider used to begin. Cheap — one rect read, nothing cloned.
   chart.value.on("rendered", placeReset);
+  // One event covers show, move and leave. ECharts dispatches
+  // `updateAxisPointer` itself on `globalout`, with no axis in `axesInfo` — the
+  // same shape it sends for a pointer over the legend or the zoom slider — so
+  // there is no second handler to keep in step with this one.
+  chart.value.on("updateAxisPointer", (event) => {
+    const frame = props.frame;
+    const axis = (event as { axesInfo?: { axisDim: string; value: number }[] })
+      .axesInfo?.find((info) => info.axisDim === "x");
+    if (!frame || isTimeIndex(frame) || !axis) {
+      emitHover(null);
+      return;
+    }
+    // For a category axis the value is the category's position.
+    const raw = frame.index[Math.round(axis.value)];
+    emitHover(raw === undefined ? null : String(normaliseIndexValue(raw)));
+  });
   render();
 }
 
@@ -472,6 +518,7 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
+  emitHover(null);
   observer?.disconnect();
   const global = window as unknown as { __cgCharts?: Record<string, echarts.ECharts> };
   if (props.name && global.__cgCharts?.[props.name] === chart.value) {

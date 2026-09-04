@@ -97,6 +97,17 @@ const props = withDefaults(
     /** Node a link is being drawn from: a dashed line follows the cursor. */
     pendingLinkFrom?: string | null;
     /**
+     * A node something outside the map is pointing at — the results view's
+     * totals bar — drawn with a halo.
+     *
+     * Its own feature-state key, `highlight`, rather than the pointer's `hover`:
+     * the map tracks what is under its own pointer to know what to clear on
+     * leaving, and a second writer to that state would have the two clearing
+     * each other. Kept apart they compose, along with `selected` on the stroke,
+     * with no precedence rule between them.
+     */
+    highlighted?: string | null;
+    /**
      * Whether an empty map is covered with the "no nodes" message.
      *
      * The results view wants that: a solved model with no geography is a dead end.
@@ -119,6 +130,7 @@ const props = withDefaults(
     singleSelect: false,
     interactiveLinks: false,
     pendingLinkFrom: null,
+    highlighted: null,
     emptyMessage: true,
   },
 );
@@ -167,6 +179,21 @@ const SELECTED_STROKE = 3;
 
 /** How solid a node's circle is when it is drawn as a circle at all. */
 const NODE_FILL_OPACITY = 0.85;
+
+/**
+ * The halo around a highlighted node: how far past its radius, how faint its
+ * glow, and how heavy the rim on its edge.
+ *
+ * A halo rather than a heavier ring on the node, because the reader's eye is on
+ * another panel and has to *find* the node — the pointer's own ring is a step
+ * of grey on a dot the pointer is already over. The glow is faint enough that
+ * the node's fill and stroke, and a donut, still read through it; the rim is
+ * what makes it findable on a dark basemap, where the glow alone is the
+ * accent a shade lighter and next to nothing.
+ */
+const HALO_WIDTH = 7;
+const HALO_OPACITY = 0.3;
+const HALO_RIM = 1.5;
 
 /** How many pie slices a hover names before it says "and more". */
 const PIE_TOOLTIP_ROWS = 5;
@@ -390,6 +417,30 @@ function setHover(instance: maplibregl.Map, id: string | null) {
   }
   if (id !== null) instance.setFeatureState({ source: "nodes", id }, { hover: true });
   hovered = id;
+}
+
+/** The node lit from outside, so its state can be cleared when that moves. */
+let highlightedId: string | null = null;
+
+/**
+ * `setHover`'s twin for the `highlighted` prop, on its own key.
+ *
+ * An id the source does not know — a node with no coordinates — is a silent
+ * no-op in MapLibre, which is the right answer: the bar is real, it just has no
+ * place on the map.
+ */
+function setHighlight(instance: maplibregl.Map, id: string | null) {
+  if (highlightedId === id) return;
+  if (highlightedId !== null) {
+    instance.setFeatureState({ source: "nodes", id: highlightedId }, { highlight: false });
+  }
+  if (id !== null) instance.setFeatureState({ source: "nodes", id }, { highlight: true });
+  highlightedId = id;
+}
+
+/** An opacity that is `visible` on the highlighted feature and zero elsewhere. */
+function haloOpacity(visible: number): maplibregl.ExpressionSpecification {
+  return ["case", ["boolean", ["feature-state", "highlight"], false], visible, 0];
 }
 
 function donutElement(node: string, slices: PieSlice[], radius: number): string {
@@ -647,6 +698,13 @@ function applyNodePaint(instance: maplibregl.Map) {
   // layer's paint.
   instance.setPaintProperty("nodes", "circle-opacity", pieAware(NODE_FILL_OPACITY));
   instance.setPaintProperty("nodes", "circle-stroke-opacity", pieAware(1));
+  // The halo is the node layer's too, and the accent follows the theme.
+  if (instance.getLayer("nodes-halo")) {
+    instance.setPaintProperty("nodes-halo", "circle-color", paint.accent);
+    instance.setPaintProperty("nodes-halo", "circle-opacity", haloOpacity(HALO_OPACITY));
+    instance.setPaintProperty("nodes-halo", "circle-stroke-color", paint.accent);
+    instance.setPaintProperty("nodes-halo", "circle-stroke-opacity", haloOpacity(1));
+  }
 }
 
 /**
@@ -682,7 +740,19 @@ function addLayers(instance: maplibregl.Map) {
   instance.addSource("links", { type: "geojson", data: emptyCollection() });
   instance.addSource("links-hit", { type: "geojson", data: emptyCollection() });
   instance.addSource("pending", { type: "geojson", data: emptyCollection() });
-  instance.addSource("nodes", { type: "geojson", data: emptyCollection() });
+  // `promoteId`, because feature state is keyed on the id of the *rendered*
+  // feature, and MapLibre's tiler gives a GeoJSON feature whose `id` is a
+  // string a fresh integer — every node came out as 0. `setFeatureState` on
+  // "X1" then stored under a key nothing rendered ever had, silently: the
+  // pointer's hover ring never drew, and under pies the circle it was meant to
+  // hide stayed painted inside every donut. Every builder of this payload
+  // stamps `properties.node`, so reading the id from there makes the state,
+  // the payload and `queryRenderedFeatures` all name a node the same way.
+  instance.addSource("nodes", {
+    type: "geojson",
+    data: emptyCollection(),
+    promoteId: "node",
+  });
 
   const paint = layerPaint();
 
@@ -717,6 +787,27 @@ function addLayers(instance: maplibregl.Map) {
       "line-color": paint.accent,
       "line-width": 2,
       "line-dasharray": [2, 2],
+    },
+  });
+
+  // Under `nodes`, so the node's own fill and stroke sit on top of it, and on
+  // the same source, so one `setFeatureState` reaches both. Deliberately *not*
+  // pie-aware: a donut is a DOM marker above the canvas, and the halo's outer
+  // rim shows around it — the one highlight that works in both modes. The
+  // radius is the one `nodeFeatures` stamps, so it tracks the size channel.
+  instance.addLayer({
+    id: "nodes-halo",
+    type: "circle",
+    source: "nodes",
+    paint: {
+      "circle-radius": ["+", ["get", "radius"], HALO_WIDTH],
+      "circle-color": paint.accent,
+      "circle-opacity": haloOpacity(HALO_OPACITY),
+      // A crisp rim on the soft glow: the glow alone is the node's own hue a
+      // shade lighter, which on a dark basemap is nearly nothing to find.
+      "circle-stroke-color": paint.accent,
+      "circle-stroke-width": HALO_RIM,
+      "circle-stroke-opacity": haloOpacity(1),
     },
   });
 
@@ -873,6 +964,10 @@ onMounted(() => {
     ready.value = true;
     setData();
     fit();
+    // Feature state survives every later `setData` — MapLibre re-applies it on
+    // each tile reload — but cannot be set before the source exists, so a
+    // highlight that arrived before the style loaded is applied here, once.
+    if (props.highlighted) setHighlight(instance, props.highlighted);
   });
 
   // MapLibre reports a failed tile or TileJSON request here and nowhere else; it
@@ -952,6 +1047,13 @@ watch(
   () => props.pendingLinkFrom,
   (from) => {
     if (!from) setPending(null);
+  },
+);
+
+watch(
+  () => props.highlighted,
+  (id) => {
+    if (map.value && ready.value) setHighlight(map.value, id ?? null);
   },
 );
 

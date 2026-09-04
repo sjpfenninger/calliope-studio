@@ -233,6 +233,7 @@ const mapVariableName = computed(
          extra wiring — and so does flipping the whole layout on its side. -->
     <ModelMap
       v-model:selected="store.mapNodes"
+      :highlighted="store.hoveredNode"
       :geo="store.geo"
       :values="mapSizes"
       :color-values="mapColors"

@@ -178,6 +178,119 @@ if (nodePoint && (await testId("clear-map-nodes").count()) === 1) {
   skip("selecting a node on the map (none of them is in view)");
 }
 
+// ── Pointing at a bar lights its node ──────────────────────────────────────
+//
+// The totals chart and the map already share a selection; hover is the glance
+// between them, and it only means anything when the bars *are* nodes. Which
+// dimension is on the axis is the server's call — `choose_index` lays the
+// largest remaining one there — so rather than assume what summing the techs
+// away leaves, the check reads the axis the chart actually drew and looks for
+// the map's own feature ids on it. The assertion is feature state, the one
+// thing the map is told: what MapLibre paints from it is its own business.
+
+/** Whether a select offers `option`, so a model without it can be skipped. */
+const offers = async (select, option) => {
+  await testId(select).click();
+  const item = page.getByRole("option", { name: option, exact: true });
+  await item.first().waitFor({ timeout: 3000 }).catch(() => {});
+  const found = (await item.count()) > 0;
+  if (!found) await page.keyboard.press("Escape");
+  return found;
+};
+/** Picks an option in a select that is already open, from `offers`. */
+const pickOpen = (option) =>
+  settle(() => page.getByRole("option", { name: option, exact: true }).click());
+
+if (await offers("static-variable", "flow_cap")) await pickOpen("flow_cap");
+await settle(() =>
+  testId("static-sum-by").getByText("Sum techs", { exact: true }).click(),
+);
+
+/** The categories on the totals axis that are nodes on the map. */
+const nodeBars = () =>
+  page.evaluate(() => {
+    const axis = window.__cgCharts?.static?.getOption()?.xAxis?.[0]?.data ?? [];
+    const ids = new Set(
+      window.__cgMap
+        .getSource("nodes")
+        .serialize()
+        .data.features.map((feature) => String(feature.id)),
+    );
+    return axis.map(String).filter((name) => ids.has(name));
+  });
+const highlighted = (node) =>
+  page.evaluate(
+    (id) => window.__cgMap.getFeatureState({ source: "nodes", id }).highlight === true,
+    node,
+  );
+/** The bar's position on the axis, and the chart action that points at it. */
+const barIndex = (node) =>
+  page.evaluate(
+    (name) =>
+      window.__cgCharts.static.getOption().xAxis[0].data.map(String).indexOf(name),
+    node,
+  );
+const pointAt = (index) =>
+  page.evaluate(
+    (dataIndex) =>
+      window.__cgCharts.static.dispatchAction({
+        type: "updateAxisPointer",
+        seriesIndex: 0,
+        dataIndex,
+      }),
+    index,
+  );
+
+const bars = await stable(nodeBars);
+if (bars.length > 0) {
+  const node = bars[0];
+  const index = await barIndex(node);
+
+  // The real pointer first: the bar's pixel comes from the chart's own
+  // projection, halfway up its stack, so the move lands inside the axis
+  // pointer's band whatever the bars' heights are.
+  const target = await page.evaluate((position) => {
+    const chart = window.__cgCharts.static;
+    let top = 0;
+    for (const series of chart.getOption().series ?? []) {
+      const point = series.data?.[position];
+      const value =
+        typeof point === "number" ? point : Array.isArray(point) ? point[1] : point?.value;
+      top += Number(value) || 0;
+    }
+    const [x, y] = chart.convertToPixel({ seriesIndex: 0 }, [position, top / 2]);
+    const rect = chart.getDom().getBoundingClientRect();
+    return { x: rect.left + x, y: rect.top + y };
+  }, index);
+  await page.mouse.move(target.x, target.y);
+  check("pointing at a node's bar lights that node on the map", await until(() => highlighted(node)), node);
+
+  // Off the chart and onto the map's own canvas — its corner, where no node
+  // sits — which is where a reader looking for the halo would go.
+  const mapBox = await page.locator(".maplibregl-canvas").first().boundingBox();
+  await page.mouse.move(mapBox.x + 8, mapBox.y + 8);
+  check(
+    "and leaving the chart puts it out",
+    await until(async () => !(await highlighted(node))),
+  );
+
+  // The same through the chart's own action, which is what a pointer move
+  // becomes inside ECharts — so a failure above with a pass here is geometry,
+  // not wiring.
+  await pointAt(index);
+  check("the chart's own axis-pointer action lights it too", await until(() => highlighted(node)));
+  await page.evaluate(() =>
+    window.__cgCharts.static.dispatchAction({ type: "updateAxisPointer", currTrigger: "leave" }),
+  );
+  check(
+    "and its leave action clears it",
+    await until(async () => !(await highlighted(node))),
+  );
+} else {
+  skip("linked hover (the totals axis is not nodes on this model)");
+}
+await settle(() => testId("static-sum-by").getByText("No sum", { exact: true }).click());
+
 // ── Both themes ────────────────────────────────────────────────────────────
 //
 // The assertion is on the token itself: for most of this project's life

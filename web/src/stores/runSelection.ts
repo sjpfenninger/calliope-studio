@@ -562,6 +562,16 @@ function defineRunSelection(handle: string) {
     const mapNodes = ref<string[]>([]);
 
     /**
+     * The node the totals chart is pointing at, for the map to light up.
+     *
+     * Transient and part of no query, unlike `mapNodes`: a hover is a glance
+     * across two panels, not a filter, so it must never cost a request or
+     * survive the pointer leaving. Written by `TotalsFigure` only when its axis
+     * is nodes, and read by `MapFigure`.
+     */
+    const hoveredNode = ref<string | null>(null);
+
+    /**
      * The selection the charts actually use.
      *
      * Picking nodes on the map narrows to those; picking none falls back to the
@@ -748,6 +758,7 @@ function defineRunSelection(handle: string) {
       mapVariables,
       timeRange,
       mapNodes,
+      hoveredNode,
       effectiveSelectors,
       timeseriesQuery,
       staticQuery,

@@ -76,10 +76,13 @@ describe("useRunSelection", () => {
     first.plotType = "Duration";
     first.setSelected("techs", ["ccgt"]);
     first.mapNodes = ["region1"];
+    first.hoveredNode = "region1";
 
     expect(second.plotType).toBe("Bar");
     expect(second.selected.techs).toEqual(["ccgt", "battery"]);
     expect(second.mapNodes).toEqual([]);
+    // Two run tabs side by side must not see each other's pointer.
+    expect(second.hoveredNode).toBeNull();
   });
 
   it("does not reset another handle's filters when one loads", async () => {

@@ -56,8 +56,10 @@ def _check_creatable(workspace: Workspace, file_path: str) -> Path:
 
     The same rules `modeldef.scaffold.create_model` applies to a new model
     folder. The excluded-name check is the one that is easy to miss and the most
-    confusing to hit: `calliope-studio/` and `.git/` are filtered out of the
-    tree, so creating something inside one would appear to do nothing at all.
+    confusing to hit: `calliope-studio/` and any dot-prefixed name are filtered
+    out of the tree, so creating something inside one would appear to do nothing
+    at all. The dot test comes first because `is_excluded` covers it too, and
+    "starting with a dot" is the message that tells the user what to change.
     """
     root = Path(workspace.path).resolve()
     path = resolve_path(workspace, file_path)
@@ -67,15 +69,15 @@ def _check_creatable(workspace: Workspace, file_path: str) -> Path:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="A name is required."
         )
-    if is_excluded(relative):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="That name is hidden from the file tree.",
-        )
     if any(part.startswith(".") for part in relative.parts):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="A name starting with a dot would be hidden.",
+        )
+    if is_excluded(relative):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="That name is hidden from the file tree.",
         )
     if path.exists():
         raise HTTPException(

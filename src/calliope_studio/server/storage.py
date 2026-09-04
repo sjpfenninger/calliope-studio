@@ -37,7 +37,7 @@ from calliope_studio.runs import protocol
 WORKSPACE_DATA_DIR = "calliope-studio"
 
 #: Earlier names, migrated on open, oldest first. Kept as constants because
-#: `modeldef.paths.EXCLUDED_NAMES` still hides them, so a workspace that somehow
+#: `modeldef.paths.is_excluded` still hides them, so a workspace that somehow
 #: escapes migration does not suddenly show run artefacts in its file tree.
 #: `.calligraph` was the hidden name and came first; `calligraph` was the
 #: visible directory under the project's previous name.

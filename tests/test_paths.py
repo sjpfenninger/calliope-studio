@@ -19,6 +19,7 @@ from calliope_studio.modeldef.paths import (
     file_type,
     walk_files,
     write_text_atomic,
+    yaml_files,
 )
 
 #: Kept identical to the table in `web/src/lib/fileKind.test.ts`.
@@ -78,6 +79,42 @@ def test_walk_files_hides_excluded_directories(tmp_path):
 
     paths = {entry["path"] for entry in walk_files(tmp_path)}
     assert paths == {"model.yaml"}
+
+
+def test_walk_files_hides_dotfiles(tmp_path):
+    """A dot-prefixed name is hidden wherever it sits, and only a prefix counts.
+
+    The tree used to hide five dotfiles by name — `.git`, `.gitignore`,
+    `.DS_Store`, `.env`, `.calligraph` — and show every other one, while the
+    create verbs refused *any* dot-prefixed name on the grounds that it would be
+    hidden. `.github/`, `.vscode/` and a `.venv/` were all listed beside the
+    model. A dot inside a name is ordinary and must stay visible.
+    """
+    (tmp_path / ".github" / "workflows").mkdir(parents=True)
+    (tmp_path / ".github" / "workflows" / "ci.yml").write_text("on: push\n")
+    (tmp_path / ".vscode").mkdir()
+    (tmp_path / ".vscode" / "settings.json").write_text("{}\n")
+    (tmp_path / ".gitattributes").write_text("* text=auto\n")
+    (tmp_path / ".env").write_text("SECRET=1\n")
+    (tmp_path / ".DS_Store").write_bytes(b"\0")
+    (tmp_path / "data").mkdir()
+    (tmp_path / "data" / ".hidden.csv").write_text("a,b\n")
+    (tmp_path / "model.yaml").write_text("config: {}\n")
+    (tmp_path / "techs.v2.yaml").write_text("techs: {}\n")
+
+    paths = {entry["path"] for entry in walk_files(tmp_path)}
+    assert paths == {"model.yaml", "techs.v2.yaml", "data"}
+
+
+def test_yaml_files_skips_dot_directories(tmp_path):
+    """Validation, entity discovery and file-kind detection all read
+    `yaml_files`, so a virtualenv dropped into the model folder used to be
+    scanned as if the hundreds of YAML files under it were model definition."""
+    (tmp_path / ".venv" / "lib").mkdir(parents=True)
+    (tmp_path / ".venv" / "lib" / "conf.yaml").write_text("x: 1\n")
+    (tmp_path / "model.yaml").write_text("config: {}\n")
+
+    assert yaml_files(tmp_path) == [tmp_path / "model.yaml"]
 
 
 class TestAtomicReplacement:

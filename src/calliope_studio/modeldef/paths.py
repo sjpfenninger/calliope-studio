@@ -12,29 +12,25 @@ from pathlib import Path
 
 #: Names never shown in the file tree, matched against any path component.
 #:
+#: Only names that do *not* start with a dot belong here: `is_excluded` hides
+#: every dot-prefixed component on its own, which is what covers `.git`,
+#: `.gitignore`, `.DS_Store`, `.env`, `.venv` and whatever else a tool leaves
+#: behind. The create verbs and both "new" dialogs already refused any such
+#: name on the grounds that it would be hidden; the tree used to hide only five
+#: of them by name and show the rest.
+#:
 #: `calliope-studio` is where run outputs go
 #: (`server.storage.WORKSPACE_DATA_DIR`). It is deliberately a visible directory
 #: so the user can find their results, but it is not part of the model
 #: definition, so the editor's file tree hides it — which does mean a folder a
 #: user genuinely named `calliope-studio` would be hidden too.
 #:
-#: `calligraph` and `.calligraph` are the names used before this project was
-#: renamed (and, for the hidden one, before that). Both are kept so that a
-#: workspace which escaped migration does not suddenly start showing run
+#: `calligraph` is the visible name used before this project was renamed (the
+#: hidden `.calligraph` before that is caught by the dot rule). It is kept so
+#: that a workspace which escaped migration does not suddenly start showing run
 #: artefacts; see `server.storage.LEGACY_WORKSPACE_DATA_DIRS`.
 EXCLUDED_NAMES: frozenset[str] = frozenset(
-    {
-        ".DS_Store",
-        ".git",
-        ".gitignore",
-        "calliope-studio",
-        "calligraph",
-        ".calligraph",
-        "__pycache__",
-        ".env",
-        "node_modules",
-        "Thumbs.db",
-    }
+    {"calliope-studio", "calligraph", "__pycache__", "node_modules", "Thumbs.db"}
 )
 
 
@@ -148,9 +144,17 @@ def safe_path(base: Path, relative: str) -> Path:
 
 
 def is_excluded(relative: Path) -> bool:
-    """Whether any component of a workspace-relative path is excluded."""
-    return any(part in EXCLUDED_NAMES for part in relative.parts) or any(
-        part.endswith(".pyc") for part in relative.parts
+    """Whether any component of a workspace-relative path is excluded.
+
+    A dot-prefixed component hides the whole path, files and directories alike.
+    That is the Unix convention for "not yours to look at", and it is the rule
+    the rest of the app already stated: creating `.anything` was refused because
+    it "would be hidden", while the tree went on showing `.github/` and
+    `.vscode/` beside the model.
+    """
+    return any(
+        part in EXCLUDED_NAMES or part.startswith(".") or part.endswith(".pyc")
+        for part in relative.parts
     )
 
 

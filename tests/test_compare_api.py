@@ -204,7 +204,11 @@ class TestFileContents:
     ):
         """An addition has to be renderable, and a diff editor wants two texts."""
         before = make_run(national_scale)
-        (national_scale / "extra.yaml").write_text("techs: {}\n", encoding="utf-8")
+        # `newline=""`: without it Windows writes CRLF, and the compare route
+        # returns what is on disk, so the exact assertion below would fail there.
+        (national_scale / "extra.yaml").write_text(
+            "techs: {}\n", encoding="utf-8", newline=""
+        )
         model = national_scale / "model.yaml"
         model.write_text(
             model.read_text(encoding="utf-8").replace(

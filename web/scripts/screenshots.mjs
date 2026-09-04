@@ -386,8 +386,10 @@ async function showcase(theme) {
   // after this would undo it.
   await zoomTheMap(page, SHOWCASE_MAP);
 
-  // Deliberately last: a shape-changing re-render is `notMerge` and starts
-  // from a fresh option, which forgets the zoom.
+  // Deliberately last. A replace now carries the reader's window across, but
+  // only onto a time axis — a duration curve drops it — and the steps above
+  // are free to change the plot type, so the week is set once nothing else
+  // will re-render.
   await zoomToWeek(page);
 
   await stable(() => figureGeometry(page));

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue";
 import * as echarts from "echarts";
+import { RotateCcw } from "@lucide/vue";
 import type { ResultFrame } from "../../api/results";
 import {
   GRID_LEFT,
@@ -17,6 +18,8 @@ import { resolvedColor } from "../../lib/cssColor";
 import { indexToLabel, normaliseIndexValue } from "../../lib/frameIndex";
 import { formatValue } from "../../lib/precision";
 import StateMessage from "../app/StateMessage.vue";
+import TooltipButton from "../app/TooltipButton.vue";
+import { isZoomed, windowFromEvent, type Extent, type ZoomWindow } from "../../lib/chartZoom";
 import { seriesLabel } from "../../lib/seriesLabel";
 import { useUiStore } from "../../stores/ui";
 
@@ -158,9 +161,13 @@ function timeStep(values: unknown[]): number {
   return Number.isFinite(smallest) ? smallest : 0;
 }
 
-function buildOption(frame: ResultFrame): echarts.EChartsOption {
+function buildOption(frame: ResultFrame, zoom: ZoomWindow | null): echarts.EChartsOption {
   const axis = axisValues(frame);
   const onTime = isTimeIndex(frame);
+  // On both dataZoom components: they share the axis, and two ranges at init
+  // would leave the last one applied in charge. A range only ever rides on a
+  // replace — see `render`.
+  const carried = zoom && onTime ? { startValue: zoom.startValue, endValue: zoom.endValue } : {};
   const stacked = props.kind !== "line";
   const totalPoints = frame.index.length * Math.max(frame.series.length, 1);
   const byIndex = props.indexColors;
@@ -252,8 +259,8 @@ function buildOption(frame: ResultFrame): echarts.EChartsOption {
         : {}),
     },
     dataZoom: [
-      { type: "inside", throttle: 50 },
-      { type: "slider", height: ZOOM_H, bottom: zoomBottom(withLegend) },
+      { type: "inside", throttle: 50, ...carried },
+      { type: "slider", height: ZOOM_H, bottom: zoomBottom(withLegend), ...carried },
     ],
     series: frame.series.map((series) => ({
       // `tooltip.trigger: "axis"` renders this too, so the short name reaches the
@@ -284,11 +291,44 @@ function buildOption(frame: ResultFrame): echarts.EChartsOption {
 /** The shape of the last option applied, to spot changes merging cannot absorb. */
 let lastShape = "";
 
+/**
+ * The time axis last drawn, and the reader's window on it.
+ *
+ * Caches of what ECharts already holds, like `lastShape`, rather than state of
+ * their own: the instance keeps the zoom, but only until the next replace, and
+ * these are what let the replace hand it back. Epoch milliseconds, because the
+ * `datazoom` event reports percentages of the axis, and a percentage of a frame
+ * that is no longer on screen is not a place — a daily resample ends hours
+ * before the hourly frame did, and another variable need not share its
+ * timesteps at all.
+ */
+let lastExtent: Extent | null = null;
+let zoomWindow: ZoomWindow | null = null;
+/** Whether anything is zoomed, on any axis — which is when a reset means something. */
+const zoomed = ref(false);
+
+function timeValue(value: unknown): number {
+  const index = normaliseIndexValue(value);
+  return index instanceof Date ? index.getTime() : Number(index);
+}
+
+/** The first and last instant on a time axis, as `axisValues` would draw them. */
+function timeExtent(frame: ResultFrame): Extent | null {
+  if (!isTimeIndex(frame) || frame.index.length === 0) return null;
+  const first = timeValue(frame.index[0]);
+  const last = timeValue(frame.index[frame.index.length - 1]);
+  return Number.isFinite(first) && Number.isFinite(last) && last > first ? [first, last] : null;
+}
+
 function render() {
   if (!chart.value) return;
   if (!props.frame || props.frame.series.length === 0) {
     chart.value.clear();
     lastShape = "";
+    // The window is kept: a selection emptied and refilled comes back at the
+    // week the reader was looking at. Nothing is drawn, so nothing to reset.
+    lastExtent = null;
+    zoomed.value = false;
     return;
   }
 
@@ -323,10 +363,78 @@ function render() {
   const replace = shape !== lastShape;
   lastShape = shape;
 
-  chart.value.setOption(buildOption(props.frame), {
+  // A replace used to cost the reader their zoom, because a fresh option
+  // starts at the whole range — so comparing two variables over one week meant
+  // zooming into that week twice. Now the window rides on the replace, and only
+  // on the replace: a merge already keeps whatever is set, since ECharts leaves
+  // the range alone when the new option names none, and a batch arriving
+  // mid-zoom must not put the window back where it was. Only onto a time axis,
+  // too: a duration curve's x is rank, not time, so the window is dropped on
+  // the way to one and on the way back. A frame that does not reach the window
+  // is clamped to its edge by ECharts, which is rare — every variable of one
+  // model shares its timesteps — and is what was asked for.
+  const onTime = isTimeIndex(props.frame);
+  if (!onTime) zoomWindow = null;
+  const carried = replace ? zoomWindow : null;
+
+  chart.value.setOption(buildOption(props.frame, carried), {
     notMerge: replace,
     lazyUpdate: true,
   });
+  // Measured from the frame as drawn, which mid-stream is the part that has
+  // arrived: a zoom made then is read against a short axis, and may sit a
+  // little off once the rest lands. Nothing waits on a stream for that.
+  lastExtent = onTime ? timeExtent(props.frame) : null;
+  // No event follows a range set by option, so the button has to be told.
+  if (replace) zoomed.value = carried !== null;
+}
+
+/** The pixel where the plot area, and so the slider under it, begins. */
+function gridLeft(instance: echarts.ECharts): number {
+  // `containLabel` widens the gutter to whatever the y-axis labels need, so the
+  // slider's left edge is not a constant and the button beside it cannot be
+  // placed from one. The grid's rect is the only thing that says where it is,
+  // and `getModel` is the only way to it: private in the typings, public on the
+  // instance since ECharts 4 — `convertToPixel` places a data point, not the
+  // axis's own extent. Guarded so an upstream change misplaces the button by a
+  // few pixels rather than throwing inside a render event.
+  try {
+    const model = (
+      instance as unknown as {
+        getModel(): {
+          getComponent(
+            type: string,
+          ): { coordinateSystem?: { getRect(): { x: number } } } | undefined;
+        };
+      }
+    ).getModel();
+    const x = model.getComponent("grid")?.coordinateSystem?.getRect().x;
+    return typeof x === "number" && Number.isFinite(x) ? x : GRID_LEFT + RESET_FALLBACK_GUTTER;
+  } catch {
+    return GRID_LEFT + RESET_FALLBACK_GUTTER;
+  }
+}
+
+/** 20px — `TooltipButton`'s `xs` tier, the one size below the 24px rows around it. */
+const RESET_H = 20;
+/** Clear of the slider's left handle, which is what the button must not cover. */
+const RESET_GAP = 4;
+/** About the width of a three-digit y label with its margin, when the rect cannot be read. */
+const RESET_FALLBACK_GUTTER = 32;
+const resetLeft = ref(0);
+/** Centred on the 16px slider band, whose bottom moves with the legend. */
+const resetBottom = computed(() => zoomBottom(!props.indexColors) + (ZOOM_H - RESET_H) / 2);
+
+function placeReset() {
+  if (!chart.value) return;
+  resetLeft.value = Math.max(0, gridLeft(chart.value) - RESET_H - RESET_GAP);
+}
+
+function resetZoom() {
+  // Through the action rather than by touching state: the `datazoom` event it
+  // raises is what clears the window and hides the button, exactly as a drag
+  // home would.
+  chart.value?.dispatchAction({ type: "dataZoom", start: 0, end: 100 });
 }
 
 function mount() {
@@ -341,6 +449,18 @@ function mount() {
     const global = window as unknown as { __cgCharts?: Record<string, echarts.ECharts> };
     (global.__cgCharts ??= {})[props.name] = chart.value;
   }
+  // Listeners live here for the same reason: a fresh instance has none.
+  chart.value.on("datazoom", (params: unknown) => {
+    // A window only on a time axis, which is the only kind with an extent; the
+    // button on any.
+    zoomWindow = lastExtent ? windowFromEvent(params, lastExtent) : null;
+    zoomed.value = isZoomed(params, lastExtent);
+  });
+  // On every frame drawn rather than on `finished`, which waits out the series
+  // animation: a zoom changes which y labels are visible, and so how wide the
+  // gutter is, and for the length of the animation the button would sit where
+  // the slider used to begin. Cheap — one rect read, nothing cloned.
+  chart.value.on("rendered", placeReset);
   render();
 }
 
@@ -365,8 +485,8 @@ watch(() => props.frame, render);
 watch(() => props.kind, render);
 watch(unit, render);
 // Deliberately *not* in `lastShape`: a precision change swaps two formatter
-// functions and nothing else, which a merge absorbs. Forcing a replace here
-// would throw away the reader's dataZoom on every keystroke in the field.
+// functions and nothing else, which a merge absorbs. A replace here would
+// rebuild every series on every keystroke in the field, for two formatters.
 watch(() => props.precision, render);
 
 // A theme is bound at `echarts.init` and cannot be swapped by `setOption`, so a
@@ -414,5 +534,24 @@ const firstLoad = computed(() => props.loading && !props.frame);
       class="pointer-events-none absolute inset-0"
     >No data for this selection.</StateMessage>
     <div ref="container" class="absolute inset-0" />
+    <!-- A DOM control rather than ECharts' toolbox: that is drawn into the canvas
+         in ECharts' own style, with no tooltip and no accessible name, and its
+         `restore` re-applies the initial option — which now carries the window,
+         so it would restore the zoom rather than remove it. Shown only while
+         zoomed, where the reader is already looking: a permanently visible
+         disabled control in the gutter is clutter. -->
+    <div
+      v-if="zoomed"
+      class="absolute"
+      :style="{ left: `${resetLeft}px`, bottom: `${resetBottom}px` }"
+    >
+      <TooltipButton
+        :icon="RotateCcw"
+        label="Reset zoom"
+        size="xs"
+        testid="zoom-reset"
+        @click="resetZoom"
+      />
+    </div>
   </div>
 </template>

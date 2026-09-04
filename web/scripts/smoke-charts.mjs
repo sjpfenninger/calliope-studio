@@ -10,7 +10,7 @@
  * technologies with nothing to tell them apart, and a different colour from the
  * same technology on the map beside it.
  */
-import { results } from "./harness.mjs";
+import { results, until } from "./harness.mjs";
 import { baseFrom, openResults } from "./results-page.mjs";
 
 const BASE = baseFrom(process.argv);
@@ -216,6 +216,204 @@ if (await offers("static-variable", "total_levelised_cost")) {
   check("even a forced click on a locked option changes nothing", frames.length === lockedBefore);
 } else {
   skip("locking an inapplicable sum (no such variable on this model)");
+}
+
+// ── The time-series zoom, across everything that re-renders the chart ──────
+//
+// A change of variable or aggregation is a `notMerge` render, and a fresh
+// option starts at the whole range — so comparing two variables over one week
+// meant zooming into that week twice. The window now rides on the replace, in
+// axis values rather than percentages, and the slider is drawn in the canvas,
+// so `dispatchAction` is the one way to zoom it and `getOption` the one way to
+// read the window back — as values or as percentages, whichever ECharts holds.
+
+/** The window the time-series chart is showing, in epoch milliseconds. */
+const timeWindow = () =>
+  page.evaluate(() => {
+    const chart = window.__cgCharts?.timeseries;
+    if (!chart) return null;
+    const option = chart.getOption();
+    let min = Infinity;
+    let max = -Infinity;
+    for (const series of option.series ?? []) {
+      for (const point of series.data ?? []) {
+        const x = Array.isArray(point) ? point[0] : null;
+        if (typeof x !== "number") continue;
+        if (x < min) min = x;
+        if (x > max) max = x;
+      }
+    }
+    if (!(max > min)) return null;
+    const zoom = (option.dataZoom ?? [])[0] ?? {};
+    const at = (percent, value) =>
+      typeof value === "number" ? value : min + ((max - min) * percent) / 100;
+    return { min, max, start: at(zoom.start ?? 0, zoom.startValue), end: at(zoom.end ?? 100, zoom.endValue) };
+  });
+
+/**
+ * The percent range on the first dataZoom, for an axis whose values are not
+ * times. ECharts writes the *calculated* range back onto the option after every
+ * pass, so `startValue` is always present and says nothing about intent; the
+ * percentages are what distinguish "everything" from a window.
+ */
+const rawZoom = () =>
+  page.evaluate(() => {
+    const zoom = (window.__cgCharts?.timeseries?.getOption().dataZoom ?? [])[0] ?? {};
+    return { start: zoom.start ?? null, end: zoom.end ?? null };
+  });
+
+const zoomTo = (startValue, endValue) =>
+  page.evaluate(
+    ([startValue, endValue]) =>
+      window.__cgCharts.timeseries.dispatchAction({
+        type: "dataZoom",
+        dataZoomIndex: 0,
+        startValue,
+        endValue,
+      }),
+    [startValue, endValue],
+  );
+
+/** The button that is on, in a toggle group. */
+const onButton = (group) =>
+  page.evaluate(
+    (group) =>
+      document
+        .querySelector(`[data-testid="${group}"] button[data-state="on"]`)
+        ?.textContent.trim() ?? null,
+    group,
+  );
+
+// At the original resolution: the example model spans days, not years, so a
+// fifth of a Daily axis holds no bar at all — a blank chart, with no y labels
+// and so no gutter, which is a legitimate picture but not the one to measure.
+const resolutionBefore = await onButton("resolution");
+if (resolutionBefore !== "Original") {
+  await settle(() => testId("resolution").getByText("Original", { exact: true }).click());
+}
+
+const full = await stable(timeWindow);
+if (full) {
+  const span = full.max - full.min;
+  const week = [full.min + span * 0.4, full.min + span * 0.6];
+  // Within a hundredth of the axis: a resample moves the extent by hours, and a
+  // window carried as values lands on the same instants regardless.
+  const holds = (window) =>
+    Boolean(window) &&
+    Math.abs(window.start - week[0]) < span * 0.01 &&
+    Math.abs(window.end - week[1]) < span * 0.01;
+
+  await zoomTo(...week);
+  check("a script can zoom the time series", await until(async () => holds(await timeWindow())));
+
+  // Whichever aggregation the current variable allows and is not already set.
+  const sumLabel = await page.evaluate(() => {
+    const buttons = [...document.querySelectorAll('[data-testid="sum-by"] button')];
+    const other = buttons.find(
+      (button) =>
+        button.getAttribute("aria-disabled") !== "true" &&
+        button.getAttribute("data-state") !== "on",
+    );
+    return other?.textContent.trim() ?? null;
+  });
+  const sumBefore = await onButton("sum-by");
+  if (sumLabel && sumBefore) {
+    await settle(() => testId("sum-by").getByText(sumLabel, { exact: true }).click());
+    check("the zoom survives a sum-by change", holds(await stable(timeWindow)), sumLabel);
+    await settle(() => testId("sum-by").getByText(sumBefore, { exact: true }).click());
+  } else {
+    skip("the zoom across a sum-by change (only one aggregation offered)");
+  }
+
+  const variableBefore = (await testId("timeseries-variable").innerText()).trim();
+  await testId("timeseries-variable").click();
+  const options = page.getByRole("option");
+  await options.first().waitFor({ timeout: 3000 }).catch(() => {});
+  const names = (await options.allInnerTexts()).map((text) => text.trim());
+  const other = names.find((name) => name && name !== variableBefore);
+  if (other) {
+    await pickOpen(other);
+    check("the zoom survives a variable change", holds(await stable(timeWindow)), other);
+    await testId("timeseries-variable").click();
+    await pickOpen(variableBefore);
+  } else {
+    await page.keyboard.press("Escape");
+    skip("the zoom across a variable change (only one variable offered)");
+  }
+
+  // A duration curve's x is rank, not time, so the window is dropped rather
+  // than carried onto an axis where it would mean something else.
+  const plotBefore = await onButton("plot-type");
+  await settle(() => testId("plot-type").getByText("Duration", { exact: true }).click());
+  const duration = await stable(rawZoom);
+  check(
+    "a duration curve starts unzoomed",
+    duration.start === 0 && duration.end === 100,
+    JSON.stringify(duration),
+  );
+  check(
+    "and offers nothing to reset",
+    await until(async () => (await testId("zoom-reset").count()) === 0),
+  );
+  if (plotBefore) {
+    await settle(() => testId("plot-type").getByText(plotBefore, { exact: true }).click());
+  }
+
+  // The reset button: beside the slider, under the y-axis, and only while zoomed.
+  await zoomTo(...week);
+  const shown = await until(async () => (await testId("zoom-reset").count()) === 1);
+  check("zooming shows the reset button", shown);
+  if (shown) {
+    // The plot rect is the one thing that says where the slider begins:
+    // `containLabel` widens the gutter to whatever the y-axis labels need, and
+    // a zoom changes which labels there are. Polled, because the button follows
+    // the chart a frame behind it.
+    const placement = () =>
+      page.evaluate(() => {
+        const chart = window.__cgCharts.timeseries;
+        const canvas = chart.getDom().getBoundingClientRect();
+        const rect = chart.getModel().getComponent("grid").coordinateSystem.getRect();
+        const slider = chart.getOption().dataZoom[1];
+        const button = document.querySelector('[data-testid="zoom-reset"]').getBoundingClientRect();
+        return {
+          gridLeft: canvas.left + rect.x,
+          bandCentre: canvas.bottom - slider.bottom - slider.height / 2,
+          button: { right: button.right, centre: (button.top + button.bottom) / 2 },
+        };
+      });
+    const besideSlider = (placed) => placed.button.right <= placed.gridLeft + 0.5;
+    const onLine = (placed) => Math.abs(placed.button.centre - placed.bandCentre) <= 2;
+    await until(async () => besideSlider(await placement()));
+    const placed = await placement();
+    check(
+      "the reset button sits left of the slider",
+      besideSlider(placed),
+      `right edge ${placed.button.right.toFixed(1)} vs grid ${placed.gridLeft.toFixed(1)}`,
+    );
+    check(
+      "and on the slider's own line",
+      onLine(placed),
+      `${placed.button.centre.toFixed(1)} vs ${placed.bandCentre.toFixed(1)}`,
+    );
+    await testId("zoom-reset").click();
+    check(
+      "reset puts the whole range back and goes away",
+      await until(async () => {
+        const window = await timeWindow();
+        return (
+          Boolean(window) &&
+          window.start === window.min &&
+          window.end === window.max &&
+          (await testId("zoom-reset").count()) === 0
+        );
+      }),
+    );
+  }
+} else {
+  skip("the time-series zoom (no time axis drawn)");
+}
+if (resolutionBefore && resolutionBefore !== "Original") {
+  await settle(() => testId("resolution").getByText(resolutionBefore, { exact: true }).click());
 }
 
 check("no console errors throughout", consoleErrors.length === 0);

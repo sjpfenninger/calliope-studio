@@ -24,7 +24,7 @@ import {
   TEXT_BUTTON_SM,
   WARNING_BADGE,
 } from "@/lib/formClasses";
-import { Check, HardDrive, Play, RefreshCw } from "@lucide/vue";
+import { Check, GitCompare, HardDrive, Play, RefreshCw } from "@lucide/vue";
 
 import RunListItem from "@/components/runs/RunListItem.vue";
 import RunStatusPill from "@/components/runs/RunStatusPill.vue";
@@ -49,6 +49,7 @@ import { errorDetail } from "@/api/errors";
 import { formatBytes, formatCount } from "@/lib/format";
 import { ICON_STROKE_WIDTH_TIGHT } from "@/lib/icons";
 import { openIntent } from "@/lib/openIntent";
+import { runRef, workspaceRef, type CompareRef } from "@/lib/compareRef";
 import { cn } from "@/lib/utils";
 import { useConfirmStore } from "@/stores/confirm";
 import { RETENTION_CHOICES, useRunsStore, type RunRecord } from "@/stores/runs";
@@ -176,6 +177,36 @@ async function remove(run: RunRecord) {
   if (ok) await attempt("Deleting the run", () => runs.remove(run.id));
 }
 
+/**
+ * Opens a comparison, oldest side first.
+ *
+ * `a` is *before*, so two runs are ordered by when they were made and a run
+ * against the working tree puts the run on the left: the question is almost
+ * always "what has changed since", not "what did it used to be".
+ */
+function compareWith(run: RunRecord, other: CompareRef) {
+  const mine = runRef(run.id);
+  if (other.kind === "run") {
+    const older =
+      (runs.get(other.runId)?.created_at ?? "") < run.created_at ? other : mine;
+    const newer = older === mine ? other : mine;
+    tabs.openCompare(older, newer);
+    return;
+  }
+  tabs.openCompare(mine, other);
+}
+
+/**
+ * What a scenario does to the model, with no run involved.
+ *
+ * The same view with the same folder on both sides: nothing about a comparison
+ * requires two *versions*, and "what does high_cost actually change?" is a
+ * question people ask of a model they have not solved yet.
+ */
+function compareScenarios() {
+  tabs.openCompare(workspaceRef(), workspaceRef(runs.scenario));
+}
+
 function rename(run: RunRecord, label: string) {
   void attempt("Renaming the run", () => runs.rename(run.id, label));
 }
@@ -227,6 +258,13 @@ function setRetention(keep: number | null) {
       />
 
       <div class="flex-1" />
+      <TooltipButton
+        v-if="runs.hasScenarios"
+        label="Compare a scenario against the model as written."
+        :icon="GitCompare"
+        testid="compare-scenarios"
+        @click="compareScenarios"
+      />
       <TooltipButton label="Reload the run history." :icon="RefreshCw" @click="refresh" />
     </PanelHeader>
 
@@ -309,10 +347,12 @@ function setRetention(keep: number | null) {
         :key="run.id"
         :run="run"
         :active="run.id === activeRunId"
+        :others="runs.ordered"
         @open="open(run, $event)"
         @rename="rename(run, $event)"
         @cancel="cancel(run)"
         @remove="remove(run)"
+        @compare="compareWith(run, $event)"
       />
 
       <!-- Not while loading: "No runs yet" over a history still on its way is

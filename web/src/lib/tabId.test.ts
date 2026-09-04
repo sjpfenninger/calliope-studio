@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  compareTabId,
   entryTabId,
   fileTabId,
   parseTabId,
@@ -32,6 +33,17 @@ const specs: TabSpec[] = [
   { kind: "run", runId: null, handle: "2d3f9a1b4c5d6e7f" },
   { kind: "validation" },
   { kind: "math" },
+  {
+    kind: "compare",
+    a: { kind: "run", runId: "0d1e2f34-5678-4abc-8def-000000000000" },
+    b: { kind: "workspace", scenario: null },
+  },
+  {
+    kind: "compare",
+    a: { kind: "workspace", scenario: null },
+    // A scenario may be a joined list of override names, commas and all.
+    b: { kind: "workspace", scenario: "cold_fusion,high_cost" },
+  },
 ];
 
 describe("tabId", () => {
@@ -116,5 +128,21 @@ describe("tabId", () => {
     ["a legacy sentinel key", "\0s:techs:techs.yaml"],
   ])("returns null for %s rather than throwing", (_label, id) => {
     expect(parseTabId(id)).toBeNull();
+  });
+});
+
+describe("compare tabs", () => {
+  it("is unreadable as a whole when either side is", () => {
+    // Half a comparison is not a comparison: better to open no tab than one
+    // against something the app cannot name.
+    expect(parseTabId("compare:run.abc:widget.x")).toBeNull();
+    expect(parseTabId("compare:workspace")).toBeNull();
+    expect(parseTabId("compare:workspace:workspace:workspace")).toBeNull();
+  });
+
+  it("keeps the two sides in order", () => {
+    const run = { kind: "run", runId: "abc" } as const;
+    const model = { kind: "workspace", scenario: null } as const;
+    expect(compareTabId(run, model)).not.toBe(compareTabId(model, run));
   });
 });

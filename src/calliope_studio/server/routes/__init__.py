@@ -9,6 +9,7 @@ from fastapi import APIRouter
 
 from calliope_studio.server.routes import (
     browse,
+    compare,
     csv,
     files,
     math,
@@ -37,6 +38,7 @@ for module in (
     runs,
     results,
     schema,
+    compare,
 ):
     api_router.include_router(module.router)
 

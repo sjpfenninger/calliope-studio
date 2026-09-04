@@ -17,12 +17,15 @@
 import { computed, onMounted, ref, watch } from "vue";
 import Segmented from "@/components/app/Segmented.vue";
 import PanelHeader from "@/components/app/PanelHeader.vue";
+import TooltipButton from "@/components/app/TooltipButton.vue";
 import StateMessage from "@/components/app/StateMessage.vue";
 
 import RunConfigPanel from "./RunConfigPanel.vue";
 import RunLogPanel from "./RunLogPanel.vue";
 import RunResultsPanel from "./RunResultsPanel.vue";
 import RunTablePanel from "./RunTablePanel.vue";
+import { runRef, workspaceRef } from "@/lib/compareRef";
+import { GitCompare } from "@lucide/vue";
 import { isTerminal, useRunsStore } from "@/stores/runs";
 import { useTabsStore, type RunSubView, type RunTab } from "@/stores/tabs";
 
@@ -31,7 +34,21 @@ const props = defineProps<{ tab: RunTab }>();
 const tabs = useTabsStore();
 const runs = useRunsStore();
 
+
 const run = computed(() => (props.tab.runId ? runs.get(props.tab.runId) : undefined));
+
+/**
+ * Reads the current model under whatever scenario this run used.
+ *
+ * Otherwise the comparison is dominated by what the scenario does, and says
+ * nothing about what changed in the files — which is the question somebody
+ * looking at a finished run has.
+ */
+function compareWithModel() {
+  if (!props.tab.runId) return;
+  tabs.openCompare(runRef(props.tab.runId), workspaceRef(run.value?.scenario ?? null));
+}
+
 
 // The tables sit beside the graphs rather than at the end: both are the solved
 // model, and both need only a handle, where the other two need a run.
@@ -127,6 +144,15 @@ watch(
       <span v-if="run?.label" class="self-center truncate px-2 text-sm text-text-muted">
         {{ run.id.slice(0, 8) }}
       </span>
+      <!-- Only for a run that froze the model it solved: there is nothing to
+           compare otherwise, and the runs list makes the same judgement. -->
+      <TooltipButton
+        v-if="run?.has_snapshot && tab.runId"
+        label="Compare what this run solved with the current model."
+        :icon="GitCompare"
+        testid="run-compare"
+        @click="compareWithModel"
+      />
     </PanelHeader>
 
     <div class="relative min-h-0 flex-1">

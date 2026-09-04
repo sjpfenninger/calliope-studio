@@ -34,6 +34,8 @@ Three things make this liveable in an editor:
   in the import graph invalidates it.
 """
 
+import hashlib
+import json
 import logging
 import shutil
 import threading
@@ -61,6 +63,35 @@ SOURCE_STALE = "stale"
 #: No resolution has ever succeeded for this workspace, so the caller is on its own
 #: with the structural reading.
 SOURCE_STRUCTURAL = "structural"
+
+#: A scenario and an override dict, as `calliope.read_yaml` takes them. One
+#: model definition means different things under different scenarios, so a
+#: resolution is of a *variant* rather than of a folder.
+Variant = tuple[str | None, dict]
+
+#: The variant the editor asks about: the model as written, nothing applied.
+DEFAULT_VARIANT: Variant = (None, {})
+
+#: How many non-default variants to keep resolved at once. Comparing a run
+#: against the current model resolves the workspace under that run's scenario,
+#: and a session spent comparing several would otherwise pin one artefact per
+#: scenario for ever. The default variant is never counted or evicted: it is
+#: what the editor itself reads on every keystroke.
+MAX_VARIANT_ENTRIES = 8
+
+
+def variant_key(scenario: str | None, override_dict: dict | None = None) -> str:
+    """A stable name for a variant, for use as part of a cache key.
+
+    Empty for the default, so the editor's own entry keys exactly as it did
+    before variants existed. Otherwise a digest, because an override dict is
+    arbitrarily nested and two dicts that differ only in key order are the same
+    request to Calliope.
+    """
+    if not scenario and not override_dict:
+        return ""
+    payload = json.dumps([scenario, override_dict or {}], sort_keys=True, default=str)
+    return hashlib.sha256(payload.encode()).hexdigest()[:12]
 
 
 @dataclass(frozen=True)
@@ -132,6 +163,10 @@ class _Entry:
     #: A real `calliope.Model` over `artefact`, built only if the math path asks
     #: for one. See `Resolver.calliope_model`; cleared whenever `artefact` is.
     calliope_model: Any = None
+    #: What this entry is a resolution *of*: the scenario and override dict the
+    #: worker is given. Held on the entry rather than derived from the key,
+    #: which is a digest and so cannot be read back.
+    variant: Variant = DEFAULT_VARIANT
 
 
 def _mtime_or_zero(directory: Path) -> float:
@@ -161,7 +196,10 @@ class Resolver:
     def __init__(self, runs: RunManager, storage: LocalStorage) -> None:
         self._runs = runs
         self._storage = storage
-        self._entries: dict[str, _Entry] = {}
+        # Keyed by (workspace id, variant key) rather than by workspace: the
+        # same files under a different scenario are a different model, and the
+        # compare view asks for both at once.
+        self._entries: dict[tuple[str, str], _Entry] = {}
         # Every endpoint here is synchronous, so FastAPI runs it in a threadpool and
         # several can be inside this object at once — the editor polls `/geo/` while
         # a resolve is in flight. Without the lock two of them start duplicate
@@ -170,19 +208,37 @@ class Resolver:
 
     # -- the one method callers use ----------------------------------------
 
-    def get(self, workspace: Workspace, *, start: bool = True) -> Resolution:
+    def get(
+        self,
+        workspace: Workspace,
+        *,
+        start: bool = True,
+        variant: Variant | None = None,
+    ) -> Resolution:
         """The best available answer about this model, without blocking.
 
         Args:
             workspace: Whose model to resolve.
             start: Whether to kick off a resolve when the current one is out of
                 date. False for callers that only want to report the state.
+            variant: The scenario and override dict to read the model under.
+                Defaults to the model as written, which is what the editor
+                wants; the compare view asks for a run's own variant so that
+                two sides differ by their files rather than by their scenario.
         """
         with self._lock:
-            return self._get(workspace, start=start)
+            return self._get(workspace, start=start, variant=variant)
 
-    def _get(self, workspace: Workspace, *, start: bool) -> Resolution:
-        entry = self._entries.setdefault(workspace.id, _Entry())
+    def _get(
+        self, workspace: Workspace, *, start: bool, variant: Variant | None = None
+    ) -> Resolution:
+        variant = variant or DEFAULT_VARIANT
+        key = (workspace.id, variant_key(*variant))
+        entry = self._entries.pop(key, None) or _Entry(variant=variant)
+        # Reinserted at the end on every read, so `_evict_variants` can drop the
+        # least recently asked-for.
+        self._entries[key] = entry
+        self._evict_variants(workspace.id)
         current = fingerprint(workspace.path)
 
         self._collect(entry, workspace)
@@ -219,7 +275,18 @@ class Resolver:
             return self._refresh(workspace)
 
     def _refresh(self, workspace: Workspace) -> str | None:
-        entry = self._entries.setdefault(workspace.id, _Entry())
+        # Every non-default variant described files that have just changed, so
+        # it is dropped rather than rebuilt: nothing is looking at it, and the
+        # next compare request resolves the one it actually wants.
+        for key in [
+            key
+            for key in self._entries
+            if key[0] == workspace.id and key[1] != variant_key(*DEFAULT_VARIANT)
+        ]:
+            self._discard(self._entries.pop(key).artefact)
+
+        key = (workspace.id, variant_key(*DEFAULT_VARIANT))
+        entry = self._entries.setdefault(key, _Entry())
         if entry.task_id is not None:
             return entry.task_id
         if not self._resolvable(workspace):
@@ -233,9 +300,8 @@ class Resolver:
     def forget(self, workspace_id: str) -> None:
         """Releases a workspace's resolution and removes its artefact."""
         with self._lock:
-            entry = self._entries.pop(workspace_id, None)
-            if entry is not None:
-                self._discard(entry.artefact)
+            for key in [key for key in self._entries if key[0] == workspace_id]:
+                self._discard(self._entries.pop(key).artefact)
 
     # -- internals ---------------------------------------------------------
 
@@ -272,6 +338,8 @@ class Resolver:
                     workspace=str(workspace.path),
                     model_file=model_yaml.name,
                     init_only=True,
+                    scenario=entry.variant[0],
+                    override_dict=dict(entry.variant[1]),
                     label=f"resolve {workspace.name}",
                 ),
             )
@@ -315,7 +383,7 @@ class Resolver:
         import calliope
 
         with self._lock:
-            entry = self._entries.get(workspace.id)
+            entry = self._entries.get((workspace.id, variant_key(*DEFAULT_VARIANT)))
             if entry is None or entry.artefact is None:
                 return None
             if entry.calliope_model is not None:
@@ -332,11 +400,21 @@ class Resolver:
             return None
 
         with self._lock:
-            entry = self._entries.get(workspace.id)
+            entry = self._entries.get((workspace.id, variant_key(*DEFAULT_VARIANT)))
             # Only if nothing superseded the artefact while it was loading.
             if entry is not None and entry.artefact == artefact:
                 entry.calliope_model = model
         return model
+
+    def _evict_variants(self, workspace_id: str) -> None:
+        """Keeps only the most recently asked-for non-default variants."""
+        keys = [
+            key
+            for key in self._entries
+            if key[0] == workspace_id and key[1] != variant_key(*DEFAULT_VARIANT)
+        ]
+        for key in keys[: max(0, len(keys) - MAX_VARIANT_ENTRIES)]:
+            self._discard(self._entries.pop(key).artefact)
 
     def _collect(self, entry: _Entry, workspace: Workspace) -> None:
         """Picks up a finished resolve, if one was in flight."""

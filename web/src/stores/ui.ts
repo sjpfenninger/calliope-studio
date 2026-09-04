@@ -31,6 +31,7 @@ const THEME_KEY = `${KEY_PREFIX}theme`;
 const SPLITTER_KEY = `${KEY_PREFIX}splitter.sizes`;
 const DATA_TABLE_SPLIT_KEY = `${KEY_PREFIX}dataTable.split`;
 const MAP_SPLIT_KEY = `${KEY_PREFIX}map.split`;
+const COMPARE_SPLIT_KEY = `${KEY_PREFIX}compare.split`;
 const RESULTS_LAYOUT_KEY = `${KEY_PREFIX}results.layout`;
 const RESULTS_GEOMETRY_KEY = `${KEY_PREFIX}results.geometry`;
 const CONFIG_ADVANCED_KEY = `${KEY_PREFIX}config.advanced`;
@@ -54,6 +55,9 @@ const DEFAULT_DATA_TABLE_SPLIT = [40, 60];
 
 /** Map above, the selected entry's form below. */
 const DEFAULT_MAP_SPLIT = [72, 28];
+
+/** The changed-file list against the diff editor. */
+const DEFAULT_COMPARE_SPLIT = [25, 75];
 
 const DARK_QUERY = "(prefers-color-scheme: dark)";
 
@@ -215,6 +219,28 @@ export const useUiStore = defineStore("ui", () => {
   function setMapSplit(sizes: number[]) {
     mapSplit.value = sizes;
     writeStorage(MAP_SPLIT_KEY, JSON.stringify(sizes));
+  }
+
+  const compareSplit = ref<number[]>(readCompareSplit());
+
+  function readCompareSplit(): number[] {
+    try {
+      const stored = localStorage.getItem(COMPARE_SPLIT_KEY);
+      if (!stored) return [...DEFAULT_COMPARE_SPLIT];
+      const parsed = JSON.parse(stored) as unknown;
+      return Array.isArray(parsed) &&
+        parsed.length === DEFAULT_COMPARE_SPLIT.length &&
+        parsed.every((size) => typeof size === "number" && Number.isFinite(size))
+        ? (parsed as number[])
+        : [...DEFAULT_COMPARE_SPLIT];
+    } catch {
+      return [...DEFAULT_COMPARE_SPLIT];
+    }
+  }
+
+  function setCompareSplit(sizes: number[]) {
+    compareSplit.value = sizes;
+    writeStorage(COMPARE_SPLIT_KEY, JSON.stringify(sizes));
   }
 
   // ── The results view's layouts ───────────────────────────────────────────
@@ -477,6 +503,8 @@ export const useUiStore = defineStore("ui", () => {
     dataTableSplit,
     setDataTableSplit,
     mapSplit,
+    compareSplit,
+    setCompareSplit,
     setMapSplit,
     resultsLayout,
     setResultsLayout,

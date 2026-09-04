@@ -40,6 +40,7 @@ import CsvGridEditor from "@/components/editor/CsvGridEditor.vue";
 import FileViewer from "@/components/editor/FileViewer.vue";
 import MarkdownView from "@/components/editor/MarkdownView.vue";
 import MonacoYamlEditor from "@/components/editor/MonacoYamlEditor.vue";
+import CompareTabView from "@/components/compare/CompareTabView.vue";
 import RunTabView from "@/components/runs/RunTabView.vue";
 import ValidationTabView from "@/components/validation/ValidationTabView.vue";
 import MathTabView from "@/components/math/MathTabView.vue";
@@ -181,6 +182,16 @@ function structuredVisible(tab: SectionTab | EntryTab): boolean {
 
       <!-- One live pane per run tab that has ever been fronted, so switching back
            to a run does not refetch its Arrow frames or rebuild its map. -->
+      <!-- `v-if`, unlike a run pane: a comparison holds no unsaved work and no
+           canvas that must be sized while visible, its diff models are meant to
+           be transient, and `stores/compare` keeps what was fetched — so a
+           remount costs one request for the file on screen. -->
+      <CompareTabView
+        v-if="active?.kind === 'compare'"
+        :tab="active"
+        class="absolute inset-0 flex"
+      />
+
       <RunTabView
         v-for="tab in tabs.runTabs.filter((candidate) => candidate.mounted)"
         v-show="tab.id === tabs.activeId"

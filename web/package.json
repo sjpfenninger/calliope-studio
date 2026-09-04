@@ -26,6 +26,7 @@
     "monaco-check": "node scripts/monaco-check.mjs",
     "preview": "vite preview",
     "run-actions": "node scripts/run-actions.mjs",
+    "compare-check": "node scripts/compare-check.mjs",
     "run-lifecycle": "node scripts/run-lifecycle.mjs",
     "same-file-lock": "node scripts/same-file-lock.mjs",
     "save-check": "node scripts/save-check.mjs",

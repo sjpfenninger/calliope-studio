@@ -72,6 +72,19 @@ export function applyMonacoTheme(mode: "light" | "dark"): void {
       "editorError.foreground": hex("--cg-danger", "#d43031"),
       "editorWarning.foreground": hex("--cg-warning", "#ee9e10"),
       "editorOverviewRuler.border": transparent,
+      // The diff editor, which `components/editor/DiffPane.vue` uses. Monaco's
+      // stock green and red are fully saturated and sit badly beside a palette
+      // whose other surfaces are washes; these are the same soft tokens a
+      // success or danger message uses. The line backgrounds are the same
+      // colour at 40%, so an unchanged word inside a changed line stays
+      // legible against the word-level highlight painted over it.
+      "diffEditor.insertedTextBackground": `${hex("--cg-success-soft", "#e3f6e6")}99`,
+      "diffEditor.removedTextBackground": `${hex("--cg-danger-soft", "#ffebe8")}99`,
+      "diffEditor.insertedLineBackground": `${hex("--cg-success-soft", "#e3f6e6")}66`,
+      "diffEditor.removedLineBackground": `${hex("--cg-danger-soft", "#ffebe8")}66`,
+      "diffEditorGutter.insertedLineBackground": `${hex("--cg-success-soft", "#e3f6e6")}66`,
+      "diffEditorGutter.removedLineBackground": `${hex("--cg-danger-soft", "#ffebe8")}66`,
+      "diffEditor.border": hex("--cg-border", "#dcdcdc"),
       "scrollbarSlider.background": `${hex("--cg-border-strong", "#bebebe")}66`,
       "scrollbarSlider.hoverBackground": `${hex("--cg-border-strong", "#bebebe")}99`,
       "scrollbarSlider.activeBackground": hex("--cg-border-strong", "#bebebe"),

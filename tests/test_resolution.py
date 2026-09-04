@@ -14,17 +14,20 @@ degradation actually promises.
 
 import shutil
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from calliope_studio.server import resolution
 from calliope_studio.server.resolution import (
+    MAX_VARIANT_ENTRIES,
     SOURCE_RESOLVED,
     SOURCE_STALE,
     SOURCE_STRUCTURAL,
     Resolution,
     Resolver,
     fingerprint,
+    variant_key,
 )
 from calliope_studio.server.storage import LocalStorage
 
@@ -132,7 +135,7 @@ class TestTheDegradationContract:
         resolver.get(workspace)
         assert len(starts) == 1
 
-        entry = resolver._entries[workspace.id]
+        entry = resolver._entries[(workspace.id, "")]
         entry.failed_fingerprint = fingerprint(workspace.path)
         entry.task_id = None
         resolver.get(workspace)
@@ -145,7 +148,7 @@ class TestTheDegradationContract:
         monkeypatch.setattr(
             Resolver, "_start", lambda self, entry, ws, current: starts.append(current)
         )
-        entry = resolver._entries.setdefault(workspace.id, resolution._Entry())
+        entry = resolver._entries.setdefault((workspace.id, ""), resolution._Entry())
         entry.failed_fingerprint = fingerprint(workspace.path)
 
         resolver.refresh(workspace)
@@ -153,9 +156,9 @@ class TestTheDegradationContract:
 
     def test_forgetting_a_workspace_drops_its_entry(self, resolver, workspace):
         resolver.get(workspace, start=False)
-        assert workspace.id in resolver._entries
+        assert any(key[0] == workspace.id for key in resolver._entries)
         resolver.forget(workspace.id)
-        assert workspace.id not in resolver._entries
+        assert not any(key[0] == workspace.id for key in resolver._entries)
 
     def test_forgetting_one_that_was_never_seen_is_not_an_error(self, resolver):
         resolver.forget("never-heard-of-it")
@@ -200,3 +203,120 @@ class TestPruning:
 
         shutil.rmtree(vanished)
         assert resolution._mtime_or_zero(vanished) == 0.0
+
+
+class TestVariants:
+    """One model definition means different things under different scenarios.
+
+    The compare view resolves the current model *under a run's own scenario*, so
+    that comparing a run against the working tree shows what the files changed
+    rather than what the scenario does. That means the resolver holds more than
+    one resolution per workspace, and the risk is that they contaminate each
+    other: the editor's own reading is the default variant and must never be
+    answered with a scenario applied.
+    """
+
+    def test_a_scenario_is_resolved_separately_from_the_model_as_written(
+        self, resolver, workspace, monkeypatch
+    ):
+        started = []
+        monkeypatch.setattr(
+            Resolver,
+            "_start",
+            lambda self, entry, ws, current: started.append(entry.variant),
+        )
+        resolver.get(workspace)
+        resolver.get(workspace, variant=("cold_fusion", {}))
+
+        assert started == [(None, {}), ("cold_fusion", {})]
+        assert len(resolver._entries) == 2
+
+    def test_the_worker_is_told_which_scenario_to_apply(
+        self, resolver, workspace, monkeypatch
+    ):
+        """The whole mechanism, end to end: it has to reach the `RunRequest`."""
+        requests = []
+
+        class Recording:
+            def start(self, directory, request, **kwargs):
+                requests.append(request)
+                return SimpleNamespace(id="task-1")
+
+        monkeypatch.setattr(resolver, "_runs", Recording())
+        resolver.get(workspace, variant=("cold_fusion", {"config.init.name": "x"}))
+
+        (request,) = requests
+        assert request.scenario == "cold_fusion"
+        assert request.override_dict == {"config.init.name": "x"}
+        assert request.init_only is True
+
+    def test_the_editors_own_reading_is_never_a_variant(
+        self, resolver, workspace, monkeypatch
+    ):
+        """`calliope_model` feeds the math tab, which is about the model as written."""
+        monkeypatch.setattr(Resolver, "_start", lambda *args: None)
+        resolver.get(workspace, variant=("cold_fusion", {}))
+        assert resolver.calliope_model(workspace) is None
+
+    def test_a_variant_key_ignores_the_order_of_an_override_dict(self):
+        """Two dicts differing only in key order are one request to Calliope."""
+        assert variant_key(None, {"a": 1, "b": 2}) == variant_key(
+            None, {"b": 2, "a": 1}
+        )
+        assert variant_key(None, {}) == variant_key(None, None) == ""
+        assert variant_key("s", {}) != ""
+
+    def test_a_save_drops_the_variants_rather_than_rebuilding_them(
+        self, resolver, workspace, monkeypatch
+    ):
+        """They describe files that have just changed, and nothing is watching them.
+
+        Rebuilding every scenario anybody has ever compared, on every keystroke,
+        is a subprocess per scenario per save; the next compare request resolves
+        the one variant it actually wants.
+        """
+        monkeypatch.setattr(Resolver, "_start", lambda *args: None)
+        resolver.get(workspace)
+        resolver.get(workspace, variant=("cold_fusion", {}))
+        assert len(resolver._entries) == 2
+
+        resolver.refresh(workspace)
+
+        assert list(resolver._entries) == [(workspace.id, "")]
+
+    def test_only_so_many_variants_are_kept(self, resolver, workspace, monkeypatch):
+        """Each one pins a `.nc`; a session comparing many must not pin them all."""
+        monkeypatch.setattr(Resolver, "_start", lambda *args: None)
+        for index in range(MAX_VARIANT_ENTRIES + 3):
+            resolver.get(workspace, variant=(f"scenario_{index}", {}))
+        resolver.get(workspace)
+
+        variants = [key for key in resolver._entries if key[1]]
+        assert len(variants) == MAX_VARIANT_ENTRIES
+        # The default is never evicted: the editor reads it on every keystroke.
+        assert (workspace.id, "") in resolver._entries
+
+    def test_the_least_recently_asked_for_variant_goes_first(
+        self, resolver, workspace, monkeypatch
+    ):
+        monkeypatch.setattr(Resolver, "_start", lambda *args: None)
+        for index in range(MAX_VARIANT_ENTRIES):
+            resolver.get(workspace, variant=(f"scenario_{index}", {}))
+        oldest = (workspace.id, variant_key("scenario_0", {}))
+        # Asking again makes it the newest, so the next eviction takes another.
+        resolver.get(workspace, variant=("scenario_0", {}))
+        resolver.get(workspace, variant=("scenario_new", {}))
+
+        assert oldest in resolver._entries
+        assert (workspace.id, variant_key("scenario_1", {})) not in resolver._entries
+
+    def test_forgetting_a_workspace_drops_every_variant_of_it(
+        self, resolver, workspace, monkeypatch
+    ):
+        monkeypatch.setattr(Resolver, "_start", lambda *args: None)
+        resolver.get(workspace)
+        resolver.get(workspace, variant=("cold_fusion", {}))
+
+        resolver.forget(workspace.id)
+
+        assert resolver._entries == {}

@@ -1,3 +1,4 @@
+import { describeRef, type CompareRef } from "@/lib/compareRef";
 import { computed, reactive, ref } from "vue";
 import { defineStore } from "pinia";
 
@@ -25,6 +26,7 @@ import {
   runTabId,
   sectionTabId,
   mathTabId,
+  compareTabId,
   validationTabId,
   type TabKind,
   type TabSpec,
@@ -161,6 +163,27 @@ export interface RunTab extends TabCommon {
   isDirty: false;
 }
 
+/** The two readings of a comparison: what the files say, and what they mean. */
+export type CompareSubView = "model" | "files";
+
+export interface CompareTab extends TabCommon {
+  kind: "compare";
+  /** The version to read as *before*; `b` is *after*. */
+  a: CompareRef;
+  b: CompareRef;
+  subView: CompareSubView;
+  seenViews: CompareSubView[];
+  /**
+   * Which file the diff pane is showing.
+   *
+   * On the tab rather than in the component because the pane is `v-if`: a
+   * comparison holds no unsaved work, so it is torn down when another tab
+   * comes forward, and the file somebody was reading must survive that.
+   */
+  selectedPath: string | null;
+  isDirty: false;
+}
+
 export interface ValidationTab extends TabCommon {
   kind: "validation";
   /**
@@ -188,7 +211,8 @@ export type TabEntry =
   | EntryTab
   | RunTab
   | ValidationTab
-  | MathTab;
+  | MathTab
+  | CompareTab;
 
 /** The three kinds that have a buffer and can therefore be saved. */
 export type EditableTab = FileTab | SectionTab | EntryTab;
@@ -275,6 +299,8 @@ function titleFor(spec: TabSpec, hint?: string): string {
       return "Validation";
     case "math":
       return "Math";
+    case "compare":
+      return hint ?? `${describeRef(spec.a)} → ${describeRef(spec.b)}`;
   }
 }
 
@@ -326,6 +352,9 @@ export const useTabsStore = defineStore("tabs", () => {
   const hasDirtyTabs = computed(() => ordered.value.some((tab) => tab.isDirty));
   const runTabs = computed(() =>
     ordered.value.filter((tab): tab is RunTab => tab.kind === "run"),
+  );
+  const compareTabs = computed(() =>
+    ordered.value.filter((tab): tab is CompareTab => tab.kind === "compare"),
   );
   /**
    * Every structured editor that must stay mounted: the front one, and any
@@ -812,6 +841,92 @@ export const useTabsStore = defineStore("tabs", () => {
   }
 
   /** Reopens a tab from an id, as a `?tab=` value or persisted state supplies it. */
+  /**
+   * Opens a comparison of two versions of the model.
+   *
+   * Permanent, never a preview, for the reason `openValidation` is: it is
+   * opened from the runs list, and the next plain click in that list would
+   * evict a preview — including the click on the run somebody opened it to
+   * compare against.
+   */
+  function openCompare(a: CompareRef, b: CompareRef, hint?: string): string {
+    const id = compareTabId(a, b);
+    const existed = openTabs.has(id);
+    if (!existed) {
+      openTabs.set(id, {
+        id,
+        kind: "compare",
+        title: titleFor({ kind: "compare", a, b }, hint),
+        a,
+        b,
+        subView: "model",
+        seenViews: ["model"],
+        selectedPath: null,
+        isDirty: false,
+        mounted: false,
+      });
+    }
+    activate(id);
+    settlePreview(id, existed, false);
+    return id;
+  }
+
+  /**
+   * Points an open comparison at a different pair.
+   *
+   * The sides *are* the id, so changing a scenario or swapping the two is a
+   * new tab — but it must not read as one: the user picked a scenario in a
+   * header, not opened something. So the entry is rebuilt in place, keeping
+   * its position in the bar and what was on screen, rather than closing here
+   * and appearing at the end. Landing on a pair that is already open activates
+   * that tab instead, since two tabs for one comparison is exactly what an id
+   * exists to prevent.
+   */
+  function replaceCompare(id: string, a: CompareRef, b: CompareRef): string {
+    const tab = openTabs.get(id);
+    if (tab?.kind !== "compare") return id;
+
+    const next = compareTabId(a, b);
+    if (next === id) return id;
+    if (openTabs.has(next)) {
+      closeTab(id);
+      activate(next);
+      return next;
+    }
+
+    const entries = [...openTabs.entries()];
+    const at = entries.findIndex(([key]) => key === id);
+    entries[at] = [
+      next,
+      {
+        ...tab,
+        id: next,
+        a,
+        b,
+        title: titleFor({ kind: "compare", a, b }),
+        // The selected file may not exist in the new pair; the view picks
+        // again from what it finds, as it does on a first open.
+        selectedPath: null,
+      },
+    ];
+    openTabs.clear();
+    for (const [key, entry] of entries) openTabs.set(key, entry);
+    if (activeId.value === id) activeId.value = next;
+    return next;
+  }
+
+  function setCompareSubView(id: string, view: CompareSubView) {
+    const tab = openTabs.get(id);
+    if (tab?.kind !== "compare") return;
+    tab.subView = view;
+    if (!tab.seenViews.includes(view)) tab.seenViews.push(view);
+  }
+
+  function setCompareSelection(id: string, path: string | null) {
+    const tab = openTabs.get(id);
+    if (tab?.kind === "compare") tab.selectedPath = path;
+  }
+
   function openFromId(id: string): string | null {
     const spec = parseTabId(id);
     if (!spec) return null;
@@ -828,6 +943,8 @@ export const useTabsStore = defineStore("tabs", () => {
         return openValidation();
       case "math":
         return openMath();
+      case "compare":
+        return openCompare(spec.a, spec.b);
     }
   }
 
@@ -1115,6 +1232,7 @@ export const useTabsStore = defineStore("tabs", () => {
     ordered,
     hasDirtyTabs,
     runTabs,
+    compareTabs,
     structuredTabs,
     csvTabs,
     versionId,
@@ -1134,6 +1252,10 @@ export const useTabsStore = defineStore("tabs", () => {
     openEntry,
     openRun,
     openValidation,
+    openCompare,
+    replaceCompare,
+    setCompareSubView,
+    setCompareSelection,
     openMath,
     openFromId,
     promote,

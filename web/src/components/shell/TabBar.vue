@@ -54,9 +54,16 @@ import {
 import ProgressHairline from "@/components/app/ProgressHairline.vue";
 import TabHistory from "./TabHistory.vue";
 import { ICON_BUTTON_XS } from "@/lib/formClasses";
-import { fileIcon, ICON_STROKE_WIDTH_TIGHT, MathIcon, sectionIcon } from "@/lib/icons";
+import {
+  CompareIcon,
+  fileIcon,
+  ICON_STROKE_WIDTH_TIGHT,
+  MathIcon,
+  sectionIcon,
+} from "@/lib/icons";
 import { cn } from "@/lib/utils";
 import { useConfirmStore } from "@/stores/confirm";
+import { useCompareStore } from "@/stores/compare";
 import { useMathStore } from "@/stores/math";
 import { isTerminal, useRunsStore } from "@/stores/runs";
 import { useTabsStore, type TabEntry } from "@/stores/tabs";
@@ -66,6 +73,7 @@ const tabs = useTabsStore();
 const runs = useRunsStore();
 const validation = useValidationStore();
 const math = useMathStore();
+const compare = useCompareStore();
 
 /** The shared segment shape, plus the few things only a document tab needs. */
 const TAB_CLASS = cn(
@@ -185,6 +193,7 @@ function iconFor(tab: TabEntry) {
   if (tab.kind === "run") return BarChart3;
   if (tab.kind === "validation") return ShieldCheck;
   if (tab.kind === "math") return MathIcon;
+  if (tab.kind === "compare") return CompareIcon;
   if (tab.kind === "file") return fileIcon(tab.fileType);
   return sectionIcon(tab.section);
 }
@@ -204,6 +213,9 @@ function busy(tab: TabEntry): boolean {
   }
   if (tab.kind === "validation") return validation.isRunning;
   if (tab.kind === "math") return math.isRendering;
+  // A comparison is busy while Calliope is still reading either side — which
+  // is most of the first few seconds of one against an unresolved model.
+  if (tab.kind === "compare") return compare.isResolving(tab.a, tab.b);
   return false;
 }
 

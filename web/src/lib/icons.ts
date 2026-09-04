@@ -7,6 +7,7 @@ import {
   FileCode2,
   FileText,
   Folder,
+  GitCompare,
   Image,
   List,
   Map,
@@ -67,4 +68,9 @@ export function fileIcon(type: string): LucideIcon {
   return File;
 }
 
-export { BarChart3 as RunIcon, Map as MapIcon, Sigma as MathIcon };
+export {
+  BarChart3 as RunIcon,
+  GitCompare as CompareIcon,
+  Map as MapIcon,
+  Sigma as MathIcon,
+};

@@ -21,7 +21,7 @@ import Metric from "@/components/app/Metric.vue";
 import { FIELD_SM, ICON_BUTTON_ON_ROW_SM } from "@/lib/formClasses";
 import { ICON_STROKE_WIDTH_TIGHT } from "@/lib/icons";
 import { cn } from "@/lib/utils";
-import { MoreHorizontal, Pencil, Square, Trash2 } from "@lucide/vue";
+import { GitCompare, MoreHorizontal, Pencil, Square, Trash2 } from "@lucide/vue";
 
 import RunStatusPill from "./RunStatusPill.vue";
 import {
@@ -29,6 +29,9 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
@@ -39,10 +42,13 @@ import {
   formatRelativeTime,
   formatTimestamp,
 } from "@/lib/format";
+import { runRef, workspaceRef, type CompareRef } from "@/lib/compareRef";
 import { isTerminal, type RunRecord } from "@/stores/runs";
 
 const props = defineProps<{
   run: RunRecord;
+  /** The other runs worth offering to compare against. */
+  others?: RunRecord[];
   /** Whether this run's tab is the one in front. */
   active: boolean;
 }>();
@@ -51,6 +57,8 @@ const emit = defineEmits<{
   /** Carries the click, so Cmd-click can mean "in a tab that stays". */
   open: [event: MouseEvent];
   rename: [label: string];
+  /** Compare this run against something: the current model, or another run. */
+  compare: [target: CompareRef];
   cancel: [];
   remove: [];
 }>();
@@ -60,6 +68,23 @@ const draft = ref("");
 const field = ref<HTMLInputElement | null>(null);
 
 const running = computed(() => !isTerminal(props.run.status));
+
+/**
+ * The runs worth offering to compare against.
+ *
+ * Only ones that froze a copy of the model, since nothing else can be read
+ * back — and only the most recent few. A model with two hundred runs would
+ * otherwise open a menu taller than the window, and the answer to "which one"
+ * is almost never the hundredth; the comparison's own header can be pointed
+ * anywhere afterwards.
+ */
+const MOST_RECENT = 8;
+
+const comparable = computed(() =>
+  (props.others ?? [])
+    .filter((other) => other.id !== props.run.id && other.has_snapshot)
+    .slice(0, MOST_RECENT),
+);
 
 /** A run has a name only if it was given one; otherwise its id stands in. */
 const title = computed(() => props.run.label || props.run.id.slice(0, 8));
@@ -215,6 +240,39 @@ function commitRename() {
               <Square />
               Cancel run
             </DropdownMenuItem>
+            <!-- A run froze the model it solved, so it can be read back and
+                 compared. One that did not — the freeze failed, or it predates
+                 snapshots — has nothing to compare, and says so rather than
+                 offering an action that cannot work. -->
+            <DropdownMenuItem
+              data-testid="run-compare-model"
+              :disabled="!run.has_snapshot"
+              @select="emit('compare', workspaceRef(run.scenario))"
+            >
+              <GitCompare />
+              Compare with current model
+            </DropdownMenuItem>
+            <DropdownMenuSub v-if="comparable.length">
+              <DropdownMenuSubTrigger :disabled="!run.has_snapshot">
+                <GitCompare />
+                Compare with…
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent>
+                <DropdownMenuItem
+                  v-for="other in comparable"
+                  :key="other.id"
+                  data-testid="run-compare-with"
+                  :data-run="other.id"
+                  @select="emit('compare', runRef(other.id))"
+                >
+                  {{ other.label || other.id.slice(0, 8) }}
+                  <span class="text-2xs text-text-muted">
+                    {{ formatRelativeTime(other.created_at) }}
+                  </span>
+                </DropdownMenuItem>
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+
             <DropdownMenuSeparator />
             <DropdownMenuItem
               variant="destructive"

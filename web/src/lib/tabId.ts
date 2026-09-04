@@ -32,13 +32,16 @@
  * id would make each of those hops a new tab, which is the opposite.
  */
 
+import { formatRef, parseRef, type CompareRef } from "./compareRef";
+
 export type TabSpec =
   | { kind: "file"; path: string }
   | { kind: "section"; section: string; filePath: string }
   | { kind: "entry"; section: string; filePath: string; entryName: string }
   | { kind: "run"; runId: string | null; handle: string | null }
   | { kind: "validation" }
-  | { kind: "math" };
+  | { kind: "math" }
+  | { kind: "compare"; a: CompareRef; b: CompareRef };
 
 export type TabKind = TabSpec["kind"];
 
@@ -65,6 +68,10 @@ export function tabId(spec: TabSpec): string {
       return "validation";
     case "math":
       return "math";
+    case "compare":
+      // Each side is encoded as a whole segment: a scenario name may contain
+      // anything a YAML key may, this space and `#` included.
+      return `compare:${encode(formatRef(spec.a))}:${encode(formatRef(spec.b))}`;
   }
 }
 
@@ -113,6 +120,15 @@ export function parseTabId(id: string): TabSpec | null {
     case "math":
       return rest.length === 0 ? { kind: "math" } : null;
 
+    case "compare": {
+      if (rest.length !== 2) return null;
+      const a = parseRef(decode(rest[0]));
+      const b = parseRef(decode(rest[1]));
+      // A reference this version cannot read makes the whole id unreadable,
+      // rather than a comparison against something unnamed.
+      return a && b ? { kind: "compare", a, b } : null;
+    }
+
     default:
       return null;
   }
@@ -137,3 +153,6 @@ export const runTabId = (runId: string | null, handle: string | null = null): st
 export const validationTabId = (): string => tabId({ kind: "validation" });
 
 export const mathTabId = (): string => tabId({ kind: "math" });
+
+export const compareTabId = (a: CompareRef, b: CompareRef): string =>
+  tabId({ kind: "compare", a, b });

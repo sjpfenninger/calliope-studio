@@ -204,6 +204,20 @@ export const ACCENT_BADGE =
 /** A badge that only counts or names, in the tone of a secondary label. */
 export const NEUTRAL_BADGE = "shrink-0 border-border-subtle px-1 font-normal text-text-dim";
 
+/**
+ * The two badges that say a thing appeared or went away.
+ *
+ * Named rather than composed at the call site, for the reason the tiers above
+ * are: "added" and "removed" are one idea shown in several places — a compare
+ * view now, a git Changes list later — and three hand-built copies of a wash
+ * and a text tone is how they come to disagree.
+ */
+export const ADDED_BADGE =
+  "shrink-0 border-border-subtle bg-success-soft px-1 font-normal text-success-text";
+
+export const REMOVED_BADGE =
+  "shrink-0 border-border-subtle bg-danger-soft px-1 font-normal text-danger-text";
+
 /** A bordered card wrapping one section of a form. */
 export const SECTION = "flex flex-col gap-2 rounded-md border border-border p-2";
 

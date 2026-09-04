@@ -166,6 +166,22 @@ def require_text(path: Path) -> str:
     return decode_text(path)[0]
 
 
+def is_binary(path: Path) -> bool:
+    """Whether a file fails the NUL sniff `decode_text` refuses on.
+
+    The same test, asked rather than enforced. A comparison has two files and
+    either may be binary, so the answer has to be reportable — "this pair
+    cannot be shown as text" — where opening one file for editing can simply be
+    a 415. Size is not consulted: a file too large to display is still text, and
+    the caller finds that out from `decode_text` when it asks for the content.
+    """
+    try:
+        with path.open("rb") as handle:
+            return b"\0" in handle.read(NUL_SNIFF_BYTES)
+    except OSError:
+        return False
+
+
 def decode_text(path: Path) -> tuple[str, bool]:
     """Reads a file as text, refusing what is not text and what is too big.
 

@@ -364,6 +364,13 @@ jobs:
         continue-on-error: true
         run: pixi run -- pnpm --dir web run run-actions http://127.0.0.1:8791 || { touch .check-failed/run-actions; exit 1; }
 
+      # Two versions of one model, as files and as meaning. Also never waits for
+      # a solve: a run cancelled during its build has already frozen the model,
+      # and a frozen model is all a comparison needs.
+      - name: Compare two versions
+        continue-on-error: true
+        run: pixi run -- pnpm --dir web run compare-check http://127.0.0.1:8791 || { touch .check-failed/compare-check; exit 1; }
+
       # Really solves, with CBC, and drives the run tab from log to charts.
       - name: Run lifecycle
         continue-on-error: true

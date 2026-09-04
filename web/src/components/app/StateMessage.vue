@@ -46,8 +46,23 @@ const LAYOUT = {
   // padding a list row needs. Nine call sites had gone around the component to
   // get this, and every one of them came back a size smaller and a tone fainter.
   note: "flex items-center gap-1.5 text-sm",
-  block: "grid place-items-center gap-1.5 p-6 text-center text-sm",
-  fill: "grid h-full w-full place-items-center gap-1.5 p-6 text-center text-sm",
+  // `content-center` is what makes these centre as a block. `place-items-center`
+  // is `align-items`/`justify-items`, which centre each child inside its own row
+  // and say nothing about the rows; a grid's `align-content` defaults to stretch,
+  // so given a definite height the implicit rows divide it between them. A title
+  // and its sentence therefore sat a quarter and three quarters of the way down a
+  // full-height pane — the declared `gap-1.5` applied and invisible, because track
+  // stretch was setting the distance — and an icon above them made it thirds.
+  //
+  // Not `place-content-center`: that also sets `justify-content`, shrinking the
+  // single column track to fit-content, which moves where a long message wraps and
+  // narrows a left-aligned child. `align-content` is the only axis at fault.
+  //
+  // `block` is content-height at every call site and so unaffected today. It
+  // carries the class so that "centres in flow" stays true under a parent that
+  // does give it a height — a flex row's default `stretch`, or a `flex-1`.
+  block: "grid content-center place-items-center gap-1.5 p-6 text-center text-sm",
+  fill: "grid h-full w-full content-center place-items-center gap-1.5 p-6 text-center text-sm",
 } as const;
 
 const classes = computed(() =>

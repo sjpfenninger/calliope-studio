@@ -69,7 +69,7 @@ uv tool install --reinstall calliope-studio
 
 ## Development
 
-Requires [pixi](https://pixi.sh/).
+Requires [pixi](https://pixi.sh/). Try `pixi task list` to see all the available development tasks.
 
 ```shell
 pixi run serve      # API on port 8000 with auto-reload
@@ -77,12 +77,6 @@ pixi run web-dev    # Vite dev server, proxying /api to port 8000
 ```
 
 `serve` opens `./example-model`, scaffolding it from Calliope's `national_scale` template on first use.
-
-Try `pixi task list` to see all the available development tasks. Some relevant ones:
-
-- `pixi run solve-examples` solves both Calliope example models into `examples/nc_files/`. The data tests and the results smoke check read these files, and skip when they are absent.
-- `pixi run test` runs the Python test suite.
-- `pixi run -e build build` produces a wheel and an sdist with the frontend compiled in (the packaging tools live in the `build` environment).
 
 The frontend tests run from `web/`:
 
@@ -96,6 +90,17 @@ Pixi is configured with a `gurobi` environment to test with Gurobi (needs a lice
 ```shell
 pixi run -e gurobi calliope-studio my-model   # Gurobi available as a solver
 ```
+
+## Architecture
+
+The frontend is a [Vue 3](https://vuejs.org/) single-page TypeScript app served by a [FastAPI](https://fastapi.tiangolo.com/) backend.
+
+The backend consists of four Python packages with a one-way import rule: `server` may import the others, while they import neither `server` nor each other:
+
+- `server`: FastAPI app and HTTP routes
+- `modeldef`: YAML and CSV model definitions on disk
+- `runs`: Builds and solves models in a separate process
+- `results`: Reads `.nc` files and streams them as [Apache Arrow](https://arrow.apache.org/) batches for charts and tables
 
 ## License
 

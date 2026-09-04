@@ -176,10 +176,11 @@ export async function putOverrides<T = OverrideSetting>(
   path: string,
   overrides: Record<string, T[]>,
   revision: string | null = null,
+  renames: Record<string, string> = {},
 ): Promise<string | null> {
   const res = await client.put<{ ok: boolean; revision?: string | null }>(
     `/api/versions/${seg(versionId)}/overrides/${filePath(path)}`,
-    { overrides, revision },
+    { overrides, revision, renames },
   );
   return res?.data?.revision ?? null;
 }

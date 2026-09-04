@@ -20,13 +20,15 @@ import io
 import json
 import math
 import re
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Collection, Mapping
 from pathlib import Path
 from typing import Any
 
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap, CommentedSeq
 from ruamel.yaml.error import YAMLError
+from ruamel.yaml.nodes import ScalarNode
+from ruamel.yaml.resolver import VersionedResolver
 
 from calliope_studio.modeldef.paths import write_text_atomic
 
@@ -330,7 +332,56 @@ def _merge(
     return new
 
 
-def _rename_keys(section: CommentedMap, renames: Mapping[str, str]) -> None:
+class RenameError(ValueError):
+    """A `renames` map that cannot be applied to the section it names.
+
+    Its own type so the route can answer 400 for exactly this and nothing
+    else: the same handler used to catch every `ValueError` out of a section
+    write, which turned a file with one non-UTF-8 byte into a "bad request"
+    under a comment about renames.
+    """
+
+
+def _key_from_text(text: str) -> Any:
+    """The key a JSON spelling names — the inverse of `_key_text`, for numbers.
+
+    A renamed key arrives as text like every other, and inserted as text it
+    changes type: `2019` renamed to `2021` beside a sibling `2020` came back as
+    `'2021':`, quoted, in a section every other key of which is an integer —
+    which is a different key to anything reading years off it, and the exact
+    opposite of what keeping integer keys through a save is for. Only numbers
+    are converted, and only when the spelling survives the trip back, so `1e6`
+    stays the text `1e6` rather than becoming `1000000.0`.
+    """
+    try:
+        value = json.loads(text)
+    except ValueError:
+        return text
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return text
+    return value if _key_text(value) == text else text
+
+
+def _key_width(key: Any) -> int:
+    """How many columns a key takes once ruamel has written it.
+
+    A string ruamel would otherwise read back as something else — `'2021'`,
+    `'true'` — is emitted in quotes, and a trailing comment's column has to
+    account for the two characters that adds.
+    """
+    text = str(key)
+    if isinstance(key, str):
+        resolved = VersionedResolver().resolve(ScalarNode, text, (True, False))
+        if resolved != "tag:yaml.org,2002:str":
+            return len(text) + 2
+    return len(text)
+
+
+def _rename_keys(
+    section: CommentedMap,
+    renames: Mapping[str, str],
+    present: Collection[str] | None = None,
+) -> None:
     """Renames keys of `section` in place, each keeping its position and node.
 
     A rename that reached `_merge` as a delete and an add lost three things at
@@ -344,31 +395,59 @@ def _rename_keys(section: CommentedMap, renames: Mapping[str, str]) -> None:
     wrong comments onto the new entry.
 
     `renames` maps the new name to the old, as JSON spells it — an integer key
-    arrives as its text and is matched the way `_merge` matches it. Two phases,
+    arrives as its text and is matched the way `_merge` matches it, and a new
+    name that spells a number becomes one (`_key_from_text`). Two phases,
     because `CommentedMap.insert` silently replaces an existing key of the same
     name, so a swap applied one rename at a time loses half of itself.
 
+    **A rename onto a key the section still has replaces it**, when `present`
+    — the keys the payload carries — says the payload has one entry of that
+    name and the rename says whose it is. The write is of the whole section,
+    so a key the payload does not keep is deleted anyway; refusing here made
+    "remove `battery`, rename `ccgt` to `battery`" impossible in one save, with
+    a message about an entry the user had just deleted. The case that refusal
+    guarded against — two entries on screen under one name, folded into one
+    payload key — cannot be told apart from here and is the client's to
+    refuse, which the editors now do before building the payload.
+
     Raises:
-        ValueError: If an old name is not in the section, or a new one is
-            already there and not itself being renamed away. A name freed by a
-            deletion in the same save counts as taken: from here a present key
-            and a present payload entry look the same whether the user deleted
-            one and renamed another onto it or renamed onto one still in use.
+        RenameError: If an old name is not in the section, or the payload
+            still carries it, or does not carry the new one: either way the
+            payload and the rename disagree about what the section holds, and
+            applying the rename would rebuild the entry from plain JSON — the
+            very thing it exists to prevent.
     """
     by_text = {_key_text(key): key for key in section}
     keys = list(section)
-    moves: list[tuple[int, Any, str]] = []
-    for new, old_text in renames.items():
+    moves: list[tuple[int, Any, Any]] = []
+    for new_text, old_text in renames.items():
         old = by_text.get(old_text, old_text)
         if old not in section:
-            raise ValueError(f"Cannot rename '{old_text}': it is not in this section.")
-        if _key_text(old) == new:
+            raise RenameError(f"Cannot rename '{old_text}': it is not in this section.")
+        if _key_text(old) == new_text:
             continue
-        moves.append((keys.index(old), old, new))
+        if present is not None:
+            if new_text not in present:
+                raise RenameError(
+                    f"Cannot rename '{old_text}' to '{new_text}': the section "
+                    "written does not contain the new name."
+                )
+            # Unless another rename is taking the old name over, as in a swap.
+            if old_text in present and old_text not in renames:
+                raise RenameError(
+                    f"Cannot rename '{old_text}' to '{new_text}': the section "
+                    "written still contains the old name."
+                )
+        moves.append((keys.index(old), old, _key_from_text(new_text)))
     renamed_away = {old for _, old, _ in moves}
-    for _, _, new in moves:
-        if new in section and new not in renamed_away:
-            raise ValueError(f"Cannot rename to '{new}': it already exists.")
+    replaced = {
+        _key_text(new): keys.index(by_text[_key_text(new)])
+        for _, _, new in moves
+        if _key_text(new) in by_text and by_text[_key_text(new)] not in renamed_away
+    }
+    if present is None and replaced:
+        taken_name = next(iter(replaced))
+        raise RenameError(f"Cannot rename to '{taken_name}': it already exists.")
 
     # Everything out before anything back in: `insert` deletes an existing key
     # of the same name, which in a swap is the other half. `__delitem__` drops
@@ -378,15 +457,20 @@ def _rename_keys(section: CommentedMap, renames: Mapping[str, str]) -> None:
         taken.append((pos, old, new, section[old], section.ca.items.pop(old, None)))
     for _, old, _ in moves:
         del section[old]
+    for text in replaced:
+        del section[by_text[text]]
     for pos, old, new, node, comment in taken:
-        section.insert(pos, new, node)
+        # Ascending reinsertion puts every moved key back at its own index —
+        # less the replaced keys that used to sit before it, which are gone.
+        at = pos - sum(1 for gone in replaced.values() if gone < pos)
+        section.insert(at, new, node)
         if comment is None:
             continue
         eol = comment[2]
         if eol is not None:
             # A trailing comment is emitted at the column it was read at, so a
             # shorter name would push it right by the letters it lost.
-            shift = len(str(new)) - len(str(old))
+            shift = _key_width(new) - _key_width(old)
             eol.start_mark.column = max(eol.start_mark.column + shift, 0)
         section.ca.items[new] = comment
 
@@ -415,7 +499,8 @@ def write_section(
 
     Raises:
         SectionNotFound: If the document is empty or lacks the section.
-        ValueError: If a rename names a key that is not there, or one that is.
+        RenameError: If the renames and the payload disagree about what the
+            section holds; see `_rename_keys`.
     """
     # Bytes, not `read_text`: universal newlines would fold a CRLF file to LF
     # here while the raw file route preserves it, so which endpoint last saved
@@ -435,8 +520,9 @@ def write_section(
     target = document[section]
     if renames:
         if not isinstance(target, CommentedMap):
-            raise ValueError(f"Cannot rename keys: '{section}' is not a mapping.")
-        _rename_keys(target, renames)
+            raise RenameError(f"Cannot rename keys: '{section}' is not a mapping.")
+        present = set(data) if isinstance(data, Mapping) else None
+        _rename_keys(target, renames, present)
     document[section] = _merge(target, from_plain(data), _aliased(target))
     if after_merge is not None:
         after_merge(document[section])

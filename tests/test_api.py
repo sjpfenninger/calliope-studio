@@ -796,7 +796,9 @@ class TestWritePreconditions:
         assert list(after) == ["renamed" if key == keys[1] else key for key in keys]
         assert after["renamed"] == body["data"][keys[1]]
 
-    def test_a_rename_onto_a_name_in_use_is_refused(self, client, ws, national_scale):
+    def test_a_rename_the_payload_disagrees_with_is_refused(
+        self, client, ws, national_scale
+    ):
         url = f"/api/versions/{ws}/yaml-section/model_config/techs.yaml"
         body = client.get(url, params={"section": "techs"}).json()
         keys = list(body["data"])
@@ -813,7 +815,9 @@ class TestWritePreconditions:
             },
         )
         assert response.status_code == 400
-        assert "already exists" in response.json()["detail"]
+        # The payload still carries the old name, so it and the rename disagree
+        # about what the section holds; nothing is written.
+        assert "still contains the old name" in response.json()["detail"]
         assert path.read_text(encoding="utf-8") == before
 
     def test_a_stale_csv_save_is_refused(self, client, ws, national_scale):
@@ -836,6 +840,66 @@ class TestWritePreconditions:
 
         assert client.put(url, json=body).status_code == 409
         assert "# outside" in path.read_text(encoding="utf-8")
+
+    def test_renaming_an_override_keeps_its_place_and_its_comments(
+        self, client, ws, national_scale
+    ):
+        """The one section editor that still renamed by delete-and-add.
+
+        `putOverrides` carried no `renames`, so a renamed override went to the
+        end of `overrides:` and every comment in its block went with the
+        deleted key — in the most comment-heavy section of a model.
+        """
+        url = f"/api/versions/{ws}/overrides/scenarios.yaml"
+        body = client.get(url).json()
+        first = next(iter(body["overrides"]))
+        path = national_scale / "scenarios.yaml"
+        before = path.read_text(encoding="utf-8")
+        assert f"{first}:" in before
+        renamed = {
+            ("renamed_override" if name == first else name): settings
+            for name, settings in body["overrides"].items()
+        }
+
+        response = client.put(
+            url,
+            json={
+                "overrides": renamed,
+                "revision": body["revision"],
+                "renames": {"renamed_override": first},
+            },
+        )
+
+        assert response.status_code == 200, response.text
+        after = path.read_text(encoding="utf-8")
+        # Not byte identity: ruamel normalises `False` and `null` on any load
+        # and dump. What a rename must keep is the line, the comments and the
+        # length — a delete-and-add moved the block to the end and lost all
+        # three.
+        lines_before, lines_after = before.splitlines(), after.splitlines()
+        assert len(lines_after) == len(lines_before)
+        at = lines_before.index(f"  {first}:")
+        assert lines_after[at] == "  renamed_override:"
+
+        def comments(lines: list[str]) -> list[str]:
+            return [line for line in lines if line.strip().startswith("#")]
+
+        assert comments(lines_after) == comments(lines_before)
+
+    def test_an_override_rename_that_disagrees_with_the_payload_is_a_400(
+        self, client, ws
+    ):
+        url = f"/api/versions/{ws}/overrides/scenarios.yaml"
+        body = client.get(url).json()
+        response = client.put(
+            url,
+            json={
+                "overrides": body["overrides"],
+                "renames": {"elsewhere": next(iter(body["overrides"]))},
+            },
+        )
+        assert response.status_code == 400
+        assert "does not contain" in response.json()["detail"]
 
     def test_a_save_that_names_no_revision_is_let_through(self, client, ws):
         url = f"/api/versions/{ws}/files/model.yaml"

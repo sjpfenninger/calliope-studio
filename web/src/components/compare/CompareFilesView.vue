@@ -10,6 +10,7 @@
 import { computed, ref, watch } from "vue";
 
 import type { CompareFiles, FileChange, FilePair } from "@/api/compare";
+import { errorDetail } from "@/api/errors";
 import StateMessage from "@/components/app/StateMessage.vue";
 import DiffPane from "@/components/editor/DiffPane.vue";
 import {
@@ -74,27 +75,46 @@ const selected = computed(() =>
   (props.payload?.files ?? []).find((file) => file.path === props.selectedPath),
 );
 
-/** Opens on the first thing worth looking at, rather than on nothing. */
+/**
+ * Opens on the first thing worth looking at, rather than on nothing — and
+ * again when the selection names a file the payload no longer lists, which a
+ * refresh or a scenario change can do. Left alone, `selected` was undefined
+ * and the one-sided banner read that as "Removed in this version".
+ */
 watch(
   () => props.payload,
   (payload) => {
-    if (!payload || props.selectedPath) return;
+    if (!payload) return;
+    if (props.selectedPath && payload.files.some((file) => file.path === props.selectedPath)) {
+      return;
+    }
     const first = changed.value[0] ?? payload.files[0];
-    if (first) emit("select", first.path);
+    emit("select", first ? first.path : null);
   },
   { immediate: true },
 );
 
+/**
+ * Which request owns `pair`. Click two files quickly and the first response
+ * can land second; without this it drew one file's text under the other's
+ * path, language and all. The store guards its own requests the same way.
+ */
+let generation = 0;
+
 watch(
   () => [props.selectedPath, props.a, props.b] as const,
   async ([path]) => {
+    const mine = ++generation;
     pair.value = null;
     fileError.value = null;
     if (!path) return;
     try {
-      pair.value = await compare.file(props.versionId, props.a, props.b, path);
-    } catch {
-      fileError.value = `Could not read ${path}.`;
+      const fetched = await compare.file(props.versionId, props.a, props.b, path);
+      if (mine === generation) pair.value = fetched;
+    } catch (caught) {
+      if (mine === generation) {
+        fileError.value = errorDetail(caught, `Could not read ${path}.`);
+      }
     }
   },
   { immediate: true },

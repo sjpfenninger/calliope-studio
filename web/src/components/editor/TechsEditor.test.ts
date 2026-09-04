@@ -236,4 +236,38 @@ describe("TechsEditor", () => {
     expect(rowNames(mounted)).toEqual(["ccgt"]);
     expect(mounted.find("add-tech").exists()).toBe(false);
   });
+
+  it("keeps the row on an entry tab while it is being renamed", async () => {
+    // Filtered by name on every render, the first keystroke filtered the row
+    // out from under the cursor: the pane said "No technology called ccgt"
+    // over a dirty tab with nothing to edit.
+    const mounted = await mountEditor(TechsEditor, { section: "techs", entryName: "ccgt" });
+    await mounted.find("entry-name").setValue("cc");
+    await flushPromises();
+
+    expect(rowNames(mounted)).toEqual(["cc"]);
+    expect(mounted.host.text()).not.toContain("No technology called");
+
+    pressSave();
+    await flushPromises();
+    const [, , , payload, , renames] = api.putYamlSection.mock.calls[0]!;
+    expect(Object.keys(payload as object)).toContain("cc");
+    expect(renames).toEqual({ cc: "ccgt" });
+  });
+
+  it("refuses to save two technologies under one name", async () => {
+    // Two rows fold into one payload key, and the server reads a rename onto
+    // a name the payload dropped as the deletion it is — so this is the only
+    // place the two are still two.
+    const mounted = await mountEditor(TechsEditor, { section: "techs" });
+    await mounted.find("add-tech").trigger("click");
+    await flushPromises();
+    const inputs = mounted.findAll("entry-name");
+    await inputs[inputs.length - 1]!.setValue("ccgt");
+    pressSave();
+    await flushPromises();
+
+    expect(api.putYamlSection).not.toHaveBeenCalled();
+    expect(mounted.host.text()).toContain("named “ccgt”");
+  });
 });

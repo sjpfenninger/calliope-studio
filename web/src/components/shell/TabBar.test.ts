@@ -6,6 +6,8 @@ import { h, nextTick } from "vue";
 import type { RunRecord, RunStatus } from "@/api/runs";
 import TooltipProvider from "@/components/ui/tooltip/TooltipProvider.vue";
 import TabBar from "./TabBar.vue";
+import { refKey, workspaceRef } from "@/lib/compareRef";
+import { useCompareStore } from "@/stores/compare";
 import { useConfirmStore } from "@/stores/confirm";
 import { useMathStore } from "@/stores/math";
 import { useRunsStore } from "@/stores/runs";
@@ -150,6 +152,38 @@ describe("TabBar running indicator", () => {
 
   const record = (status: RunStatus): RunRecord =>
     ({ id: "run-1", label: "Run 1", status, results_handle: null }) as RunRecord;
+
+  it("shows on a compare tab while either half is being fetched", async () => {
+    // The one predicate that reads a second store's map through a getter.
+    const compare = useCompareStore();
+    const a = workspaceRef(null);
+    const b = workspaceRef("high_cost");
+    const id = tabs.openCompare(a, b);
+    const wrapper = render();
+    expect(busyOn(wrapper, id)).toBe(false);
+
+    const entry = {
+      files: null,
+      model: null,
+      filesError: null,
+      modelError: null,
+      loadingFiles: true,
+      loadingModel: false,
+      resolving: false,
+      gaveUp: false,
+    };
+    compare.entries.set(refKey(a, b), entry);
+    await nextTick();
+    expect(busyOn(wrapper, id)).toBe(true);
+
+    compare.entries.set(refKey(a, b), { ...entry, loadingFiles: false, resolving: true });
+    await nextTick();
+    expect(busyOn(wrapper, id)).toBe(true);
+
+    compare.entries.set(refKey(a, b), { ...entry, loadingFiles: false });
+    await nextTick();
+    expect(busyOn(wrapper, id)).toBe(false);
+  });
 
   it("shows on a run tab while its run is pending or running, and not after", async () => {
     const runs = useRunsStore();

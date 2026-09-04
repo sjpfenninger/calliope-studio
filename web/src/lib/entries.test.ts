@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { reactive } from "vue";
 
 import {
+  duplicateNameError,
+  duplicateNames,
   parseScalarList,
   linkToRaw,
   nodeToRaw,
@@ -362,5 +364,23 @@ describe("renamesFor", () => {
     rememberName(rows[0]!, rows[0]!.name);
     rows[0]!.name = "gas_turbine";
     expect(renamesFor(rows)).toEqual({ gas_turbine: "gas" });
+  });
+});
+
+describe("duplicateNames", () => {
+  // Two rows under one name fold into one payload key, and the server reads
+  // a rename onto a name the payload dropped as the deletion it is — so the
+  // editors have to refuse before the two rows become one.
+  it("names each repeated name once, in order of first repeat", () => {
+    const rows = [{ name: "a" }, { name: "b" }, { name: "a" }, { name: "b" }, { name: "a" }];
+    expect(duplicateNames(rows)).toEqual(["a", "b"]);
+  });
+
+  it("ignores rows still unnamed", () => {
+    expect(duplicateNames([{ name: "" }, { name: "" }, { name: "x" }])).toEqual([]);
+  });
+
+  it("wraps the first one in an error a save can show", () => {
+    expect(duplicateNameError(["ccgt"], "technologies").message).toContain("“ccgt”");
   });
 });

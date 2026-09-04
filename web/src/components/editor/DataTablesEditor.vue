@@ -34,7 +34,8 @@ import { formatCount } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { useFocusNew } from "./focusNew";
 
-import { rememberName, renamesFor, rowKey } from "@/lib/entries";
+import { duplicateNameError, duplicateNames, rememberName, renamesFor, rowKey } from "@/lib/entries";
+import { usePinnedEntry } from "@/composables/usePinnedEntry";
 import { resolveDataPath } from "@/lib/modelPaths";
 import { useCsvGrid } from "@/composables/useCsvGrid";
 import { useConfirmStore } from "@/stores/confirm";
@@ -80,15 +81,15 @@ const entries = ref<DataTableEntry[]>([]);
  * was clicked, so passing that would edit the *first* table in the file and save
  * it. Filtering is display-only — the whole section is still what gets written.
  */
+const { visible } = usePinnedEntry(entries, () => props.entryName);
 const visibleEntries = computed(() =>
   entries.value
     .map((entry, index) => ({ entry, index }))
-    .filter(({ entry }) => !props.entryName || entry.name === props.entryName)
+    .filter(({ entry }) => !props.entryName || visible.value.includes(entry))
 );
 
-const activeEntry = computed(() =>
-  props.entryName ? (visibleEntries.value[0]?.entry ?? null) : null
-);
+/** The pinned entry, while it is still in the list; see `usePinnedEntry`. */
+const activeEntry = computed(() => (props.entryName ? (visible.value[0] ?? null) : null));
 
 // ---------------------------------------------------------------------------
 // The table's CSV
@@ -277,6 +278,8 @@ function touchForm() {
 }
 
 function buildPayload(): Record<string, any> {
+  const repeated = duplicateNames(entries.value);
+  if (repeated.length) throw duplicateNameError(repeated, "data tables");
   const result: Record<string, any> = {};
   for (const e of entries.value) {
     if (!e.name) continue;

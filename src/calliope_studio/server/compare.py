@@ -36,6 +36,7 @@ from calliope_studio.runs import protocol
 from calliope_studio.runs.manager import RunManager, RunRecord
 from calliope_studio.server import deps
 from calliope_studio.server.resolution import (
+    RUN_WORKSPACE_PREFIX,
     SOURCE_RESOLVED,
     Resolution,
     Resolver,
@@ -411,7 +412,7 @@ def _as_workspace(side: Side, workspace: Workspace) -> Workspace:
     if side.run is None:
         return workspace
     return Workspace(
-        id=f"run:{side.run.id}",
+        id=f"{RUN_WORKSPACE_PREFIX}{side.run.id}",
         path=side.root,
         name=side.label,
         opened_at=datetime.now(timezone.utc),

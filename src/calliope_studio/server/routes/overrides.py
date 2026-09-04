@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field
 from calliope_studio.modeldef.overrides import flatten, set_path, unset_path
 from calliope_studio.modeldef.paths import content_revision
 from calliope_studio.modeldef.yaml_io import (
+    RenameError,
     SectionNotFound,
     from_plain,
     read_section,
@@ -58,6 +59,10 @@ class OverrideBody(BaseModel):
     overrides: dict[str, list[Setting]]
     #: The file's revision when the overrides were read; see `deps.check_revision`.
     revision: str | None = None
+    #: `{new: old}` for every override the form renamed; see `yaml_io._rename_keys`.
+    #: This was the one section editor still renaming by delete-and-add, and
+    #: its entries are the most comment-heavy in a model.
+    renames: dict[str, str] = Field(default_factory=dict)
 
 
 def _unchanged(existing: Any, value: Any) -> bool:
@@ -130,7 +135,9 @@ def put_overrides(
     updated: dict[str, Any] = {}
 
     for name, settings in body.overrides.items():
-        document = existing.get(name)
+        # A renamed override's settings resolve against the block it was, or
+        # every dotted key it kept is rebuilt nested from nothing.
+        document = existing.get(body.renames.get(name, name))
         document = dict(document) if isinstance(document, dict) else {}
         current = flatten(document)
 
@@ -153,7 +160,12 @@ def put_overrides(
 
         updated[name] = document
 
-    write_section(path, SECTION, updated)
+    try:
+        write_section(path, SECTION, updated, renames=body.renames)
+    except RenameError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        ) from None
     # An override changes what a scenario means; the resolver re-reads the
     # definition after a section write, and this is a section write.
     resolver.refresh(workspace)

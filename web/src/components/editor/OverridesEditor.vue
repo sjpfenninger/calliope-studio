@@ -20,7 +20,14 @@
 import { computed, ref } from "vue";
 import LockedBanner from "@/components/app/LockedBanner.vue";
 import StateMessage from "@/components/app/StateMessage.vue";
-import { rowKey } from "@/lib/entries";
+import {
+  duplicateNameError,
+  duplicateNames,
+  rememberName,
+  renamesFor,
+  rowKey,
+} from "@/lib/entries";
+import { usePinnedEntry } from "@/composables/usePinnedEntry";
 import { Plus, X } from "@lucide/vue";
 
 import { putOverrides, readOverrides } from "@/api/versions";
@@ -66,11 +73,8 @@ const openRows = ref<string[]>([]);
 /** The field a row just added exists to fill in takes the cursor; see `focusNew`. */
 const focus = useFocusNew();
 
-const visibleEntries = computed(() =>
-  props.entryName
-    ? entries.value.filter((entry) => entry.name === props.entryName)
-    : entries.value,
-);
+// On an entry tab, the one entry — by identity, so renaming it keeps it.
+const { visible: visibleEntries } = usePinnedEntry(entries, () => props.entryName);
 
 /**
  * Paths worth suggesting, drawn from the model's own entities.
@@ -119,12 +123,13 @@ const {
   label: "overrides",
   transport: {
     read: (versionId, path) => readOverrides<Setting>(versionId, path),
-    write: (versionId, path, data, revision) =>
+    write: (versionId, path, data, revision, renames) =>
       putOverrides<Setting>(
         versionId,
         path,
         data as Record<string, Setting[]>,
         revision,
+        renames,
       ),
   },
   async apply(data) {
@@ -134,6 +139,7 @@ const {
         settings: settings.map((setting) => ({ ...setting })),
       }),
     );
+    for (const entry of entries.value) rememberName(entry, entry.name);
     openRows.value = entries.value.map(rowKey);
     // The path suggestions read the tree, and only the explorer used to load
     // it — so an overrides tab in front on a URL that opens on Files or Runs
@@ -143,16 +149,27 @@ const {
   },
   // A path that cannot exist — `config.init.name.deeper`, where `name` holds a
   // string — comes back as a 400 saying so, and nothing was written.
-  build: () =>
-    Object.fromEntries(
+  build: () => {
+    const repeated = duplicateNames(entries.value);
+    if (repeated.length) throw duplicateNameError(repeated, "overrides");
+    return Object.fromEntries(
       entries.value
         .filter((entry) => entry.name)
         .map((entry) => [
           entry.name,
           entry.settings.filter((setting) => setting.path.trim()),
         ]),
-    ),
-  async after() {
+    );
+  },
+  renames: () => renamesFor(entries.value),
+  async after(written) {
+    // The file now says each row's current name, so a later rename is
+    // measured from that.
+    if (written) {
+      for (const entry of entries.value) {
+        if (entry.name) rememberName(entry, entry.name);
+      }
+    }
     // The explorer's `overrides` branch, and ScenariosEditor's "declared
     // nowhere" check, both read the component tree — a new override has to
     // reach it or the save reads as having failed.

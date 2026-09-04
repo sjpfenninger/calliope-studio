@@ -41,6 +41,13 @@ interface Entry {
   loadingModel: boolean;
   /** A side is still being read by Calliope, and we are following it. */
   resolving: boolean;
+  /**
+   * The polls ran out with a side still unread. Its own flag because the
+   * payload goes on saying `pending`, and the view read that alone — so after
+   * sixty seconds of a wedged resolve the pane said "Reading the model…" for
+   * ever, with nothing in flight and no way to tell.
+   */
+  gaveUp: boolean;
 }
 
 function blank(): Entry {
@@ -52,6 +59,7 @@ function blank(): Entry {
     loadingFiles: false,
     loadingModel: false,
     resolving: false,
+    gaveUp: false,
   };
 }
 
@@ -113,13 +121,25 @@ export const useCompareStore = defineStore("compare", () => {
 
   function isResolving(a: CompareRef, b: CompareRef): boolean {
     const found = stateOf(a, b);
-    return Boolean(found.resolving || found.loadingModel);
+    return Boolean(found.resolving || found.loadingModel || found.loadingFiles);
   }
 
-  function stopPolling(key: string) {
+  function stopPollingKey(key: string) {
     const timer = timers.get(key);
     if (timer !== undefined) clearTimeout(timer);
     timers.delete(key);
+  }
+
+  /**
+   * Stops following a pair. For a compare tab being closed: nothing else
+   * reaches the timer, so a comparison closed mid-resolve went on asking
+   * about it for up to a minute.
+   */
+  function stopPolling(a: CompareRef, b: CompareRef) {
+    const key = refKey(a, b);
+    stopPollingKey(key);
+    const found = entries.get(key);
+    if (found) found.resolving = false;
   }
 
   function claim(half: "files" | "model", key: string): number {
@@ -159,8 +179,11 @@ export const useCompareStore = defineStore("compare", () => {
   ) {
     const key = refKey(a, b);
     const state = ensure(a, b);
-    stopPolling(key);
-    if (!continuing) polls.set(key, 0);
+    stopPollingKey(key);
+    if (!continuing) {
+      polls.set(key, 0);
+      state.gaveUp = false;
+    }
 
     const mine = claim("model", key);
     state.loadingModel = !continuing;
@@ -180,6 +203,7 @@ export const useCompareStore = defineStore("compare", () => {
         );
       } else {
         state.resolving = false;
+        state.gaveUp = Boolean(payload.pending);
         polls.set(key, 0);
       }
     } catch (caught) {
@@ -204,7 +228,7 @@ export const useCompareStore = defineStore("compare", () => {
   /** Throws away what is known about a pair and asks again. */
   async function refresh(versionId: string, a: CompareRef, b: CompareRef) {
     const key = refKey(a, b);
-    stopPolling(key);
+    stopPollingKey(key);
     entries.set(key, blank());
     await loadFiles(versionId, a, b);
     await loadModel(versionId, a, b);
@@ -212,7 +236,7 @@ export const useCompareStore = defineStore("compare", () => {
 
   /** On a model change: nothing here describes the new one. */
   function reset() {
-    for (const key of timers.keys()) stopPolling(key);
+    for (const key of [...timers.keys()]) stopPollingKey(key);
     entries.clear();
     generations.files.clear();
     generations.model.clear();
@@ -227,6 +251,7 @@ export const useCompareStore = defineStore("compare", () => {
     loadModel,
     file,
     refresh,
+    stopPolling,
     reset,
   };
 });

@@ -65,10 +65,14 @@ describe("compareStatus", () => {
     expect(compareStatus(run, side(), false)?.text).toContain("run");
   });
 
-  it("warns about a stale side rather than failing on it", () => {
-    const stale = side({ model: { source: "stale" } });
-    const status = compareStatus(side(), stale, false);
+  it("says so once the polls have run out, rather than loading for ever", () => {
+    // The payload goes on saying `pending`; the store is what gave up. Read
+    // off `pending` alone, the pane said "Reading the model…" with nothing in
+    // flight and no way to tell.
+    const status = compareStatus(side(), side(), true, null, true);
+    expect(status?.loading).toBe(false);
     expect(status?.tone).toBe("warning");
+    expect(status?.text).toContain("Refresh");
   });
 
   it("says when a scenario no longer exists", () => {

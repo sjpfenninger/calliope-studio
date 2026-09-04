@@ -36,6 +36,14 @@ const runs = useRunsStore();
  */
 const NONE = "__none__";
 
+/**
+ * A scenario name containing `:` cannot be a compare tab: `lib/tabId.ts`
+ * splits ids on it, so the tab would open and work and then vanish on
+ * reload, since `?tab=` could never name it again. Offered disabled rather
+ * than hidden, so the model's own list still reads complete.
+ */
+const offerable = (name: string) => !name.includes(":");
+
 function choose(value: unknown) {
   const name = String(value ?? NONE);
   emit("update:scenario", name === NONE ? null : name);
@@ -57,6 +65,7 @@ function choose(value: unknown) {
           v-for="entry in runs.scenarios.scenarios"
           :key="entry.name"
           :value="entry.name"
+          :disabled="!offerable(entry.name)"
         >
           {{ entry.name }}
         </SelectItem>
@@ -70,6 +79,7 @@ function choose(value: unknown) {
           v-for="entry in runs.scenarios.overrides"
           :key="entry.name"
           :value="entry.name"
+          :disabled="!offerable(entry.name)"
         >
           {{ entry.name }}
         </SelectItem>

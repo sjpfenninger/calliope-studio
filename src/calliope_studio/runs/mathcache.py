@@ -36,13 +36,17 @@ So the key covers everything the LaTeX backend reads:
 
 Measured at 6 ms, which is why the caller can afford it on a request.
 
-**What the key deliberately does not cover is the data itself.** Two models with
-the same math and the same parameter shapes can hold different *values*, and
-`LatexBackendModel.__init__` evaluates the math's `checks:` block against those
-values — fourteen of them in `base.yaml`, `lat_lons_out_of_range` and
-`cost_flow_cap<0 AND not flow_cap_max` among them. That is why serving from this
-cache is not the whole story: see `mathdoc.check_inputs`, which the caller must
-still run so a hit reports what a render would have.
+**The key covers the data too, since the payload came to depend on it.** It
+did not at first — the notation reads only dims, and leaving values out let two
+models with the same math and shapes share an entry — but `mathdoc` now marks a
+component whose `where` matches nothing in *this* model as `unmatched`, and
+that is decided from the values: an override zeroing a parameter a `where`
+tests flips it. Two models sharing an entry on dims alone were served each
+other's labelling. So each input array's bytes go into the material as well;
+a digest of them is cheap against the render and, on the same model in a
+later session, still hits. `mathdoc.check_inputs` stays on the hit path for
+the `checks:` block all the same — it costs 0.11 s and is what a render would
+have raised.
 """
 
 import hashlib
@@ -94,9 +98,30 @@ def fingerprint(model: Any) -> str:
             for name, array in model.inputs.data_vars.items()
         ),
         "dims": sorted(str(dim) for dim in model.inputs.dims),
+        "values": _values_digest(model.inputs),
     }
     raw = json.dumps(material, sort_keys=True, default=str).encode()
     return hashlib.sha256(raw).hexdigest()[:16]
+
+
+def _values_digest(inputs: Any) -> str:
+    """One digest over every input array's values, in a fixed order.
+
+    Bytes rather than `repr`: a NaN's position is part of what `where` sees,
+    and `tobytes` keeps it where `str` would not. Object arrays — strings,
+    mostly — are stringified first, since their bytes are pointers.
+    """
+    import numpy as np
+
+    digest = hashlib.sha256()
+    for name in sorted(str(name) for name in inputs.data_vars):
+        values = inputs[name].values
+        if values.dtype.kind in "OU":
+            values = np.asarray(values).astype(str)
+        digest.update(name.encode())
+        digest.update(str(values.dtype).encode())
+        digest.update(np.ascontiguousarray(values).tobytes())
+    return digest.hexdigest()
 
 
 def read(directory: Path, key: str) -> dict | None:

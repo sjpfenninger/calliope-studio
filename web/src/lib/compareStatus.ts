@@ -26,11 +26,20 @@ export function compareStatus(
   b: CompareSide | null,
   pending: boolean,
   reason?: string | null,
+  gaveUp = false,
 ): CompareStatus | null {
   const sides: Array<[CompareSide | null, string]> = [
     [a, "before"],
     [b, "after"],
   ];
+
+  if (pending && gaveUp) {
+    return {
+      tone: "warning",
+      text: "Calliope is still reading the model after a minute. Refresh to keep waiting.",
+      loading: false,
+    };
+  }
 
   if (pending) {
     return {
@@ -51,22 +60,8 @@ export function compareStatus(
     };
   }
 
-  // Stale on either side is worth saying but is not a failure: the last
-  // reading that made sense is more use than nothing, as long as it is
-  // labelled — which is the argument the resolver itself makes.
-  const stale = sides.find(([side]) => side?.model.source === "stale");
-  if (stale) {
-    const [side, position] = stale;
-    return {
-      tone: "warning",
-      text: `Showing the last reading Calliope could build for ${describe(
-        side!,
-        position,
-      )}. The current files do not load.`,
-      detail: side!.model.resolve_error ?? undefined,
-      loading: false,
-    };
-  }
+  // No `stale` case: the server never diffs one and reports it as
+  // `unavailable` with a reason, which the loop above has already answered.
 
   const unknown = sides.find(([side]) => side && !side.scenario_known);
   if (unknown) {

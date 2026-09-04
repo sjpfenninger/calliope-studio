@@ -14,7 +14,9 @@ import pytest
 
 from calliope_studio.modeldef.paths import yaml_files
 from calliope_studio.modeldef.yaml_io import (
+    RenameError,
     SectionNotFound,
+    _rename_keys,
     _round_trip_yaml,
     from_plain,
     load,
@@ -652,15 +654,104 @@ class TestRenames:
     def test_a_rename_of_a_missing_key_is_refused(self, tmp_path: Path):
         # A stale rename — somebody else renamed first — must not turn into a
         # silent delete-and-add of whatever the payload holds.
-        with pytest.raises(ValueError, match="not in this section"):
+        with pytest.raises(RenameError, match="not in this section"):
             self._renamed(tmp_path, {"x": "nope"})
 
-    def test_a_rename_onto_a_name_in_use_is_refused(self, tmp_path: Path):
-        with pytest.raises(ValueError, match="already exists"):
-            self._renamed(tmp_path, {"solar": "ccgt"})
+    def test_a_rename_onto_a_name_the_payload_dropped_replaces_it(self, tmp_path: Path):
+        # Remove `solar`, rename `ccgt` to `solar`, save once. The payload has
+        # one `solar` and the rename says it is ccgt's, so the old solar is a
+        # deletion like any other key the payload does not carry. This used to
+        # be refused as a collision, with a message about the entry the user
+        # had just deleted, and there was no way to do it in one save.
+        path = tmp_path / "t.yaml"
+        path.write_text(self.TEXT, encoding="utf-8")
+        original = _over_the_wire(path, "techs")
+        data = {"solar": original["ccgt"], "battery": original["battery"]}
+        write_section(path, "techs", data, renames={"solar": "ccgt"})
+        assert path.read_text(encoding="utf-8") == (
+            "techs:\n"
+            "  # about ccgt\n"
+            "  solar:  # eol\n"
+            "    x: 1e6   # spelled\n"
+            "  # about battery\n"
+            "\n"
+            "  battery:  # batt eol\n"
+            "    y: 0.10\n"
+            "    # inner comment\n"
+            "    z: 2\n"
+            # ruamel hangs this on battery's last scalar, so deleting solar
+            # leaves it — as any deletion through `_merge` does.
+            "  # about solar\n"
+        )
+
+    def test_without_the_payload_a_rename_onto_a_name_in_use_is_refused(
+        self, tmp_path: Path
+    ):
+        # `_rename_keys` on its own cannot tell a replacement from a collision,
+        # so with nothing said about the payload it stays conservative.
+        path = tmp_path / "t.yaml"
+        path.write_text(self.TEXT, encoding="utf-8")
+        section = load(path)["techs"]
+        with pytest.raises(RenameError, match="already exists"):
+            _rename_keys(section, {"solar": "ccgt"})
+
+    def test_a_payload_that_still_spells_the_old_name_is_refused(self, tmp_path: Path):
+        # Otherwise the key is moved and then rebuilt from plain JSON under the
+        # old name — the exact loss a rename exists to prevent, returned as 200.
+        path = tmp_path / "t.yaml"
+        path.write_text(self.TEXT, encoding="utf-8")
+        data = _over_the_wire(path, "techs")
+        data["batt"] = data["battery"]
+        with pytest.raises(RenameError, match="still contains the old name"):
+            write_section(path, "techs", data, renames={"batt": "battery"})
+
+    def test_a_payload_without_the_new_name_is_refused(self, tmp_path: Path):
+        path = tmp_path / "t.yaml"
+        path.write_text(self.TEXT, encoding="utf-8")
+        data = _over_the_wire(path, "techs")
+        del data["battery"]
+        with pytest.raises(RenameError, match="does not contain the new name"):
+            write_section(path, "techs", data, renames={"batt": "battery"})
 
     def test_renaming_a_key_to_itself_changes_nothing(self, tmp_path: Path):
         assert self._renamed(tmp_path, {"ccgt": "ccgt"}) == self.TEXT
+
+    def test_an_integer_key_renamed_to_another_integer_stays_one(self, tmp_path: Path):
+        # Written as text it came back quoted — `'2021':` beside `2020:` — a
+        # different key to anything reading years off the section, and the
+        # trailing comment slid two columns for the quotes ruamel added.
+        path = tmp_path / "y.yaml"
+        original = (
+            "nodes:\n  2019:  # first\n    latitude: 1.0\n  2020:\n    latitude: 2.0\n"
+        )
+        path.write_text(original, encoding="utf-8")
+        data = _over_the_wire(path, "nodes")
+        data = {"2021" if key == "2019" else key: value for key, value in data.items()}
+        write_section(path, "nodes", data, renames={"2021": "2019"})
+        assert path.read_text(encoding="utf-8") == original.replace(
+            "  2019:  # first", "  2021:  # first"
+        )
+        assert list(load(path)["nodes"]) == [2021, 2020]
+
+    def test_a_rename_onto_a_numeric_key_is_matched_by_its_spelling(
+        self, tmp_path: Path
+    ):
+        # `"2020" in section` is False against an integer key, so this used to
+        # sail past the collision check and `insert` overwrote the node.
+        path = tmp_path / "y.yaml"
+        path.write_text(
+            "nodes:\n  2019:\n    latitude: 1.0\n  2020:\n    latitude: 2.0\n",
+            encoding="utf-8",
+        )
+        section = load(path)["nodes"]
+        with pytest.raises(RenameError, match="already exists"):
+            _rename_keys(section, {"2020": "2019"})
+        assert to_plain(section) == {2019: {"latitude": 1.0}, 2020: {"latitude": 2.0}}
+
+    def test_a_name_that_only_looks_numeric_stays_text(self, tmp_path: Path):
+        text = self._renamed(tmp_path, {"1e6": "ccgt"})
+        assert list(load(tmp_path / "t.yaml")["techs"]) == ["1e6", "battery", "solar"]
+        assert "'1e6':  # eol" in text
 
 
 class TestIntegralFloatsInStructures:

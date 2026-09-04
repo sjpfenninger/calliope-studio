@@ -54,6 +54,34 @@ class TestCompleteness:
         )
         assert manifest["complete"] is True
 
+    def test_a_hidden_file_the_model_imports_is_captured(
+        self, national_scale, tmp_path
+    ):
+        """The tree's rule is not the model's.
+
+        `.shared/common.yaml` is hidden for being dot-prefixed, and Calliope
+        reads it all the same. It used to be dropped here under the tree's
+        rule with `complete` still True, so the worker solved a frozen tree
+        missing an import and failed a run the live workspace would have
+        completed — while the resolver's fingerprint, built from the same
+        list, never noticed an edit to the file either.
+        """
+        shared = national_scale / ".shared"
+        shared.mkdir()
+        (shared / "common.yaml").write_text("techs: {}\n", encoding="utf-8")
+        model = national_scale / "model.yaml"
+        model.write_text(
+            model.read_text().replace(
+                "import:", 'import:\n  - ".shared/common.yaml"', 1
+            )
+        )
+
+        manifest, paths = captured(national_scale, tmp_path / "snapshot")
+
+        assert ".shared/common.yaml" in paths
+        assert manifest["complete"] is True
+        assert (tmp_path / "snapshot" / ".shared" / "common.yaml").is_file()
+
     def test_data_tables_inside_overrides_are_captured(self, national_scale, tmp_path):
         """`collect_data_tables` looks inside `overrides:`, and must keep doing so."""
         _, paths = captured(national_scale, tmp_path / "snapshot")
@@ -160,6 +188,33 @@ class TestIncompleteModels:
 
         assert manifest["complete"] is False
         assert "linked.yaml" not in paths
+
+    def test_a_reference_into_the_run_directory_is_refused(
+        self, national_scale, tmp_path
+    ):
+        """The one hidden-by-name path a snapshot must not follow.
+
+        `import: calliope-studio/runs/x/snapshot/model.yaml` would otherwise
+        make every snapshot contain the previous one.
+        """
+        inside = national_scale / "calliope-studio" / "runs" / "x" / "snapshot"
+        inside.mkdir(parents=True)
+        (inside / "model.yaml").write_text("techs: {}\n", encoding="utf-8")
+        model = national_scale / "model.yaml"
+        model.write_text(
+            model.read_text().replace(
+                "import:",
+                'import:\n  - "calliope-studio/runs/x/snapshot/model.yaml"',
+                1,
+            )
+        )
+
+        collected = collect(national_scale)
+
+        assert not any("calliope-studio" in path for path in collected.files)
+        assert [item["reason"] for item in collected.external] == [
+            "inside the run output directory"
+        ]
 
     def test_the_data_directory_is_never_captured(self, national_scale, tmp_path):
         """Otherwise every snapshot would contain the previous one."""

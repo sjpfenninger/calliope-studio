@@ -24,6 +24,7 @@ from calliope_studio.modeldef.filekinds import MATH, classify
 from calliope_studio.modeldef.imports import component_tree
 from calliope_studio.modeldef.mathdef import (
     BUILTIN,
+    MALFORMED,
     UNKNOWN,
     USER,
     builtin_math_names,
@@ -152,6 +153,45 @@ class TestSources:
 
         assert source["kind"] == UNKNOWN
         assert source["applied"] is True
+
+    def test_extra_math_written_as_a_bare_name_is_reported_not_spelled_out(
+        self, national_scale
+    ):
+        """A string is iterable, and `extra_math: mine` used to yield m, i, n, e.
+
+        Four bogus `unknown` sources in the tree, and the one the user meant
+        nowhere — for the ordinary shape of the typo, in the module whose job
+        is to explain why math is not being applied.
+        """
+        model = national_scale / "model.yaml"
+        model.write_text(
+            model.read_text().replace("  init:\n", "  init:\n    extra_math: mine\n", 1)
+        )
+
+        sources = math_sources(national_scale)
+
+        names = [source["name"] for source in sources]
+        assert "m" not in names and "mine" not in names
+        problem = next(source for source in sources if source["kind"] == MALFORMED)
+        assert problem["name"] == "extra_math"
+        assert problem["applied"] is False
+        assert "must be a list" in problem["problem"]
+
+    def test_math_paths_written_as_a_list_is_reported_not_ignored(self, national_scale):
+        (national_scale / "my_math.yaml").write_text(MATH_FILE)
+        model = national_scale / "model.yaml"
+        model.write_text(
+            model.read_text().replace(
+                "  init:\n", "  init:\n    math_paths:\n      - my_math.yaml\n", 1
+            )
+        )
+
+        sources = math_sources(national_scale)
+
+        problem = next(source for source in sources if source["kind"] == MALFORMED)
+        assert problem["name"] == "math_paths"
+        assert "model.yaml" in problem["problem"]
+        assert not any(source["kind"] == USER for source in sources)
 
     def test_mode_math_is_applied_between_base_and_extra(self, national_scale):
         """Calliope's own order, and the one place a mode changes the math."""

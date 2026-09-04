@@ -289,6 +289,33 @@ export function loadedName(row: object): string | undefined {
  * the same: the server refuses the collision, which beats the silent overwrite
  * a plain section write would be.
  */
+/**
+ * Names more than one row carries, in the order they first repeat.
+ *
+ * Two rows under one name fold into one payload key, and the server cannot
+ * tell that from a deliberate rename onto a name the payload dropped — it
+ * treats the latter as the deletion it is, so the former would overwrite an
+ * entry with no word said. The editors refuse to build a payload while this
+ * is non-empty, which is the only place the two rows are still two.
+ */
+export function duplicateNames(rows: readonly { name: string }[]): string[] {
+  const seen = new Set<string>();
+  const repeated: string[] = [];
+  for (const row of rows) {
+    if (!row.name) continue;
+    if (seen.has(row.name) && !repeated.includes(row.name)) repeated.push(row.name);
+    seen.add(row.name);
+  }
+  return repeated;
+}
+
+/** The error a save shows when `duplicateNames` is non-empty. */
+export function duplicateNameError(names: string[], what: string): Error {
+  return new Error(
+    `Two ${what} are named “${names[0]}”. Give one of them another name before saving.`,
+  );
+}
+
 export function renamesFor(rows: readonly { name: string }[]): Record<string, string> {
   const renames: Record<string, string> = {};
   for (const row of rows) {

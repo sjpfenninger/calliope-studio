@@ -72,13 +72,22 @@ export function useModelGeo(versionId: Ref<string>) {
   let generation = 0;
   let alive = true;
 
-  function stopPolling() {
+  function clearTimer() {
     if (timer !== null) clearTimeout(timer);
     timer = null;
   }
 
+  function stopPolling() {
+    clearTimer();
+    // Called on a version change and on dispose, either of which can land
+    // mid-resolve; left set, the hairline went on travelling under the next
+    // model's map and the stale banner stayed suppressed. Not from `reload`,
+    // whose own restart between two polls is the resolve continuing.
+    resolving.value = false;
+  }
+
   async function reload(continuing = false): Promise<void> {
-    stopPolling();
+    clearTimer();
     if (!continuing) polls = 0;
     const mine = ++generation;
     error.value = null;
@@ -100,14 +109,21 @@ export function useModelGeo(versionId: Ref<string>) {
       }
     } catch (caught) {
       if (mine !== generation || !alive) return;
-      geo.value = null;
+      // The last geometry is kept: it is still the best reading there is, and
+      // `error` says why it is not fresher. Nulling it made every node read as
+      // missing coordinates, so one failed request put three explanations on
+      // screen at once — the banner, the overlay naming every node, and a
+      // disabled Map segment — and only the banner was true.
       resolving.value = false;
       error.value = errorDetail(caught, "Could not read the model's geography.");
     }
   }
 
   onMounted(() => void reload());
-  watch(versionId, () => void reload());
+  watch(versionId, () => {
+    stopPolling();
+    void reload();
+  });
   onScopeDispose(() => {
     alive = false;
     generation += 1;

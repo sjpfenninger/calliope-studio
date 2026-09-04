@@ -35,7 +35,7 @@ from typing import Any
 
 from calliope_studio.modeldef.data_tables import collect_data_tables
 from calliope_studio.modeldef.imports import find_model_yaml, reachable_files
-from calliope_studio.modeldef.paths import file_type, is_excluded
+from calliope_studio.modeldef.paths import EXCLUDED_NAMES, file_type
 from calliope_studio.modeldef.yaml_io import load_quietly
 
 #: Manifest format version, so that a future change can be detected rather than
@@ -213,11 +213,27 @@ def collect(workspace: Path) -> Collected:
             return
 
         relative = resolved.relative_to(root).as_posix()
-        # Guards against a pathological `import: calliope-studio/runs/x/snapshot/...`
-        # making every snapshot contain the previous one.
-        if is_excluded(Path(relative)) or relative in seen:
+        if relative in seen:
             return
         seen.add(relative)
+        # A file the tree hides is still one the model needs: `.shared/x.yaml`
+        # is hidden for being dot-prefixed, not for being outside the model,
+        # and Calliope reads it all the same. It used to be dropped here under
+        # the tree's rule, and the snapshot then claimed to be complete, was
+        # solved from, and failed on a file the live workspace had all along.
+        # The one thing rightly refused is the run directory itself, where a
+        # pathological `import: calliope-studio/runs/x/snapshot/...` would make
+        # every snapshot contain the previous one.
+        if any(part in EXCLUDED_NAMES for part in Path(relative).parts):
+            collected.external.append(
+                {
+                    "reference": str(target),
+                    "referenced_by": _relative(referenced_by, root),
+                    "kind": kind,
+                    "reason": "inside the run output directory",
+                }
+            )
+            return
         collected.files.append(relative)
 
     if find_model_yaml(root) is None:

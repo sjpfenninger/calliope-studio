@@ -19,7 +19,14 @@ import pytest
 
 from calliope_studio.modeldef.snapshot import write_snapshot
 from calliope_studio.runs import protocol
-from calliope_studio.server.compare import BadRef, Ref, format_ref, parse_ref
+from calliope_studio.server.compare import (
+    SOURCE_UNAVAILABLE,
+    BadRef,
+    Ref,
+    format_ref,
+    parse_ref,
+)
+from calliope_studio.server.routes.compare import _reason
 
 
 def make_run(model: Path, *, scenario=None, label=None, snapshot=True) -> str:
@@ -397,3 +404,30 @@ def _unresolved():
     from calliope_studio.server.resolution import SOURCE_STRUCTURAL, Resolution
 
     return Resolution(SOURCE_STRUCTURAL, None, task_id="task-1")
+
+
+class TestReason:
+    """Why there is no comparison, from whichever side actually knows."""
+
+    @staticmethod
+    def _side(**source):
+        from types import SimpleNamespace
+
+        return SimpleNamespace(model_source=source)
+
+    def test_a_side_still_being_read_does_not_hide_the_other_sides_reason(self):
+        # Side A is mid-resolve (a task, no reason yet); side B can never be
+        # read. The answer used to be None until A finished, and B's reason —
+        # the permanent one — waited behind it.
+        pending = self._side(source=SOURCE_UNAVAILABLE, resolve_task="t1")
+        broken = self._side(source=SOURCE_UNAVAILABLE, reason="no results")
+        assert _reason(pending, broken) == "no results"
+
+    def test_the_first_side_with_something_to_say_wins(self):
+        a = self._side(source=SOURCE_UNAVAILABLE, resolve_error="bad yaml")
+        b = self._side(source=SOURCE_UNAVAILABLE, reason="no results")
+        assert _reason(a, b) == "bad yaml"
+
+    def test_two_resolvable_sides_have_no_reason(self):
+        a = self._side(source="resolved")
+        assert _reason(a, a) is None

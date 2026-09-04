@@ -25,6 +25,7 @@ import {
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
 import { initMonacoYaml } from "@/monacoSetup";
+import { useCompareStore } from "@/stores/compare";
 import { useExplorerStore } from "@/stores/explorer";
 import { useMathStore } from "@/stores/math";
 import { useProjectStore } from "@/stores/project";
@@ -43,6 +44,7 @@ const runs = useRunsStore();
 const validation = useValidationStore();
 const math = useMathStore();
 const explorer = useExplorerStore();
+const compare = useCompareStore();
 const ui = useUiStore();
 
 const projectId = computed(() => (route.params.projectId as string) ?? null);
@@ -88,6 +90,10 @@ watch(
     // its phase and payload, and the tab bar now shows the phase.
     math.reset();
     explorer.reset();
+    // Its keys carry no version id, so a pair both models define would have
+    // shown the previous model's diff until the new one arrived — and its
+    // poll chains would have gone on asking about the old version.
+    compare.reset();
     // Which schema describes which of this model's files. Fetched per model
     // because it depends on the `import:` graph, and before any editor opens so
     // that the first file to be shown is validated against the right one.

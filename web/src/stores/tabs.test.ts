@@ -4,6 +4,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("../api/versions", () => ({
   putFile: vi.fn(),
 }));
+vi.mock("../api/compare", () => ({
+  getCompareFiles: vi.fn(),
+  getCompareFile: vi.fn(),
+  getCompareModel: vi.fn(),
+}));
 
 import { putFile } from "../api/versions";
 
@@ -15,7 +20,9 @@ import {
   sectionTabId,
   validationTabId,
 } from "../lib/tabId";
-import { useTabsStore } from "./tabs";
+import { runRef, workspaceRef } from "../lib/compareRef";
+import { useCompareStore } from "./compare";
+import { isEditableTab, useTabsStore } from "./tabs";
 
 /**
  * The tab model, which is the de facto navigation state for the whole app: a run
@@ -858,5 +865,76 @@ describe("useTabsStore", () => {
       tabs.openFile("b.yaml");
       expect(tabs.csvTabs).toEqual([]);
     });
+  });
+});
+
+describe("compare tabs", () => {
+  beforeEach(() => setActivePinia(createPinia()));
+
+  it("opens once per pair and is never writable", () => {
+    const tabs = useTabsStore();
+    const id = tabs.openCompare(workspaceRef(null), workspaceRef("high_cost"));
+    expect(tabs.openCompare(workspaceRef(null), workspaceRef("high_cost"))).toBe(id);
+    expect(tabs.openTabs.size).toBe(1);
+
+    const tab = tabs.get(id)!;
+    expect(isEditableTab(tab)).toBe(false);
+    expect(tabs.markDirty(id)).toBe(false);
+    expect(tab.isDirty).toBe(false);
+  });
+
+  it("replaces a pair in place, and the history follows", () => {
+    // A bare assignment of `activeId` left the old id in the recency list and
+    // the nav history: Back skipped the comparison, Forward re-created the
+    // old pair as a second tab.
+    const tabs = useTabsStore();
+    tabs.openFile("model.yaml");
+    const id = tabs.openCompare(workspaceRef(null), workspaceRef("a"));
+    tabs.openFile("techs.yaml");
+    tabs.activate(id);
+    const next = tabs.replaceCompare(id, workspaceRef(null), workspaceRef("b"));
+
+    expect(next).not.toBe(id);
+    expect([...tabs.openTabs.keys()][1]).toBe(next);
+    expect(tabs.activeId).toBe(next);
+
+    tabs.back();
+    expect(tabs.activeId).toBe(fileTabId("techs.yaml"));
+    tabs.forward();
+    expect(tabs.activeId).toBe(next);
+    expect(tabs.openTabs.size).toBe(3);
+  });
+
+  it("lands on an already open pair rather than duplicating it", () => {
+    const tabs = useTabsStore();
+    const first = tabs.openCompare(workspaceRef(null), workspaceRef("a"));
+    const second = tabs.openCompare(workspaceRef(null), workspaceRef("b"));
+    expect(tabs.replaceCompare(second, workspaceRef(null), workspaceRef("a"))).toBe(first);
+    expect(tabs.openTabs.size).toBe(1);
+  });
+
+  it("stops the comparison's polling when the tab closes", () => {
+    const tabs = useTabsStore();
+    const compare = useCompareStore();
+    const stop = vi.spyOn(compare, "stopPolling");
+    const id = tabs.openCompare(workspaceRef(null), runRef("r1"));
+    tabs.closeTab(id);
+    expect(stop).toHaveBeenCalledWith(workspaceRef(null), runRef("r1"));
+  });
+
+  it("re-creates a closed comparison from its id", () => {
+    // Going back to a closed tab re-opens it from the id alone, which is what
+    // a `?tab=` deep link does too — so the id has to carry both sides.
+    const tabs = useTabsStore();
+    tabs.openFile("model.yaml");
+    const id = tabs.openCompare(workspaceRef("x y"), runRef("r1"));
+    tabs.closeTab(id);
+    expect(tabs.has(id)).toBe(false);
+
+    tabs.back();
+    tabs.forward();
+    const tab = tabs.get(id);
+    expect(tab?.kind).toBe("compare");
+    expect(tab?.kind === "compare" && tab.b).toEqual(runRef("r1"));
   });
 });

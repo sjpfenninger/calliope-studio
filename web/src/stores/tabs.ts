@@ -4,6 +4,7 @@ import { defineStore } from "pinia";
 
 import { putFile } from "../api/versions";
 import { fileKindOf, isTextFileType, type FileType } from "../lib/fileKind";
+import { useCompareStore } from "./compare";
 import { useSectionDataStore } from "./sectionData";
 import {
   canGoBack as historyCanGoBack,
@@ -911,7 +912,15 @@ export const useTabsStore = defineStore("tabs", () => {
     ];
     openTabs.clear();
     for (const [key, entry] of entries) openTabs.set(key, entry);
-    if (activeId.value === id) activeId.value = next;
+    const stale = recency.indexOf(id);
+    if (stale >= 0) recency.splice(stale, 1);
+    // The old id is forgotten and the new one activated like any other tab,
+    // so recency and the nav history name it: a bare assignment left the old
+    // one in both, and Back then skipped the comparison while Forward
+    // re-created the old pair as a second tab.
+    history.value = forget(history.value, id);
+    if (activeId.value === id) activate(next);
+    useCompareStore().stopPolling(tab.a, tab.b);
     return next;
   }
 
@@ -1107,6 +1116,9 @@ export const useTabsStore = defineStore("tabs", () => {
     const ids = [...openTabs.keys()];
     const at = ids.indexOf(id);
 
+    const closing = openTabs.get(id);
+    // Nothing else reaches the poll chain a comparison may have running.
+    if (closing?.kind === "compare") useCompareStore().stopPolling(closing.a, closing.b);
     openTabs.delete(id);
     if (previewId.value === id) previewId.value = null;
     const stale = recency.indexOf(id);

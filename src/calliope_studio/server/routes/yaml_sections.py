@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 from calliope_studio.modeldef.entities import harmonise_coordinates
 from calliope_studio.modeldef.paths import content_revision
 from calliope_studio.modeldef.yaml_io import (
+    RenameError,
     SectionNotFound,
     read_section,
     write_section,
@@ -90,9 +91,11 @@ def put_section(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Section '{section}' not found.",
         ) from None
-    except ValueError as exc:
-        # A rename onto a name still in use, or of one that is not there. Nothing
-        # was written: the renames are checked before the merge touches the file.
+    except RenameError as exc:
+        # The renames and the payload disagree about the section. Nothing was
+        # written: they are checked before the merge touches the file. Only
+        # this, not every `ValueError`: a file with one non-UTF-8 byte raises
+        # one too, and that is the file's problem, not the request's.
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
         ) from None

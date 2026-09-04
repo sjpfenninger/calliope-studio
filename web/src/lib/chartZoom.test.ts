@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { isZoomed, windowFromEvent, windowFromPercent, type Extent } from "./chartZoom";
+import { clipWindow, isZoomed, windowFromEvent, windowFromPercent, type Extent } from "./chartZoom";
 
 /** A ten-day hourly axis, in epoch milliseconds, the way `axisValues` draws one. */
 const DAY = 24 * 3600 * 1000;
@@ -106,5 +106,37 @@ describe("isZoomed", () => {
 
   it("is false for what is not an event", () => {
     expect(isZoomed(undefined, EXTENT)).toBe(false);
+  });
+});
+
+describe("clipWindow", () => {
+  // A window carried across a replace has to land on the new axis: handed
+  // over unclipped, one that missed it left ECharts clamped to an edge with
+  // the reset button still showing.
+  it("keeps a window inside the extent", () => {
+    expect(clipWindow({ startValue: 20, endValue: 30 }, [0, 100])).toEqual({
+      startValue: 20,
+      endValue: 30,
+    });
+  });
+
+  it("clips a window overlapping an edge", () => {
+    expect(clipWindow({ startValue: -10, endValue: 30 }, [0, 100])).toEqual({
+      startValue: 0,
+      endValue: 30,
+    });
+  });
+
+  it("drops a window that misses the extent", () => {
+    expect(clipWindow({ startValue: 200, endValue: 300 }, [0, 100])).toBeNull();
+  });
+
+  it("drops a window that covers the extent, which is no zoom", () => {
+    expect(clipWindow({ startValue: -5, endValue: 500 }, [0, 100])).toBeNull();
+  });
+
+  it("has nothing to say without a window or an extent", () => {
+    expect(clipWindow(null, [0, 100])).toBeNull();
+    expect(clipWindow({ startValue: 1, endValue: 2 }, null)).toBeNull();
   });
 });

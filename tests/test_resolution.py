@@ -20,7 +20,9 @@ import pytest
 
 from calliope_studio.server import resolution
 from calliope_studio.server.resolution import (
+    MAX_RUN_ENTRIES,
     MAX_VARIANT_ENTRIES,
+    RUN_WORKSPACE_PREFIX,
     SOURCE_RESOLVED,
     SOURCE_STALE,
     SOURCE_STRUCTURAL,
@@ -29,7 +31,7 @@ from calliope_studio.server.resolution import (
     fingerprint,
     variant_key,
 )
-from calliope_studio.server.storage import LocalStorage
+from calliope_studio.server.storage import LocalStorage, Workspace
 
 
 @pytest.fixture
@@ -320,3 +322,65 @@ class TestVariants:
         resolver.forget(workspace.id)
 
         assert resolver._entries == {}
+
+
+class TestRunWorkspaces:
+    """A run's frozen tree resolved as a model of its own.
+
+    `server.compare` hands the resolver a synthetic workspace per run, keyed
+    `run:{id}`. Nothing released those: a run has no save to drop its variants,
+    `_evict_variants` looks only at one workspace's non-default variants, and
+    `forget` had no caller. Every run ever compared in a session kept its
+    `resolved.nc` on disk and its model under the results budget until the
+    process exited.
+    """
+
+    @staticmethod
+    def _run_workspace(national_scale, run_id):
+        from datetime import datetime, timezone
+
+        return Workspace(
+            id=f"{RUN_WORKSPACE_PREFIX}{run_id}",
+            path=national_scale,
+            name=run_id,
+            opened_at=datetime.now(timezone.utc),
+        )
+
+    def test_only_so_many_runs_are_kept(
+        self, resolver, workspace, national_scale, monkeypatch
+    ):
+        monkeypatch.setattr(Resolver, "_start", lambda *args: None)
+        resolver.get(workspace)
+        for index in range(MAX_RUN_ENTRIES + 3):
+            resolver.get(self._run_workspace(national_scale, f"run{index}"))
+
+        runs = [key for key in resolver._entries if key[0].startswith("run:")]
+        assert len(runs) == MAX_RUN_ENTRIES
+        assert (f"{RUN_WORKSPACE_PREFIX}run0", "") not in resolver._entries
+        # The real workspace is not counted against the runs, or vice versa.
+        assert (workspace.id, "") in resolver._entries
+
+    def test_a_run_with_a_scenario_counts_the_same(
+        self, resolver, national_scale, monkeypatch
+    ):
+        """A run's own scenario is a non-default variant of its synthetic
+        workspace; the cap is on runs, however they were solved."""
+        monkeypatch.setattr(Resolver, "_start", lambda *args: None)
+        for index in range(MAX_RUN_ENTRIES + 1):
+            resolver.get(
+                self._run_workspace(national_scale, f"run{index}"),
+                variant=("cold_fusion", {}),
+            )
+
+        assert len(resolver._entries) == MAX_RUN_ENTRIES
+
+    def test_deleting_a_run_forgets_its_resolution(
+        self, resolver, national_scale, monkeypatch
+    ):
+        monkeypatch.setattr(Resolver, "_start", lambda *args: None)
+        resolver.get(self._run_workspace(national_scale, "gone"))
+        resolver.get(self._run_workspace(national_scale, "kept"))
+
+        resolver.forget(f"{RUN_WORKSPACE_PREFIX}gone")
+
+        assert [key[0] for key in resolver._entries] == [f"{RUN_WORKSPACE_PREFIX}kept"]

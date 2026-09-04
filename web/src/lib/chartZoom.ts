@@ -53,6 +53,22 @@ function rangeOf(params: unknown): RangeLike | null {
   return params as RangeLike;
 }
 
+/**
+ * `window` clipped to `extent`, or null when it misses the axis or covers it.
+ *
+ * A window carried across a replace used to be handed over unclipped; one
+ * that missed the new axis — a monthly frame after a zoom into one day of an
+ * hourly one — left ECharts clamped to an edge with the reset button showing.
+ */
+export function clipWindow(window: ZoomWindow | null, extent: Extent | null): ZoomWindow | null {
+  if (!window || !extent) return null;
+  const startValue = Math.max(window.startValue, extent[0]);
+  const endValue = Math.min(window.endValue, extent[1]);
+  if (endValue <= startValue) return null;
+  if (startValue === extent[0] && endValue === extent[1]) return null;
+  return { startValue, endValue };
+}
+
 /** Whether `[start, end]` in percent is anything narrower than everything. */
 const narrowerThanAll = (start: number, end: number): boolean =>
   start > EDGE || end < 100 - EDGE;

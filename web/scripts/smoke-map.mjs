@@ -201,6 +201,7 @@ const offers = async (select, option) => {
 const pickOpen = (option) =>
   settle(() => page.getByRole("option", { name: option, exact: true }).click());
 
+const variableBefore = (await testId("static-variable").innerText()).trim();
 if (await offers("static-variable", "flow_cap")) await pickOpen("flow_cap");
 await settle(() =>
   testId("static-sum-by").getByText("Sum techs", { exact: true }).click(),
@@ -290,6 +291,10 @@ if (bars.length > 0) {
   skip("linked hover (the totals axis is not nodes on this model)");
 }
 await settle(() => testId("static-sum-by").getByText("No sum", { exact: true }).click());
+// The variable too, or the theme screenshots below photograph `flow_cap`.
+if (variableBefore && variableBefore !== "flow_cap" && (await offers("static-variable", variableBefore))) {
+  await pickOpen(variableBefore);
+}
 
 // ── Both themes ────────────────────────────────────────────────────────────
 //

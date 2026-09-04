@@ -61,11 +61,23 @@ function sideOf(which: "a" | "b") {
   return sides.value?.[which] ?? null;
 }
 
+/**
+ * Fetches whichever half is not already known.
+ *
+ * The pane is `v-if`, so this runs on every return to the tab; unguarded it
+ * refetched both halves each time — the model half being a Calliope resolve
+ * in a subprocess — and the pane flashed back to "Comparing…" for a diff it
+ * had already shown. The store keeps the answer precisely so that it is
+ * there to come back to.
+ */
 function load() {
   const versionId = tabs.versionId;
   if (!versionId) return;
-  void compare.loadFiles(versionId, props.tab.a, props.tab.b);
-  if (props.tab.seenViews.includes("model")) {
+  const known = state.value;
+  if (!known.files && !known.loadingFiles) {
+    void compare.loadFiles(versionId, props.tab.a, props.tab.b);
+  }
+  if (props.tab.seenViews.includes("model") && !known.model && !known.loadingModel) {
     void compare.loadModel(versionId, props.tab.a, props.tab.b);
   }
 }
@@ -91,17 +103,18 @@ onMounted(() => {
 // entry is rebuilt in place rather than remounted.
 watch(() => [props.tab.a, props.tab.b], load);
 
+// Fetched when first looked at: it can mean resolving a model in a
+// subprocess, which is not worth doing for somebody who came for the YAML.
+// Not `immediate`: the mount's own `load()` covers the first view, and the
+// two together used to issue the same resolve twice.
 watch(
   () => props.tab.subView,
   (view) => {
     if (view !== "model" || !tabs.versionId) return;
-    // Fetched when first looked at: it can mean resolving a model in a
-    // subprocess, which is not worth doing for somebody who came for the YAML.
-    if (!state.value.model) {
+    if (!state.value.model && !state.value.loadingModel) {
       void compare.loadModel(tabs.versionId, props.tab.a, props.tab.b);
     }
   },
-  { immediate: true },
 );
 </script>
 
@@ -182,6 +195,7 @@ watch(
         :payload="state.model"
         :loading="state.loadingModel"
         :error="state.modelError"
+        :gave-up="state.gaveUp"
         class="absolute inset-0"
       />
       <CompareFilesView

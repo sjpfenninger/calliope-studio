@@ -95,25 +95,41 @@ class TestFingerprint:
 
         assert mathcache.fingerprint(read_model(national_scale)) != key
 
-    def test_an_edit_that_cannot_change_the_notation_does_not_move_the_key(
+    def test_an_edit_that_cannot_change_the_payload_does_not_move_the_key(
         self, baseline, national_scale
     ):
         """The win, stated as a test.
 
-        A comment and a changed number are the ordinary content of an editing
-        session, and neither can reach the notation: the equations are the same
-        equations and every array keeps its dims. The mtime fingerprint the tab's
-        staleness warning uses moves for both, which is why that one cannot be
-        the cache key.
+        A comment is the ordinary content of an editing session and cannot
+        reach the payload. The mtime fingerprint the tab's staleness warning
+        uses moves for it, which is why that one cannot be the cache key.
         """
         _, key = baseline
         techs = national_scale / "model_config" / "techs.yaml"
-        techs.write_text(
-            techs.read_text().replace("flow_cap_max: 40000", "flow_cap_max: 41000")
-            + "\n# a note to self\n"
-        )
+        techs.write_text(techs.read_text() + "\n# a note to self\n")
 
         assert mathcache.fingerprint(read_model(national_scale)) == key
+
+    def test_a_changed_value_moves_the_key(self, baseline, national_scale):
+        """The values are in the key because the payload reads them.
+
+        A changed number used to share an entry — the notation reads only
+        dims — until `mathdoc` started marking a component whose `where`
+        matches nothing as `unmatched`, which is decided from the values. Two
+        models sharing an entry on dims alone were served each other's
+        labelling: a constraint that binds marked as having nothing to bind
+        to, or the reverse.
+        """
+        _, key = baseline
+        # A node-level value: the tech-level `flow_cap_max: 40000` in
+        # `techs.yaml` is shadowed by this one in the resolved inputs, so an
+        # edit to it would be invisible to Calliope and to the key alike.
+        locations = national_scale / "model_config" / "locations.yaml"
+        locations.write_text(
+            locations.read_text().replace("flow_cap_max: 30000", "flow_cap_max: 31000")
+        )
+
+        assert mathcache.fingerprint(read_model(national_scale)) != key
 
     def test_enabling_a_math_file_changes_the_key(self, baseline, national_scale):
         """Declaring and enabling are two acts, and only the second is math.
@@ -289,15 +305,17 @@ class TestServingAStoredRendering:
         assert answer["task_id"] is None
         assert answer["result"] == PAYLOAD
 
-    def test_a_hit_still_reports_a_check_the_data_fails(self, national_scale, storage):
+    def test_a_hit_still_reports_a_check_the_data_fails(
+        self, national_scale, storage, monkeypatch
+    ):
         """Why a hit is not simply the stored payload.
 
-        Taking the coordinates off one node changes no math and no array's dims,
-        so the broken model's key is the healthy one's — asserted here, because
-        that is the premise. Calliope's `all_or_nothing_lat_lon` check is about
-        the *values*, which the key deliberately does not cover, so without
-        `mathdoc.check_inputs` the tab would quietly show notation where a render
-        would have shown the model's actual problem.
+        Calliope's `all_or_nothing_lat_lon` check is about the *values*, and
+        a stored rendering says nothing about them: whatever the key covers,
+        the hit path owes the user what a render would have raised, so
+        `mathdoc.check_inputs` runs on it. The key is pinned here so the
+        broken model *is* a hit — the values now move the key, which would
+        otherwise turn this into a test of a miss.
         """
         from calliope_studio.server.resolution import SOURCE_RESOLVED
         from calliope_studio.server.routes import math as route
@@ -311,7 +329,7 @@ class TestServingAStoredRendering:
             locations.read_text().replace("    latitude: 40\n    longitude: -8\n", "")
         )
         broken = read_model(national_scale)
-        assert mathcache.fingerprint(broken) == key
+        monkeypatch.setattr(mathcache, "fingerprint", lambda model: key)
 
         answer = route._from_disk(
             storage.open(national_scale),

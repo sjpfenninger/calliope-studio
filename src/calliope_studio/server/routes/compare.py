@@ -127,6 +127,11 @@ def _reason(a: compare.Side, b: compare.Side) -> str | None:
     """
     for side in (a, b):
         source = side.model_source
-        if source.get("source") == compare.SOURCE_UNAVAILABLE:
-            return source.get("reason") or source.get("resolve_error")
+        if source.get("source") != compare.SOURCE_UNAVAILABLE:
+            continue
+        # A side still being read has nothing to say yet; the other side's
+        # reason — which may be permanent — should not wait behind it.
+        reason = source.get("reason") or source.get("resolve_error")
+        if reason:
+            return reason
     return None

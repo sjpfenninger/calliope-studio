@@ -72,6 +72,13 @@ export function ownedNames(
  * deletion and an addition, and landed at the end — which is also where the
  * next save's baseline would then have it, so the client and the file agreed
  * on an order the user never asked for.
+ *
+ * An edited name that is also the name of an entry this editor does *not*
+ * own — a tech renamed to a link's name — throws rather than picking one.
+ * The two branches below used to disagree about it (the pass-through
+ * assigned unconditionally, the owned one only into an empty slot), so which
+ * entry survived depended on the file's key order, and the server then saw
+ * one key where there had been two and could not tell it from a deletion.
  */
 export function mergeIntoSection(
   original: Record<string, RawTech>,
@@ -81,6 +88,16 @@ export function mergeIntoSection(
 ): Record<string, RawTech> {
   const merged: Record<string, RawTech> = {};
   const renamedTo = new Map(Object.entries(renames).map(([now, was]) => [was, now]));
+  const elsewhere = new Set(Object.keys(original).filter((name) => !owned(name)));
+
+  for (const [name, raw] of Object.entries(edited)) {
+    // The same object is the other half passed through, not a second entry.
+    if (elsewhere.has(name) && raw !== original[name]) {
+      throw new Error(
+        `“${name}” is already the name of an entry in this file that this editor does not show — a technology and a link cannot share a name.`,
+      );
+    }
+  }
 
   for (const [name, raw] of Object.entries(original)) {
     if (!owned(name)) {

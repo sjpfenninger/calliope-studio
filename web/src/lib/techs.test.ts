@@ -121,6 +121,25 @@ describe("mergeIntoSection", () => {
     expect(merged.gas).toEqual(original.ccgt);
   });
 
+  it("refuses a name the other editor's half already uses", () => {
+    // A tech renamed to a link's name. The two branches used to disagree —
+    // the pass-through assigned unconditionally, the owned branch only into
+    // an empty slot — so which entry survived depended on key order, and the
+    // server then saw one key where there had been two.
+    expect(() =>
+      mergeIntoSection(
+        original,
+        { a_to_b: { base_tech: "supply" }, battery: { base_tech: "storage" } },
+        isNotLink,
+        { a_to_b: "ccgt" },
+      ),
+    ).toThrow(/a_to_b/);
+    // A new entry under that name, too.
+    expect(() =>
+      mergeIntoSection(original, { ...original, a_to_b: { base_tech: "supply" } }, isNotLink),
+    ).toThrow(/a_to_b/);
+  });
+
   it("keeps both entries of a swap in place", () => {
     const merged = mergeIntoSection(
       original,
@@ -194,12 +213,14 @@ describe("ownedNames", () => {
     );
     expect(merged.ccgt).toEqual({ base_tech: "transmission", flow_cap_max: 100 });
 
-    // Asking the *section* instead is what dropped the edit.
-    const stale = mergeIntoSection(
-      written,
-      { ccgt: { base_tech: "transmission", flow_cap_max: 100 } },
-      (name) => !isTransmission(written[name] ?? null, TEMPLATES),
-    );
-    expect(stale.ccgt).toEqual({ base_tech: "transmission" });
+    // Asking the *section* instead used to drop the edit without a word; an
+    // edited name the predicate disowns is now a refusal rather than a loss.
+    expect(() =>
+      mergeIntoSection(
+        written,
+        { ccgt: { base_tech: "transmission", flow_cap_max: 100 } },
+        (name) => !isTransmission(written[name] ?? null, TEMPLATES),
+      ),
+    ).toThrow(/ccgt/);
   });
 });

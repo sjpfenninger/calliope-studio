@@ -17,7 +17,14 @@
 import { computed, ref } from "vue";
 import LockedBanner from "@/components/app/LockedBanner.vue";
 import StateMessage from "@/components/app/StateMessage.vue";
-import { rememberName, renamesFor, rowKey } from "@/lib/entries";
+import {
+  duplicateNameError,
+  duplicateNames,
+  rememberName,
+  renamesFor,
+  rowKey,
+} from "@/lib/entries";
+import { usePinnedEntry } from "@/composables/usePinnedEntry";
 import { ChevronDown, ChevronUp, Plus, TriangleAlert, Trash2, X } from "@lucide/vue";
 
 import { removalRequest, useSectionEditor } from "@/composables/useSectionEditor";
@@ -53,11 +60,8 @@ interface ScenarioEntry {
 
 const entries = ref<ScenarioEntry[]>([]);
 
-const visibleEntries = computed(() =>
-  props.entryName
-    ? entries.value.filter((entry) => entry.name === props.entryName)
-    : entries.value,
-);
+// On an entry tab, the one entry — by identity, so renaming it keeps it.
+const { visible: visibleEntries } = usePinnedEntry(entries, () => props.entryName);
 
 /**
  * Every override name in the model, not just this file's.
@@ -108,10 +112,13 @@ const {
     // store returns immediately once loaded, and the explorer usually has.
     await componentTree.load(props.versionId);
   },
-  build: () =>
-    Object.fromEntries(
+  build: () => {
+    const repeated = duplicateNames(entries.value);
+    if (repeated.length) throw duplicateNameError(repeated, "scenarios");
+    return Object.fromEntries(
       entries.value.filter((entry) => entry.name).map((entry) => [entry.name, entry.overrides]),
-    ),
+    );
+  },
   renames: () => renamesFor(entries.value),
   async after(written) {
     // The file now says each row's current name, so a later rename is measured

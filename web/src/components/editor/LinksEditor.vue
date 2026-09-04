@@ -59,11 +59,14 @@ import {
 import {
   linkToRaw,
   rawToLink,
+  duplicateNameError,
+  duplicateNames,
   rememberName,
   renamesFor,
   rowKey,
   type LinkEntry,
 } from "@/lib/entries";
+import { usePinnedEntry } from "@/composables/usePinnedEntry";
 
 const props = defineProps<{
   versionId: string;
@@ -129,11 +132,8 @@ const nodeNames = computed(() =>
   ),
 );
 
-const visibleEntries = computed(() =>
-  props.entryName
-    ? entries.value.filter((entry) => entry.name === props.entryName)
-    : entries.value,
-);
+// On an entry tab, the one entry — by identity, so renaming it keeps it.
+const { visible: visibleEntries } = usePinnedEntry(entries, () => props.entryName);
 
 const showMap = computed(() => !props.entryName && ui.sectionView.links === "map");
 
@@ -204,6 +204,9 @@ const mapGeo = computed(() =>
  * cannot be linked yet, and greys the map out.
  */
 const missing = computed(() => {
+  // Before the first answer, or after a failed one with nothing kept, there
+  // is no reading to be missing from — and every node read as unplaced.
+  if (!savedGeo.value) return [];
   const placed = new Set(mapNodes.value.map((node) => node.name));
   return nodeNames.value.filter((name) => !placed.has(name));
 });
@@ -268,6 +271,8 @@ async function loadTemplates() {
 }
 
 function buildPayload(): Record<string, RawTech> {
+  const repeated = duplicateNames(entries.value);
+  if (repeated.length) throw duplicateNameError(repeated, "links");
   const edited: Record<string, RawTech> = {};
   for (const entry of entries.value) {
     if (entry.name) edited[entry.name] = linkToRaw(entry, templatesData.value);

@@ -43,12 +43,15 @@ import { useTemplatesStore } from "@/stores/templates";
 import { mergeIntoSection, ownedNames, type RawTech } from "@/lib/techs";
 import {
   rawToTech,
+  duplicateNameError,
+  duplicateNames,
   rememberName,
   renamesFor,
   rowKey,
   techToRaw,
   type TechEntry,
 } from "@/lib/entries";
+import { usePinnedEntry } from "@/composables/usePinnedEntry";
 
 const props = defineProps<{
   versionId: string;
@@ -92,12 +95,8 @@ const templatesData = computed(() => templatesStore.templates);
 // Map from tech name → param name → data-table info
 const dataTableParams = ref<Record<string, Record<string, DataTableParam>>>({});
 
-// When entryName is set (entry tab), show only the matching entry
-const visibleEntries = computed(() =>
-  props.entryName
-    ? entries.value.filter((e) => e.name === props.entryName)
-    : entries.value
-);
+// On an entry tab, the one entry — by identity, so renaming it keeps it.
+const { visible: visibleEntries } = usePinnedEntry(entries, () => props.entryName);
 
 /**
  * The model's templates, resolved.
@@ -133,6 +132,8 @@ function ownedHere(name: string): boolean {
 }
 
 function buildPayload(): Record<string, RawTech> {
+  const repeated = duplicateNames(entries.value);
+  if (repeated.length) throw duplicateNameError(repeated, "technologies");
   const edited: Record<string, RawTech> = {};
   for (const e of entries.value) {
     if (e.name) edited[e.name] = techToRaw(e);

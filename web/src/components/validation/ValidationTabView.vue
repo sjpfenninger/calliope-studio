@@ -71,6 +71,11 @@ const SEVERITY = {
   error: { glyph: CircleX, tone: "text-danger-text" },
   warning: { glyph: TriangleAlert, tone: "text-warning-text" },
 } as const;
+
+/** `severity` is server JSON; a value outside the two must not blank the tab. */
+function severityOf(problem: { severity: string }) {
+  return SEVERITY[problem.severity as keyof typeof SEVERITY] ?? SEVERITY.error;
+}
 </script>
 
 <template>
@@ -162,8 +167,8 @@ const SEVERITY = {
           <span v-if="problem.line != null">:{{ problem.line }}</span>
           <Badge variant="outline" class="ml-auto">{{ problem.tier }}</Badge>
         </span>
-        <span class="flex items-start gap-1.5 text-sm" :class="SEVERITY[problem.severity].tone">
-          <component :is="SEVERITY[problem.severity].glyph" class="mt-0.5 size-3.5 shrink-0" />
+        <span class="flex items-start gap-1.5 text-sm" :class="severityOf(problem).tone">
+          <component :is="severityOf(problem).glyph" class="mt-0.5 size-3.5 shrink-0" />
           <span>{{ problem.message }}</span>
         </span>
       </component>

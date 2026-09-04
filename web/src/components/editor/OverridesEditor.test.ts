@@ -84,8 +84,25 @@ describe("OverridesEditor", () => {
     expect(rowNames(mounted)).toEqual(["cheap_gas", "no_storage"]);
 
     await saveByKeyboard(mounted);
-    expect(api.putOverrides).toHaveBeenCalledWith("v1", "scenarios.yaml", OVERRIDES, "r1");
+    expect(api.putOverrides).toHaveBeenCalledWith("v1", "scenarios.yaml", OVERRIDES, "r1", {});
     expect(api.putYamlSection).not.toHaveBeenCalled();
+  });
+
+  it("sends a rename as a rename, so the entry keeps its place and comments", async () => {
+    // The one section editor still renaming by delete-and-add: its transport
+    // dropped the renames, and `putOverrides` had nowhere to put them.
+    const mounted = await mountEditor(OverridesEditor, {
+      section: "overrides",
+      filePath: "scenarios.yaml",
+    });
+    const row = mounted.host.find('[data-testid="entry-row"][data-name="cheap_gas"]');
+    await row.find('input[type="text"]').setValue("cheap_gas_2");
+    await saveByKeyboard(mounted);
+
+    const [, , written, , renames] = api.putOverrides.mock.calls[0]!;
+    expect(Object.keys(written as object)).toEqual(["cheap_gas_2", "no_storage"]);
+    expect(renames).toEqual({ cheap_gas_2: "cheap_gas" });
+    expect(rowNames(mounted)).toEqual(["cheap_gas_2", "no_storage"]);
   });
 
   it("renders no Save button when the load failed, so nothing can write {}", async () => {

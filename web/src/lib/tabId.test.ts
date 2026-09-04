@@ -146,3 +146,19 @@ describe("compare tabs", () => {
     expect(compareTabId(run, model)).not.toBe(compareTabId(model, run));
   });
 });
+
+describe("compare tab ids", () => {
+  // Each side is percent-encoded whole, so a scenario name may carry
+  // anything a YAML key may — except the one character the id itself is
+  // split on, which `ScenarioPicker` therefore does not offer.
+  const workspace = (scenario: string | null) => ({ kind: "workspace" as const, scenario });
+
+  it.each(["high cost", "a/b", "v1.2", "x@y", "#1", "über"])("round-trips %s", (name) => {
+    const id = compareTabId(workspace(null), workspace(name));
+    expect(parseTabId(id)).toEqual({ kind: "compare", a: workspace(null), b: workspace(name) });
+  });
+
+  it("cannot carry a colon, and says so by refusing to parse", () => {
+    expect(parseTabId(compareTabId(workspace(null), workspace("a:b")))).toBeNull();
+  });
+});

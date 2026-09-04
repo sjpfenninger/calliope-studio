@@ -312,6 +312,22 @@ class TestConfig:
         ]
         assert not diff["empty"]
 
+    def test_no_config_on_one_side_is_every_setting_gained_not_a_nameless_row(
+        self, results
+    ):
+        """An older `.nc` carries no `config` attr, and `{}` flattened to `{"": {}}`.
+
+        That put a row with an empty path in the table and made a pair that
+        was otherwise identical read as different.
+        """
+        model = results.model
+        bare = dataclasses.replace(model, config={})
+        rows = model_diff(bare, model)["config"]
+
+        assert rows and all(row["path"] for row in rows)
+        assert all(row["before"] is None for row in rows)
+        assert model_diff(bare, bare)["empty"]
+
     def test_a_setting_gained_or_lost_is_reported(self, results):
         """A key on one side only reads as null on the other, not as absent."""
         model = results.model

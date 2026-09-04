@@ -79,6 +79,16 @@ DEFAULT_VARIANT: Variant = (None, {})
 #: what the editor itself reads on every keystroke.
 MAX_VARIANT_ENTRIES = 8
 
+#: A run's frozen tree resolved as a model of its own (`server.compare`) is keyed
+#: by a workspace id with this prefix, so it can never collide with a real one
+#: — and so it can be told apart here, where it is capped and forgotten.
+RUN_WORKSPACE_PREFIX = "run:"
+
+#: How many runs' resolutions to keep. Each is a `resolved.nc` on disk and a
+#: loaded model under the results budget; nothing used to release them, so
+#: every run ever compared in a session stayed for the life of the process.
+MAX_RUN_ENTRIES = 8
+
 
 def variant_key(scenario: str | None, override_dict: dict | None = None) -> str:
     """A stable name for a variant, for use as part of a cache key.
@@ -239,6 +249,7 @@ class Resolver:
         # least recently asked-for.
         self._entries[key] = entry
         self._evict_variants(workspace.id)
+        self._evict_runs()
         current = fingerprint(workspace.path)
 
         self._collect(entry, workspace)
@@ -414,6 +425,12 @@ class Resolver:
             if key[0] == workspace_id and key[1] != variant_key(*DEFAULT_VARIANT)
         ]
         for key in keys[: max(0, len(keys) - MAX_VARIANT_ENTRIES)]:
+            self._discard(self._entries.pop(key).artefact)
+
+    def _evict_runs(self) -> None:
+        """Keeps only the most recently asked-for run resolutions."""
+        keys = [key for key in self._entries if key[0].startswith(RUN_WORKSPACE_PREFIX)]
+        for key in keys[: max(0, len(keys) - MAX_RUN_ENTRIES)]:
             self._discard(self._entries.pop(key).artefact)
 
     def _collect(self, entry: _Entry, workspace: Workspace) -> None:

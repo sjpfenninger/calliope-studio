@@ -51,11 +51,14 @@ import {
 import {
   nodeToRaw,
   rawToNode,
+  duplicateNameError,
+  duplicateNames,
   rememberName,
   renamesFor,
   rowKey,
   type NodeEntry,
 } from "@/lib/entries";
+import { usePinnedEntry } from "@/composables/usePinnedEntry";
 
 const props = defineProps<{
   versionId: string;
@@ -125,12 +128,8 @@ function select(name: string | null) {
     : null;
 }
 
-// When entryName is set (entry tab), show only the matching entry
-const visibleEntries = computed(() =>
-  props.entryName
-    ? entries.value.filter((e) => e.name === props.entryName)
-    : entries.value
-);
+// On an entry tab, the one entry — by identity, so renaming it keeps it.
+const { visible: visibleEntries } = usePinnedEntry(entries, () => props.entryName);
 
 /** The map only makes sense for a whole section. */
 const showMap = computed(() => !props.entryName && ui.sectionView.nodes === "map");
@@ -233,6 +232,8 @@ async function loadDataTableParams() {
 }
 
 function buildPayload(): Record<string, any> {
+  const repeated = duplicateNames(entries.value);
+  if (repeated.length) throw duplicateNameError(repeated, "nodes");
   const result: Record<string, any> = {};
   for (const e of entries.value) {
     if (!e.name) continue;

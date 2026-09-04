@@ -37,6 +37,8 @@ const props = defineProps<{
   payload: CompareModel | null;
   loading: boolean;
   error: string | null;
+  /** The store stopped polling with a side still unread. */
+  gaveUp?: boolean;
 }>();
 
 /** In display order, and each with the heading a modeller would use. */
@@ -63,6 +65,7 @@ const status = computed(() =>
         props.payload.b,
         props.payload.pending,
         props.payload.reason,
+        props.gaveUp,
       )
     : null,
 );

@@ -36,6 +36,7 @@ from calliope_studio.runs.manager import (
 )
 from calliope_studio.runs.solvers import available_solvers
 from calliope_studio.server.deps import (
+    get_resolver,
     get_results,
     get_runs,
     get_storage,
@@ -45,6 +46,7 @@ from calliope_studio.server.deps import (
     require_within_size,
     resolve_within,
 )
+from calliope_studio.server.resolution import RUN_WORKSPACE_PREFIX, Resolver
 from calliope_studio.server.storage import LocalStorage, Workspace
 
 router = APIRouter(tags=["runs"])
@@ -280,13 +282,20 @@ def rename_run(
 
 
 @router.delete("/runs/{run_id}/", status_code=status.HTTP_204_NO_CONTENT)
-def delete_run(run_id: str, runs: RunManager = Depends(get_runs)) -> None:
+def delete_run(
+    run_id: str,
+    runs: RunManager = Depends(get_runs),
+    resolver: Resolver = Depends(get_resolver),
+) -> None:
     """Removes a run and everything it produced.
 
     A user who can see what their history costs needs to be able to reclaim it;
     until now nothing in the interface could delete anything.
     """
     _require_run_dir(run_id, runs)
+    # Before the files go: the resolver holds the run's frozen tree open if it
+    # was ever compared, and on Windows an open `resolved.nc` refuses removal.
+    resolver.forget(f"{RUN_WORKSPACE_PREFIX}{run_id}")
     try:
         runs.delete(run_id)
     except RunStillActive:

@@ -19,7 +19,13 @@ import { indexToLabel, normaliseIndexValue } from "../../lib/frameIndex";
 import { formatValue } from "../../lib/precision";
 import StateMessage from "../app/StateMessage.vue";
 import TooltipButton from "../app/TooltipButton.vue";
-import { isZoomed, windowFromEvent, type Extent, type ZoomWindow } from "../../lib/chartZoom";
+import {
+  clipWindow,
+  isZoomed,
+  windowFromEvent,
+  type Extent,
+  type ZoomWindow,
+} from "../../lib/chartZoom";
 import { seriesLabel } from "../../lib/seriesLabel";
 import { useUiStore } from "../../stores/ui";
 
@@ -405,16 +411,20 @@ function render() {
   // model shares its timesteps — and is what was asked for.
   const onTime = isTimeIndex(props.frame);
   if (!onTime) zoomWindow = null;
-  const carried = replace ? zoomWindow : null;
+  // Measured from the frame as drawn, which mid-stream is the part that has
+  // arrived: a zoom made then is read against a short axis, and may sit a
+  // little off once the rest lands. Nothing waits on a stream for that.
+  lastExtent = onTime ? timeExtent(props.frame) : null;
+  // Clipped to the new axis rather than handed over as it was: a window that
+  // misses the axis entirely — a monthly frame after a zoom into one day of
+  // an hourly one — left ECharts clamped to an edge with the reset button
+  // still showing.
+  const carried = replace ? clipWindow(zoomWindow, lastExtent) : null;
 
   chart.value.setOption(buildOption(props.frame, carried), {
     notMerge: replace,
     lazyUpdate: true,
   });
-  // Measured from the frame as drawn, which mid-stream is the part that has
-  // arrived: a zoom made then is read against a short axis, and may sit a
-  // little off once the rest lands. Nothing waits on a stream for that.
-  lastExtent = onTime ? timeExtent(props.frame) : null;
   // No event follows a range set by option, so the button has to be told.
   if (replace) zoomed.value = carried !== null;
 }

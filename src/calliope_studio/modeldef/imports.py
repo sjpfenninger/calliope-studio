@@ -188,11 +188,14 @@ def import_graph(base: Path) -> dict:
         if inside and resolved.is_file():
             target = add_file(resolved, _KIND_TYPE[reference.kind])
         else:
-            # Keyed on the absolute path so two files each naming a different
-            # missing `costs.csv` stay two nodes; labelled with what was
-            # written, which is both what the user has to fix and the only
-            # spelling that does not leak a home directory into the dialog.
-            target = add(f"missing:{resolved}", reference.raw, "missing")
+            # Keyed on where it was looked for, relative to the model where it
+            # can be, so two files each naming a different missing `costs.csv`
+            # stay two nodes; labelled with what was written, which is what the
+            # user has to fix. Neither carries an absolute path into the
+            # dialog: the id used to, while the comment beside it claimed the
+            # label was the only spelling that did not.
+            where = resolved.relative_to(base).as_posix() if inside else reference.raw
+            target = add(f"missing:{where}", reference.raw, "missing")
             nodes[target]["reason"] = "not found" if inside else "outside the workspace"
         connect(add_file(reference.source), target, reference.kind)
 

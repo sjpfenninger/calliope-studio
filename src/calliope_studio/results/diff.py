@@ -569,7 +569,13 @@ def _nodes_change(ins_a: xr.Dataset, ins_b: xr.Dataset, tech: str) -> list[dict]
 
 
 def _flatten(value: Any, prefix: str = "") -> dict[str, Any]:
-    if isinstance(value, Mapping) and value:
+    """Dotted paths to leaves; an empty mapping is no leaves, not one.
+
+    `{}` at the root used to flatten to `{"": {}}`, so an older `.nc` with no
+    `config` attr on one side produced a nameless row against every setting
+    of the other and made an otherwise identical pair read as different.
+    """
+    if isinstance(value, Mapping):
         flat: dict[str, Any] = {}
         for key, item in value.items():
             flat.update(_flatten(item, f"{prefix}.{key}" if prefix else str(key)))

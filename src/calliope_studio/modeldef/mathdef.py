@@ -42,6 +42,13 @@ USER = "user"
 #: is a broken model — reported here rather than costing a subprocess to discover.
 UNKNOWN = "unknown"
 
+#: `config.init.math_paths` or `extra_math` written in a shape Calliope's schema
+#: refuses: a list where a mapping is wanted, a bare name where a list is. Both
+#: are the ordinary shape of the typo, and a module whose job is to explain why
+#: math is not being applied has to say so rather than read `extra_math: mine`
+#: as the four names `m`, `i`, `n`, `e` — which is what iterating it did.
+MALFORMED = "malformed"
+
 
 @lru_cache(maxsize=1)
 def builtin_math_names() -> tuple[str, ...]:
@@ -95,9 +102,21 @@ def math_sources(base: Path) -> list[dict]:
     mode = init.get("mode")
     if mode and mode != "base":
         order.append(str(mode))
-    order += [str(name) for name in init.get("extra_math") or []]
-
+    extra = init.get("extra_math") or []
     sources: list[dict] = []
+    if isinstance(extra, list):
+        order += [str(name) for name in extra]
+    else:
+        sources.append(
+            _malformed(
+                "extra_math",
+                f"`extra_math` must be a list of names; it is written as "
+                f"`{extra}`, so nothing it names is applied.",
+            )
+        )
+    for problem in _malformed_math_paths(root):
+        sources.append(problem)
+
     seen: set[str] = set()
     for name in order:
         if name in seen:
@@ -180,6 +199,36 @@ def _source(
 
     entry["kind"] = BUILTIN if name in builtin else UNKNOWN
     return entry
+
+
+def _malformed(name: str, problem: str) -> dict:
+    """A source entry that exists only to say a declaration is unreadable."""
+    return {"name": name, "kind": MALFORMED, "applied": False, "problem": problem}
+
+
+def _malformed_math_paths(root: Path) -> list[dict]:
+    """One entry per file whose `math_paths` is not a mapping of name to path.
+
+    `math_path_entries` answers `{}` for the shape, which every other caller
+    wants — a snapshot cannot copy what it cannot read — but here it would mean
+    a file the user wrote is simply not listed, which is the silence this
+    module exists to break.
+    """
+    problems = []
+    for path in reachable_files(root):
+        document = load_quietly(path)
+        block = _math_paths_block(document)
+        if block is None or isinstance(block, dict):
+            continue
+        problems.append(
+            _malformed(
+                "math_paths",
+                f"`math_paths` in {path.relative_to(root).as_posix()} must map "
+                f"each math name to its file; it is written as `{block}`, so "
+                "no math file it names is read.",
+            )
+        )
+    return problems
 
 
 def _counts(path: Path) -> dict[str, int]:

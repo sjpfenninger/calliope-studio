@@ -99,7 +99,7 @@ watch(
   },
 );
 
-/** Names — dimension names, index labels — stay text. */
+/** Dimension names stay text: `costs` is a name whatever it looks like. */
 function parseNames(s: string): string | string[] | null {
   const parts = s
     .split(",")
@@ -126,7 +126,11 @@ function emitScalar() {
 
 function emitStructured() {
   const data = parseValues(dataText.value);
-  const index = parseNames(indexText.value);
+  // Index labels are parsed like values, not like names: YAML reads a bare
+  // `2030` as a number, so `index: [2020, 2030]` over a `years` dimension is
+  // two ints in the file, and the field has to hand them back as ints or an
+  // edit to any of the three boxes rewrites them as `['2020', '2030']`.
+  const index = parseValues(indexText.value);
   const dims = parseNames(dimsText.value);
   if (data === null && index === null && dims === null) {
     emitted = null;

@@ -92,9 +92,13 @@ const focus = useFocusNew();
 const originalSection = ref<Record<string, RawTech>>({});
 const templatesData = computed(() => templatesStore.templates);
 
-const { geo: savedGeo, error: geoError, reload: reloadGeo } = useModelGeo(
-  computed(() => props.versionId),
-);
+const {
+  geo: savedGeo,
+  source: geoSource,
+  error: geoError,
+  resolving: geoResolving,
+  reload: reloadGeo,
+} = useModelGeo(computed(() => props.versionId));
 
 /**
  * Which link the map has selected: the entry itself, not its name.
@@ -481,6 +485,8 @@ function openElsewhere() {
         :selected="pendingFrom ? [pendingFrom] : []"
         :missing="missing"
         :error="geoError"
+        :source="geoSource"
+        :resolving="geoResolving"
         :pending-link-from="pendingFrom"
         :interactive-links="!locked"
         @node-click="onNodeClick"

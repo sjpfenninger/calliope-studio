@@ -234,7 +234,11 @@ def harmonise_coordinates(nodes: Any) -> Any:
     int beside a float latitude and the model stops loading.
 
     Only a pair that is actually mixed is touched, so a hand-written
-    `latitude: 40 / longitude: -2` keeps the spelling its author chose.
+    `latitude: 40 / longitude: -2` keeps the spelling its author chose. Run on
+    the *merged* section (`yaml_io.write_section`'s `after_merge`), because the
+    merge keeps the file's `-2.0` against an incoming `-2` and so is the only
+    point at which the pair's final types are known; ruamel's scalars subclass
+    `int` and `float`, so nothing here needs to know which it was handed.
     """
     if not isinstance(nodes, dict):
         return nodes

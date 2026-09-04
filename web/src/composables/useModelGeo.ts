@@ -41,6 +41,8 @@ export function useModelGeo(versionId: Ref<string>) {
   const geo = ref<GeoPayload | null>(null);
   const source = ref<GeoSource>("structural");
   const error = ref<string | null>(null);
+  /** Whether a resolve is in flight and being followed, for a hairline to show. */
+  const resolving = ref(false);
 
   let timer: ReturnType<typeof setTimeout> | null = null;
   /**
@@ -90,13 +92,16 @@ export function useModelGeo(versionId: Ref<string>) {
 
       if (resolve_task && polls < MAX_POLLS) {
         polls += 1;
+        resolving.value = true;
         timer = setTimeout(() => void reload(true), POLL_INTERVAL);
       } else {
         polls = 0;
+        resolving.value = false;
       }
     } catch (caught) {
       if (mine !== generation || !alive) return;
       geo.value = null;
+      resolving.value = false;
       error.value = errorDetail(caught, "Could not read the model's geography.");
     }
   }
@@ -109,5 +114,5 @@ export function useModelGeo(versionId: Ref<string>) {
     stopPolling();
   });
 
-  return { geo, source, error, reload };
+  return { geo, source, error, resolving, reload };
 }

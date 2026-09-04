@@ -84,9 +84,13 @@ const templatesData = computed(() => templatesStore.templates);
 // Map from node name → param name → data-table info
 const dataTableParams = ref<Record<string, Record<string, DataTableParam>>>({});
 
-const { geo: savedGeo, error: geoError, reload: reloadGeo } = useModelGeo(
-  computed(() => props.versionId),
-);
+const {
+  geo: savedGeo,
+  source: geoSource,
+  error: geoError,
+  resolving: geoResolving,
+  reload: reloadGeo,
+} = useModelGeo(computed(() => props.versionId));
 
 /**
  * Which node the map has selected: the entry itself, not its name.
@@ -393,6 +397,8 @@ function owns(entry: NodeEntry): string {
         :selected="selectedNames"
         :missing="missing"
         :error="geoError"
+        :source="geoSource"
+        :resolving="geoResolving"
         :draggable-nodes="!locked"
         @update:selected="select($event[0] ?? null)"
         @node-moved="onNodeMoved"

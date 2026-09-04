@@ -276,28 +276,57 @@ async function run() {
 
   // Half a coordinate pair is something Calliope rejects outright, and the map says
   // so in its own words rather than guessing. Worth pinning: the alternative is a
-  // map that silently shows the last thing that worked.
+  // map that silently shows the last thing that worked. The complaint goes in
+  // the banner; the missing half of the pair is what the overlay is for.
   await files.write(NODES_FILE, before);
   await reopenNodes((section) => {
     delete section[UNPLACED].latitude;
   }, "map-error");
 
   check(
-    "an invalid coordinate pair surfaces Calliope's own complaint",
+    "an invalid coordinate pair surfaces Calliope's own complaint, in the banner",
     (await testId("map-error").count()) === 1 &&
-      (await testId("map-overlay").textContent())?.includes("latitude"),
-    await testId("map-overlay").textContent(),
+      (await testId("map-status").textContent())?.includes("latitude"),
+    await testId("map-status").textContent(),
+  );
+  check(
+    "and the overlay still names the half-placed node",
+    (await testId("map-missing-coords").count()) === 1 &&
+      (await testId("map-overlay").textContent())?.includes(UNPLACED),
   );
   check(
     "and still offers the way to the list",
     (await testId("map-show-list").count()) === 1,
   );
 
+  // A model Calliope refuses for a reason that is not geographic: every node is
+  // placed, so the last resolved map is a perfectly good one to keep working
+  // on. It stays usable — labelled, not greyed out.
+  await files.write(NODES_FILE, before);
+  await reopenNodes((section) => {
+    section[DRAGGED].techs = { ...(section[DRAGGED].techs ?? {}), not_a_tech: null };
+  }, "map-status");
+
+  check(
+    "a model Calliope cannot read keeps the last reading on screen, labelled",
+    (await testId("map-status").getAttribute("data-source")) === "stale" &&
+      (await testId("map-error").count()) === 1,
+    await testId("map-status").textContent(),
+  );
+  check(
+    "and the map is not greyed out for it",
+    (await testId("map-overlay").count()) === 0,
+  );
+  check(
+    "and the banner offers the way to the list",
+    (await testId("map-status-list").count()) === 1,
+  );
+
   await files.write(NODES_FILE, before);
 
-  // Before the reload, not after: the map is greyed out for as long as the model
-  // is unresolved, and the scrim deliberately does not set `pointer-events:
-  // none` — so every link click below would land on it and do nothing at all.
+  // Before the reload, not after: the map stays usable while a resolve runs, but
+  // what the next section asserts about is the *resolved* model, and `/geo/`
+  // serves the previous answer until the rebuild lands.
   await waitForResolvedGeo();
 
   await page.reload({ waitUntil: "domcontentloaded" });
@@ -314,6 +343,10 @@ async function run() {
   check(
     "the links map is the default view too",
     (await testId("editor-map").count()) === 1,
+  );
+  check(
+    "a resolved model carries no status banner",
+    (await testId("map-status").count()) === 0,
   );
 
   // Halfway along `region1_to_region2`, which is the one link in this model with

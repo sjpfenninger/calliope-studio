@@ -7,6 +7,7 @@ that promise, so they are deliberately strict: byte comparison, not semantic.
 
 import json
 import math
+import re
 from pathlib import Path
 
 import pytest
@@ -194,14 +195,32 @@ class TestGoldenCorpus:
             )
 
 
+def _as_javascript_sends(value):
+    """What `JSON.stringify` makes of a Python value: integral floats become ints.
+
+    Python's `json` writes `25.0` and reads it back as a float, so a hop made in
+    Python alone is more faithful than the real one and could not see the
+    rewrite it exists to catch. JavaScript has one number type and serialises
+    `25.0` as `25`.
+    """
+    if isinstance(value, dict):
+        return {key: _as_javascript_sends(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_as_javascript_sends(item) for item in value]
+    if isinstance(value, float) and math.isfinite(value) and value.is_integer():
+        return int(value)
+    return value
+
+
 def _over_the_wire(path: Path, section: str):
     """A section as the frontend sends it back: through JSON and no further.
 
     The pure-Python round trip these tests otherwise use hands ruamel its own
     objects back, so it cannot see the class of damage that only appears once a
-    value has been a JSON number. Every structured editor makes this hop.
+    value has been a JSON number. Every structured editor makes this hop — in
+    JavaScript, hence `_as_javascript_sends`.
     """
-    return json.loads(json.dumps(read_section(path, section)))
+    return _as_javascript_sends(json.loads(json.dumps(read_section(path, section))))
 
 
 class TestSpellingSurvivesTheWire:
@@ -250,6 +269,26 @@ techs:
         assert "area_use_max: 0xFF" in text
         assert "interest: 0.10" in text
         assert "exponent: 1.5e-3" in text
+
+    def test_an_integral_float_keeps_its_spelling(self, spellings):
+        """`lifetime: 25.00` arrives as the integer 25 and must stay `25.00`.
+
+        The wire cannot say "the float 25", so an equal integer is not an edit.
+        Calliope's own `urban_scale` had `29.0` become `29` and `[0.0035, 0.0]`
+        become `[0.0035, 0]` on a save that touched neither.
+        """
+        data = _over_the_wire(spellings, "techs")
+        assert data["ccgt"]["lifetime"] == 25 and isinstance(
+            data["ccgt"]["lifetime"], int
+        )
+        write_section(spellings, "techs", data)
+        assert "lifetime: 25.00" in spellings.read_text(encoding="utf-8")
+
+    def test_a_changed_number_is_still_written(self, spellings):
+        data = _over_the_wire(spellings, "techs")
+        data["ccgt"]["lifetime"] = 20
+        write_section(spellings, "techs", data)
+        assert "lifetime: 20\n" in spellings.read_text(encoding="utf-8")
 
     def test_a_boolean_turned_into_a_number_is_still_an_edit(self, spellings):
         """`True == 1` in Python, so a plain equality check would skip this."""
@@ -506,3 +545,89 @@ class TestFileFidelity:
             "latitude: 2.0", "latitude: 3.0"
         )
         assert list(load(path)["nodes"]) == [1, 2]
+
+
+class TestIntegralFloatsInStructures:
+    """The same spelling rule inside a list and an indexed parameter."""
+
+    TEXT = """\
+techs:
+  battery:
+    cost_flow_cap:
+      data: 41.0  # 0.41 MEUR/MW
+      index: monetary
+      dims: costs
+    cost_flow_out:
+      data: [0.0035, 0.0]
+      index: [monetary, emissions]
+      dims: costs
+"""
+
+    @pytest.fixture
+    def path(self, tmp_path: Path) -> Path:
+        path = tmp_path / "techs.yaml"
+        path.write_text(self.TEXT, encoding="utf-8")
+        return path
+
+    def test_a_no_op_save_is_byte_identical(self, path):
+        write_section(path, "techs", _over_the_wire(path, "techs"))
+        assert path.read_text(encoding="utf-8") == self.TEXT
+
+    def test_an_edit_to_the_data_is_written_unquoted_and_keeps_its_comment(self, path):
+        data = _over_the_wire(path, "techs")
+        data["battery"]["cost_flow_cap"]["data"] = 20
+        write_section(path, "techs", data)
+        text = path.read_text(encoding="utf-8")
+        # ruamel keeps the comment in its column, so the gap widens by one.
+        assert re.search(r"data: 20 +# 0\.41 MEUR/MW", text)
+        assert "data: [0.0035, 0.0]" in text
+
+
+class TestCoordinatePairAfterTheMerge:
+    """The merge keeps the file's `-2.0` against an incoming `-2`, so whether a
+    node's pair ends up mixed is decided by the merge — which is why the pair is
+    harmonised on the merged section rather than on the payload."""
+
+    TEXT = """\
+nodes:
+  floats:
+    latitude: 40.0
+    longitude: -2.0
+  ints:
+    latitude: 40
+    longitude: -2
+"""
+
+    @pytest.fixture
+    def path(self, tmp_path: Path) -> Path:
+        path = tmp_path / "nodes.yaml"
+        path.write_text(self.TEXT, encoding="utf-8")
+        return path
+
+    def _write(self, path, data):
+        from calliope_studio.modeldef.entities import harmonise_coordinates
+
+        write_section(path, "nodes", data, after_merge=harmonise_coordinates)
+
+    def test_a_no_op_save_touches_neither_pair(self, path):
+        self._write(path, _over_the_wire(path, "nodes"))
+        assert path.read_text(encoding="utf-8") == self.TEXT
+
+    def test_a_drag_to_two_integers_over_a_float_pair_stays_matched(self, path):
+        """Latitude changes to `41` while the kept longitude is still `-2.0`:
+        a mixed pair, which Calliope refuses. The post-merge pass fixes it."""
+        data = _over_the_wire(path, "nodes")
+        data["floats"] = {"latitude": 41, "longitude": -2}
+        self._write(path, data)
+        floats = read_section(path, "nodes")["floats"]
+        assert type(floats["latitude"]) is type(floats["longitude"])
+        assert floats == {"latitude": 41, "longitude": -2}
+
+    def test_a_drag_to_a_mixed_pair_over_an_int_pair_becomes_float(self, path):
+        data = _over_the_wire(path, "nodes")
+        data["ints"] = {"latitude": 40.5, "longitude": -2}
+        self._write(path, data)
+        ints = read_section(path, "nodes")["ints"]
+        assert isinstance(ints["latitude"], float)
+        assert isinstance(ints["longitude"], float)
+        assert "longitude: -2.0" in path.read_text(encoding="utf-8")

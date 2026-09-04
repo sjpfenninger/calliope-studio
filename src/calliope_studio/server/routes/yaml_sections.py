@@ -71,9 +71,16 @@ def put_section(
         )
     path = require_file(resolve_writable_path(workspace, file_path))
     check_revision(path, body.revision)
-    data = harmonise_coordinates(body.data) if section == "nodes" else body.data
     try:
-        write_section(path, section, data)
+        # After the merge, not before: the merge keeps the file's `-2.0` against
+        # an incoming `-2`, so whether a pair is mixed is only known once it has
+        # decided which spellings survive.
+        write_section(
+            path,
+            section,
+            body.data,
+            after_merge=harmonise_coordinates if section == "nodes" else None,
+        )
     except SectionNotFound:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

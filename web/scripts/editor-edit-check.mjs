@@ -192,13 +192,36 @@ await guard(browser, consoleErrors, async () => {
     // and an option is picked rather than `selectOption`ed.
     await row(NEW_TECH).locator('[data-testid="entry-base-tech"]').click();
     await page.getByRole("option", { name: "supply", exact: true }).click();
+
+    // An indexed parameter, typed through the three-box form. The number in
+    // its `data:` used to reach the file as the YAML string `'20'`, and the
+    // form's unit test cannot see what ruamel then makes of it; the file can.
+    // `fill` then Tab, because the form commits on `change`, which is blur.
+    const entry = row(NEW_TECH);
+    await entry.getByRole("button", { name: /add parameter/i }).click();
+    await entry.getByPlaceholder("parameter").last().fill("cost_flow_cap");
+    await entry.getByRole("button", { name: "Switch to indexed form" }).last().click();
+    for (const [name, text] of [
+      ["data", "20"],
+      ["index", "monetary"],
+      ["dims", "costs"],
+    ]) {
+      await entry.getByRole("textbox", { name, exact: true }).fill(text);
+      await page.keyboard.press("Tab");
+    }
     await save();
 
-    const techsAdded = parse(await files.read(TECHS_FILE)).techs;
+    const techsAddedText = await files.read(TECHS_FILE);
+    const techsAdded = parse(techsAddedText).techs;
     check(
       "the new technology reaches the file",
       techsAdded[NEW_TECH]?.base_tech === "supply",
       JSON.stringify(techsAdded[NEW_TECH]),
+    );
+    check(
+      "and its indexed parameter is written with an unquoted number",
+      /cost_flow_cap:\n\s+data: 20\n\s+index: monetary\n\s+dims: costs\n/.test(techsAddedText),
+      techsAddedText.split("cost_flow_cap:")[1]?.split("\n").slice(0, 4).join(" | "),
     );
     check("and the tab is clean again", (await dirtyDots()) === 0);
 

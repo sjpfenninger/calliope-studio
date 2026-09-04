@@ -20,6 +20,7 @@ import io
 import json
 import math
 import re
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -175,37 +176,51 @@ def read_section(path: Path, section: str) -> Any:
     return to_plain(document[section])
 
 
-def _same(left: Any, right: Any) -> bool:
-    """Structural equality that does not conflate `True` with `1`, or `1` with `1.0`.
+def _same(existing: Any, new: Any) -> bool:
+    """Whether what came back over the wire is what went out.
 
-    `True == 1` in Python, so a plain `==` would call a `true` turned into a `1`
-    an unchanged value and leave the file saying the opposite of what the user
-    asked for. `40 == 40.0` the same way, and there the *type* is what Calliope
-    checks. Mappings compare without regard to key order, because the merge below
-    keeps the file's order deliberately and a reordered payload is not an edit to
+    Structural equality that does not conflate `True` with `1`: `True == 1` in
+    Python, so a plain `==` would call a `true` turned into a `1` an unchanged
+    value and leave the file saying the opposite of what the user asked for.
+    Mappings compare without regard to key order, because the merge below keeps
+    the file's order deliberately and a reordered payload is not an edit to
     anything.
+
+    The one asymmetry is deliberate. `existing` is what the file says and `new`
+    is what JSON delivered, and JSON — JavaScript's, which is what every
+    structured editor sends — cannot say "the float 29": `29.0` serialises as
+    `29`. So an integer arriving where the file holds an equal integral float is
+    not an edit, and the file's spelling stays. Without this a no-op save of
+    Calliope's own `urban_scale` rewrote `29.0` as `29` and `[0.0035, 0.0]` as
+    `[0.0035, 0]` in entries nobody had opened. The other direction — a float
+    arriving where the file holds an int — *is* an edit: `40` and `40.0` are
+    different YAML, and Calliope requires a node's latitude and longitude to
+    have matching types, which is why the caller harmonises a node's pair
+    *after* this merge (`entities.harmonise_coordinates`), when it can see
+    which spellings survived.
     """
-    if isinstance(left, bool) != isinstance(right, bool):
+    if isinstance(existing, bool) != isinstance(new, bool):
         return False
-    # `40` and `40.0` are equal numbers and different YAML, and the difference is
-    # load-bearing: Calliope requires a node's latitude and longitude to have
-    # *matching* types, so `entities.harmonise_coordinates` turns an integer
-    # longitude into a float on the way in. Calling the two the same value would
-    # quietly undo that and put the model back in the state that stopped it
-    # loading — `test_a_dragged_node_still_loads` is what catches it.
-    if isinstance(left, int) != isinstance(right, int):
+    if (
+        isinstance(existing, float)
+        and isinstance(new, int)
+        and not isinstance(new, bool)
+        and existing == new
+    ):
+        return True
+    if isinstance(existing, int) != isinstance(new, int):
         return False
-    if isinstance(left, dict) and isinstance(right, dict):
-        return len(left) == len(right) and all(
-            key in right and _same(value, right[key]) for key, value in left.items()
+    if isinstance(existing, dict) and isinstance(new, dict):
+        return len(existing) == len(new) and all(
+            key in new and _same(value, new[key]) for key, value in existing.items()
         )
-    if isinstance(left, list) and isinstance(right, list):
-        return len(left) == len(right) and all(
-            _same(one, other) for one, other in zip(left, right)
+    if isinstance(existing, list) and isinstance(new, list):
+        return len(existing) == len(new) and all(
+            _same(one, other) for one, other in zip(existing, new)
         )
-    if isinstance(left, dict | list) or isinstance(right, dict | list):
+    if isinstance(existing, dict | list) or isinstance(new, dict | list):
         return False
-    return left == right
+    return existing == new
 
 
 def _aliased(obj: Any, counts: dict[int, int] | None = None) -> set[int]:
@@ -315,8 +330,21 @@ def _merge(
     return new
 
 
-def write_section(path: Path, section: str, data: Any) -> None:
+def write_section(
+    path: Path,
+    section: str,
+    data: Any,
+    *,
+    after_merge: Callable[[Any], Any] | None = None,
+) -> None:
     """Updates one top-level section, leaving the rest of the file intact.
+
+    `after_merge` sees the merged section — ruamel's objects, with every
+    untouched scalar still spelled as the file spells it — before it is written.
+    It exists for a rule that depends on which spellings survived: a node's
+    coordinate pair has to end up one type, and whether the merge kept the
+    file's `-2.0` against an incoming `-2` is not something the caller can know
+    from the payload alone.
 
     Raises:
         SectionNotFound: If the document is empty or lacks the section.
@@ -339,6 +367,8 @@ def write_section(path: Path, section: str, data: Any) -> None:
     document[section] = _merge(
         document[section], from_plain(data), _aliased(document[section])
     )
+    if after_merge is not None:
+        after_merge(document[section])
     buffer = io.StringIO()
     yaml.dump(document, buffer)
     out = buffer.getvalue()

@@ -19,6 +19,8 @@ export default defineComponent({
     selected: { type: Array, default: () => [] },
     missing: { type: Array, default: () => [] },
     error: { type: String, default: null },
+    source: { type: String, default: "resolved" },
+    resolving: { type: Boolean, default: false },
     draggableNodes: { type: Boolean, default: false },
     interactiveLinks: { type: Boolean, default: false },
     pendingLinkFrom: { type: String, default: null },

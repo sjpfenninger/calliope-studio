@@ -23,6 +23,7 @@ import {
   type MountedEditor,
   type VersionsApi,
 } from "@/test-helpers/editors";
+import { EMPTY_GEO } from "@/test-helpers/editorApi";
 import EditorMapPane from "@/test-stubs/EditorMapPane";
 import NodesEditor from "./NodesEditor.vue";
 
@@ -65,6 +66,30 @@ beforeEach(() => {
 });
 
 describe("NodesEditor", () => {
+  it("tells the map which reading it shows, and what Calliope said", async () => {
+    // The server keeps serving the last good resolution after a save Calliope
+    // refuses; the pane labels it rather than greying it out.
+    api.getGeo.mockResolvedValue({ ...EMPTY_GEO, source: "stale", resolve_error: "nope" });
+    const mounted = await mountEditor(NodesEditor, { section: "nodes" });
+    expect(map(mounted).props("source")).toBe("stale");
+    expect(map(mounted).props("error")).toBe("nope");
+    expect(map(mounted).props("resolving")).toBe(false);
+  });
+
+  it("follows a resolve in flight until it lands", async () => {
+    api.getGeo.mockResolvedValue({ ...EMPTY_GEO, source: "structural", resolve_task: "t1" });
+    const mounted = await mountEditor(NodesEditor, { section: "nodes" });
+    expect(map(mounted).props("resolving")).toBe(true);
+    expect(map(mounted).props("source")).toBe("structural");
+
+    api.getGeo.mockResolvedValue({ ...EMPTY_GEO, source: "resolved" });
+    // The poll is on a real timer; waited for rather than slept through.
+    await vi.waitFor(() => expect(map(mounted).props("resolving")).toBe(false), {
+      timeout: 5000,
+    });
+    expect(map(mounted).props("source")).toBe("resolved");
+  });
+
   it("opens on the map, and lists the section's nodes when asked", async () => {
     const mounted = await mountEditor(NodesEditor, { section: "nodes" });
     expect(mounted.find("editor-map").exists()).toBe(true);

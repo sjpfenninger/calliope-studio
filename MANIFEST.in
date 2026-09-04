@@ -1,6 +1,0 @@
-# `.claude/settings.json` is tracked on purpose — the agent guardrails belong
-# with the repository rather than in one developer's global config — but
-# setuptools-scm's file finder takes its list from git, so being tracked is
-# exactly what swept it into the sdist. It is developer tooling, of no use to
-# anyone installing this, and the sdist is what conda-forge builds from.
-prune .claude

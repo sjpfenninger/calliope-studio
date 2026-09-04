@@ -139,6 +139,63 @@ async function run() {
     }
   }
 
+  // ── the frozen model, as a CSV ────────────────────────────────────────────
+  //
+  // A run freezes every file the model refers to, data tables included, and
+  // the panel renders a `.csv` as a table rather than as text. Only
+  // `run-lifecycle` opens this panel at all, and it clicks nothing but
+  // `model.yaml` — so the table branch was drawn by nothing, on a check that
+  // costs a full solve. Here it costs a cancelled build, which freezes the
+  // same tree.
+  await testId("run-subtab-config").click();
+  await testId("snapshot-tree").waitFor({ timeout: 20000 });
+  // The tree's element is on screen before its contents are: the listing is a
+  // request. Waiting for the element alone left every locator below looking at
+  // an empty tree.
+  await until(
+    async () => (await testId("snapshot-tree").getByRole("treeitem").count()) > 0,
+    { timeout: 20000 },
+  );
+  // Folders come collapsed, and the data tables live in one. Bounded rather
+  // than `while`, so a tree that will not open fails as a skip and not a hang.
+  const collapsed = () =>
+    testId("snapshot-tree").locator('[role="treeitem"][aria-expanded="false"]');
+  for (let depth = 0; depth < 4 && (await collapsed().count()) > 0; depth += 1) {
+    const before = await testId("snapshot-tree").getByRole("treeitem").count();
+    await collapsed().first().click();
+    await until(async () => (await testId("snapshot-tree").getByRole("treeitem").count()) > before);
+  }
+
+  // Each row carries its size on a second line, so the name is matched inside
+  // the row rather than as the whole of it.
+  const csvRow = testId("snapshot-tree").getByRole("treeitem").filter({ hasText: /\.csv/ }).first();
+  if ((await csvRow.count()) === 0) {
+    skip(
+      `the frozen tree holds no CSV to open (${JSON.stringify(
+        await testId("snapshot-tree").getByRole("treeitem").allInnerTexts(),
+      )})`,
+    );
+  } else {
+    const name = (await csvRow.innerText()).split("\n")[0].trim();
+    await csvRow.click();
+    check(
+      `a frozen CSV opens as a table rather than as text (${name})`,
+      await until(async () => (await testId("snapshot-csv").count()) === 1),
+    );
+    check("…with rows in it", (await testId("snapshot-csv").locator("tbody tr").count()) > 0);
+    check(
+      "…and a header naming its columns",
+      (await testId("snapshot-csv").locator("thead th").count()) > 0,
+    );
+    // The whole point of a snapshot is that it is the model as it was, so it
+    // is shown and never offered for editing.
+    check(
+      "…and nothing in it invites an edit",
+      (await testId("snapshot-csv").locator("input, textarea").count()) === 0,
+    );
+  }
+  await testId("run-subtab-log").click();
+
   // ── rename ────────────────────────────────────────────────────────────────
   await openMenu();
   await testId("run-rename-action").click();

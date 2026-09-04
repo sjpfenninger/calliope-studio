@@ -185,6 +185,65 @@ try {
     JSON.stringify(parse(after).config),
   );
 
+  // ── The key/value rows, which are the other half of this editor ─────────
+  //
+  // `solver_options` is a mapping with no schema, so it is edited as rows —
+  // and nothing anywhere drove them. The rows are keyed by identity precisely
+  // because they are seeded once at setup: keyed by index, removing one hands
+  // the next row's key to a component still holding the removed row's text,
+  // and the save writes one under the other. That is the failure this block
+  // exists for, so it removes a row from the *middle* and checks its
+  // neighbours by name afterwards.
+  // Scoped to the one group: `resample` is a mapping too, so an unscoped
+  // "Add a row" adds to whichever comes first and an unscoped `last()` key
+  // field is somebody else's row. That mistake renamed `mip_start` here, which
+  // is precisely the class of damage this block is meant to detect.
+  const group = page.locator('[data-testid="schema-rows"][data-key="solver_options"]');
+  const rowKeys = () => group.getByPlaceholder("key");
+  const rowValues = () => group.getByPlaceholder("value");
+  const rowsBefore = await rowKeys().count();
+
+  await group.getByRole("button", { name: "Add a row" }).click();
+  check("adding a row gives it an empty pair", (await rowKeys().count()) === rowsBefore + 1);
+
+  await rowKeys().last().fill("time_limit");
+  await rowValues().last().fill("60");
+  await rowValues().last().press("Tab");
+  await save();
+
+  let options = parse(await readFile("model.yaml")).config.solve.solver_options;
+  check("a row the user added is written", options.time_limit === 60, JSON.stringify(options));
+  check(
+    "…beside the rows that were already there",
+    options.threads === 4 && options.mip_start === "04",
+    JSON.stringify(options),
+  );
+
+  // Editing the key of an existing row, which moves a value rather than
+  // adding one.
+  const threadsRow = rowKeys().first();
+  await threadsRow.fill("threads_renamed");
+  await threadsRow.press("Tab");
+  await save();
+  options = parse(await readFile("model.yaml")).config.solve.solver_options;
+  check(
+    "renaming a row's key moves its value",
+    options.threads_renamed === 4 && options.threads === undefined,
+    JSON.stringify(options),
+  );
+
+  // And out again. The middle one, so a wrong key would land on a neighbour.
+  await group.getByRole("button", { name: "Remove this row" }).first().click();
+  await save();
+  options = parse(await readFile("model.yaml")).config.solve.solver_options;
+  check(
+    "removing a row takes only that row",
+    options.threads_renamed === undefined &&
+      options.mip_start === "04" &&
+      options.time_limit === 60,
+    JSON.stringify(options),
+  );
+
   // ── An unrecognised key is visible, and removable ───────────────────────
   check(
     "a key Calliope does not know is shown as unrecognised",

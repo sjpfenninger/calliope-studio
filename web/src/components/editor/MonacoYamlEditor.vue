@@ -676,6 +676,18 @@ onUnmounted(() => {
       Read-only: this file has bytes that are not UTF-8, and saving it from here
       would replace them. Fix the encoding outside the app.
     </Banner>
+    <!-- A section or entry tab's buffer is `yamlStringify` of the section's
+         *data*, and saving parses it and PUTs that data — so the file's
+         comments never appear here, a comment typed here has nowhere on the
+         server to go, and the merge keeps the file's own key order whatever
+         order the buffer is in. Values, additions and deletions all apply.
+         Said out loud because the alternative is a text editor that silently
+         drops half of what is typed into it; the file tab beside it, which
+         saves its bytes verbatim, sets exactly the opposite expectation. -->
+    <Banner v-else-if="virtualTab" testid="section-raw-notice">
+      Comments and ordering are not saved from here — this view holds the
+      section's data, not the file's text.
+    </Banner>
     <div ref="containerRef" class="monaco-container min-h-0 flex-1" />
   </div>
 </template>

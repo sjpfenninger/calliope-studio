@@ -116,6 +116,125 @@ describe("TabBar", () => {
     expect(tabs.has(id)).toBe(false);
   });
 
+  it("closes on a middle click, and asks first when the tab is dirty", async () => {
+    // Middle click is the one close route that does not go through the close
+    // glyph, so it is the one that could quietly bypass `closeGuarded` — and a
+    // dirty buffer is the only copy of the user's edits.
+    const clean = tabs.openFile("model.yaml");
+    const dirty = tabs.openFile("techs.yaml");
+    tabs.markDirty(dirty, "raw");
+    const confirm = useConfirmStore();
+    const wrapper = render();
+
+    await tabButton(wrapper, clean).trigger("auxclick", { button: 1 });
+    await nextTick();
+    expect(tabs.has(clean)).toBe(false);
+
+    await tabButton(wrapper, dirty).trigger("auxclick", { button: 1 });
+    await nextTick();
+    expect(confirm.request).not.toBeNull();
+    expect(tabs.has(dirty)).toBe(true);
+    confirm.answer(true);
+    await settled();
+    expect(tabs.has(dirty)).toBe(false);
+  });
+
+  it("ignores a right click, which has its own meaning", async () => {
+    const id = tabs.openFile("model.yaml");
+    const wrapper = render();
+
+    await tabButton(wrapper, id).trigger("auxclick", { button: 2 });
+    await nextTick();
+
+    expect(tabs.has(id)).toBe(true);
+  });
+
+  it("closes from the close glyph on Enter and on Space", async () => {
+    // `role="button"` promises both, and the glyph is a tab stop of its own —
+    // without this it is a control a keyboard can reach and cannot use.
+    for (const key of ["Enter", " "]) {
+      const id = tabs.openFile(`${key === " " ? "space" : "enter"}.yaml`);
+      const wrapper = render();
+
+      await tabButton(wrapper, id)
+        .find('[aria-label="Close tab"]')
+        .trigger("keydown", { key });
+      await nextTick();
+
+      expect(tabs.has(id), key).toBe(false);
+      wrapper.unmount();
+    }
+  });
+
+  it("leaves other keys on the close glyph alone", async () => {
+    const id = tabs.openFile("model.yaml");
+    const wrapper = render();
+
+    await tabButton(wrapper, id)
+      .find('[aria-label="Close tab"]')
+      .trigger("keydown", { key: "a" });
+    await nextTick();
+
+    expect(tabs.has(id)).toBe(true);
+  });
+
+  describe("scrolling the strip", () => {
+    /**
+     * A mouse has only a vertical wheel, so without this a tab scrolled off the
+     * end is unreachable by anything but the keyboard. happy-dom reports every
+     * element as zero-sized, so the overflow the handler tests for has to be
+     * declared here.
+     */
+    const strip = (wrapper: ReturnType<typeof render>) =>
+      wrapper.find('[data-testid="tab-strip"]').element as HTMLElement;
+
+    const overflowing = (el: HTMLElement, scrollWidth: number, clientWidth: number) => {
+      Object.defineProperty(el, "scrollWidth", { value: scrollWidth, configurable: true });
+      Object.defineProperty(el, "clientWidth", { value: clientWidth, configurable: true });
+      el.scrollLeft = 0;
+    };
+
+    it("turns a vertical wheel into horizontal scrolling", async () => {
+      const wrapper = render();
+      tabs.openFile("model.yaml");
+      await nextTick();
+      const el = strip(wrapper);
+      overflowing(el, 800, 400);
+
+      await wrapper.find('[data-testid="tab-strip"]').trigger("wheel", { deltaY: 120, deltaX: 0 });
+
+      expect(el.scrollLeft).toBe(120);
+    });
+
+    it("leaves a trackpad's horizontal delta alone", async () => {
+      // The browser already scrolls the strip for that one; taking it over
+      // would double every swipe.
+      const wrapper = render();
+      tabs.openFile("model.yaml");
+      await nextTick();
+      const el = strip(wrapper);
+      overflowing(el, 800, 400);
+
+      await wrapper
+        .find('[data-testid="tab-strip"]')
+        .trigger("wheel", { deltaY: 10, deltaX: 90 });
+
+      expect(el.scrollLeft).toBe(0);
+    });
+
+    it("does nothing when everything already fits", async () => {
+      const wrapper = render();
+      tabs.openFile("model.yaml");
+      await nextTick();
+      const el = strip(wrapper);
+      overflowing(el, 400, 400);
+
+      await wrapper.find('[data-testid="tab-strip"]').trigger("wheel", { deltaY: 120, deltaX: 0 });
+
+      expect(el.scrollLeft).toBe(0);
+    });
+  });
+
   it("gives the close control an accessible name", () => {
     // It is an X glyph with no text, so without this it is announced as
     // "button" — and it is the only pointer route to closing a tab.

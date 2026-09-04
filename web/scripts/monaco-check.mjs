@@ -199,6 +199,16 @@ try {
   await scenariosTab.dblclick();
   await until(async () => (await buffer()).includes("cold_fusion"), { timeout: 20000 });
 
+  // A *file* tab saves its bytes verbatim, comments included. The notice that
+  // a section's raw view carries — that comments and ordering are not saved —
+  // would be false here, and a banner that lies about losing a user's comments
+  // is worse than no banner: the two views are the same editor with opposite
+  // contracts, and only the condition on that banner keeps them apart.
+  check(
+    "a file tab does not claim its comments are unsaved",
+    (await testId("section-raw-notice").count()) === 0,
+  );
+
   // Rename a scenario in the structured editor and save. `fill` rather than
   // keystrokes: the entry list re-renders on the first name change, and a
   // remounted input drops the keystrokes still in flight.

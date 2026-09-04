@@ -68,6 +68,16 @@ interface DataTableEntry {
 }
 
 const entries = ref<DataTableEntry[]>([]);
+/**
+ * Which rows are expanded, by `rowKey`.
+ *
+ * State rather than Reka's `:default-value`, which is read once: a table added
+ * after mount was not in that set, so "Add table" produced a collapsed
+ * `(unnamed)` row with its name field unreachable until the user expanded it
+ * by hand. The other five entry editors were given this and this one was
+ * missed.
+ */
+const openRows = ref<string[]>([]);
 
 // ---------------------------------------------------------------------------
 // One vs all
@@ -341,6 +351,7 @@ const {
       rememberName(entry, entry.name);
       loadedKeys.set(entry, new Set(Object.keys(entry.data)));
     }
+    openRows.value = entries.value.map(rowKey);
     formDirty.value = false;
   },
   build: buildPayload,
@@ -388,7 +399,9 @@ const {
 
 function addEntry() {
   entries.value.push({ name: "", data: {} });
-  focus.request(rowKey(entries.value[entries.value.length - 1]));
+  const key = rowKey(entries.value[entries.value.length - 1]);
+  openRows.value = [...openRows.value, key];
+  focus.request(key);
   touchForm();
 }
 
@@ -548,11 +561,7 @@ onUnmounted(() => clearTimeout(reloadTimer));
 
       <!-- Every table in the file. -->
       <div v-else class="min-h-0 flex-1 overflow-auto">
-        <Accordion
-          type="multiple"
-          :default-value="visibleEntries.map(({ entry }) => rowKey(entry))"
-          class="px-2 py-1"
-        >
+        <Accordion v-model="openRows" type="multiple" class="px-2 py-1">
           <!-- Keyed by the table's own identity, never by its position.
                `SchemaObjectEditor` keeps text and row drafts seeded once at
                setup and says in its own docblock that it relies on the parent

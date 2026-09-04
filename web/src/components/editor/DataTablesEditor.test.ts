@@ -16,7 +16,9 @@ import * as system from "@/api/system";
 import * as versions from "@/api/versions";
 import { useTabsStore } from "@/stores/tabs";
 import {
+  answerConfirm,
   mountEditor,
+  pressSave,
   resetVersionsApi,
   rowNames,
   section,
@@ -228,6 +230,53 @@ describe("DataTablesEditor", () => {
     expect(api.putCsv.mock.invocationCallOrder[0]).toBeLessThan(
       api.putYamlSection.mock.invocationCallOrder[0]!,
     );
+  });
+
+  it("adds a table open, and writes it into the section it already had", async () => {
+    // Two things at once. The whole section is written every time, so an
+    // addition that dropped the tables already there would empty a user's
+    // file. And the new row has to open: Reka reads `default-value` once, so
+    // this editor — the one of six that never got an open-set ref — produced a
+    // collapsed `(unnamed)` row whose name field could not be reached.
+    const mounted = await open();
+
+    const add = mounted.host
+      .findAll("button")
+      .find((button) => button.text().includes("Add table"))!;
+    await add.trigger("click");
+    await flushPromises();
+
+    const names = mounted.findAll("dt-entry").map((row) => row.attributes("data-name"));
+    expect(names).toEqual(["demand", "costs", "(unnamed)"]);
+
+    await nameInput(mounted, 2).setValue("new_table");
+    pressSave();
+    await flushPromises();
+
+    const [, , , payload] = api.putYamlSection.mock.calls[0]!;
+    expect(Object.keys(payload as object)).toEqual(["demand", "costs", "new_table"]);
+  });
+
+  it("asks before removing a table, and keeps it if the answer is no", async () => {
+    // Removing one takes every field it owns with it, which is the line above
+    // which these editors confirm.
+    const mounted = await open();
+    const row = mounted.host.find('[data-testid="dt-entry"][data-name="demand"]');
+
+    await row.find('[data-testid="entry-remove"]').trigger("click");
+    await answerConfirm(false);
+    expect(mounted.findAll("dt-entry")).toHaveLength(2);
+
+    await row.find('[data-testid="entry-remove"]').trigger("click");
+    await answerConfirm(true);
+    await flushPromises();
+
+    expect(mounted.findAll("dt-entry").map((r) => r.attributes("data-name"))).toEqual(["costs"]);
+
+    pressSave();
+    await flushPromises();
+    const [, , , payload] = api.putYamlSection.mock.calls[0]!;
+    expect(Object.keys(payload as object)).toEqual(["costs"]);
   });
 
   it("does not follow a table: change while the grid holds unsaved cells", async () => {

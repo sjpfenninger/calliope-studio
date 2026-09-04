@@ -244,7 +244,9 @@ const viewSegments = computed(() => [
         <!-- Row heights match AG Grid's `--cg-row-h`: the same CSV opens in a
              grid one tab away, and a table of the same file at two rhythms
              reads as two different files. -->
-        <table v-else-if="csv" class="w-full text-sm">
+        <!-- Its own testid: it is a sibling of the text pane rather than
+             inside it, so `snapshot-content` cannot reach it. -->
+        <table v-else-if="csv" data-testid="snapshot-csv" class="w-full text-sm">
           <thead class="sticky top-0 bg-panel">
             <tr>
               <th

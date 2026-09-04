@@ -31,11 +31,11 @@
  * buffer without leaving the shell. Middle-click shares the code path, so the
  * X is the one exercised here.
  */
-import { baseFrom, openWorkspace, quiet, results } from "./harness.mjs";
+import { baseFrom, openWorkspace, quiet, results, until } from "./harness.mjs";
 
 const BASE = baseFrom(process.argv);
 
-const { check, finish } = results("confirm");
+const { check, skip, finish } = results("confirm");
 const { browser, page, testId, consoleErrors, calls, enter } = await openWorkspace(BASE);
 
 // If the native dialog ever comes back, this records it rather than letting
@@ -81,6 +81,73 @@ try {
   // beats waiting for a duration and then hoping.
   await testId("tab-dirty").first().waitFor({ timeout: 5000 });
   check("typing into an editor marks its tab unsaved", true);
+
+  // -- the override picker, which is a popup over a popup --------------------
+  //
+  // `MultiSelect` is a Popover wrapping the Command list, and nothing else in
+  // the suite opens one — so its whole component tree, which two editors put in
+  // front of users, was drawn by no check at all. Placement is the assertion
+  // that matters, for `menu-check`'s reason: Reka parks a popper at
+  // `translate(0, -200%)` until floating-ui gives it an anchor, and there it
+  // stays clickable by a script while being invisible to a person.
+  const picker = testId("scenario").first().getByRole("combobox").first();
+  const options = () => page.locator('[data-slot="command-item"]');
+  await picker.click();
+  await page.locator('[data-slot="command-list"]').waitFor({ timeout: 8000 });
+  await quiet(400);
+
+  const where = await page.evaluate(() => {
+    const content = document.querySelector('[data-slot="popover-content"]');
+    if (!content) return null;
+    const box = content.getBoundingClientRect();
+    return {
+      anchored: (content.parentElement?.getAttribute("style") ?? "").includes(
+        "--reka-popper-anchor-width",
+      ),
+      onScreen:
+        box.width > 0 &&
+        box.height > 0 &&
+        box.top >= 0 &&
+        box.bottom <= window.innerHeight &&
+        box.right <= window.innerWidth,
+    };
+  });
+  check("the override picker anchors to its trigger", where?.anchored === true, JSON.stringify(where));
+  check("and opens where it can be seen", where?.onScreen === true, JSON.stringify(where));
+
+  const offered = await options().count();
+  if (offered === 0) {
+    skip("picking an override (this model defines none)");
+  } else {
+    const first = (await options().first().innerText()).trim();
+    const before = (await picker.innerText()).trim();
+    await options().first().click();
+    // The trigger summarises rather than lists — badges up to a character
+    // budget and then a count — and clicking an option that is already chosen
+    // takes it out again. Either way the trigger has to say something new, or
+    // the pick reached no model at all.
+    await until(async () => (await picker.innerText()).trim() !== before);
+    check(
+      "picking an override changes what the trigger says",
+      (await picker.innerText()).trim() !== before,
+      `${first}: "${before}" -> "${(await picker.innerText()).trim()}"`,
+    );
+
+    // The list is searchable because a model may define dozens; a filter that
+    // matched nothing used to be the only way to discover it had one.
+    const search = page.getByPlaceholder("Search…").or(page.locator('[data-slot="command-input"]'));
+    await search.first().fill(first.slice(0, 3));
+    await until(async () => (await options().count()) > 0);
+    check("typing narrows the list", (await options().count()) <= offered);
+
+    await search.first().fill("no_such_override_anywhere");
+    await page.locator('[data-slot="command-empty"]').waitFor({ timeout: 5000 });
+    check("and a query that matches nothing says so", true);
+  }
+
+  await page.keyboard.press("Escape");
+  await quiet(300);
+  check("Escape closes the picker", !(await page.locator('[data-slot="command-list"]').isVisible()));
 
   // -- removing an entry asks the same way ----------------------------------
   // A scenario owns its list of overrides, so taking it out of the form goes

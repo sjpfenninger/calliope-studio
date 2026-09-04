@@ -53,7 +53,7 @@ const MATH_BODY = `constraints:
       - expression: flow_cap <= flow_cap_max
 `;
 
-const { check, finish } = results("math");
+const { check, skip, finish } = results("math");
 
 const payload = requireMode(await health(BASE), "workspace", BASE);
 const ws = payload.workspace_id;
@@ -332,6 +332,59 @@ try {
     (await componentRow("check_only_constraint").count()) === 1 &&
       (await componentRow("balance_demand").count()) === 1,
   );
+
+  // ── The text filter, and the empty state that says why ──────────────────
+  //
+  // A model's formulation runs to a few hundred components, so the field is
+  // how anybody finds one. Its empty state matters as much: a filter that
+  // matches nothing and says nothing is indistinguishable from a render that
+  // returned nothing.
+  await testId("math-user-only").click();
+  const filter = page.getByPlaceholder("Filter components…");
+  await filter.fill("balance_demand");
+  await until(async () => (await page.locator("[data-math-component]").count()) > 0);
+  const narrowed = await page.locator("[data-math-component]").count();
+  check(
+    `the filter narrows to what was typed (${narrowed})`,
+    narrowed > 0 && (await componentRow("balance_demand").count()) === 1,
+  );
+
+  await filter.fill("no_such_component_anywhere");
+  check(
+    "and says so when nothing matches, quoting the query",
+    await until(async () =>
+      (await testId("math-list").innerText()).includes("no_such_component_anywhere"),
+    ),
+    await testId("math-list").innerText().catch(() => ""),
+  );
+  await filter.fill("");
+  await until(async () => (await page.locator("[data-math-component]").count()) > 1);
+
+  // ── Cancelling a render ─────────────────────────────────────────────────
+  //
+  // A render is seconds of CPU in a subprocess, so it is cancellable, and
+  // `validation-check` pins the same control for the other long task. What
+  // must survive is the rendering already on screen: a cancelled render has no
+  // answer of its own, and throwing the last one away would punish the user
+  // for changing their mind.
+  const listedBefore = await page.locator("[data-math-component]").count();
+  await testId("math-refresh").click();
+  if (await until(async () => /Rendering/.test(await testId("math-status").innerText()), { timeout: 20000 })) {
+    await testId("math-cancel").click();
+    check(
+      "cancelling stops the render",
+      await until(async () => !/Rendering/.test(await testId("math-status").innerText())),
+      await testId("math-status").innerText(),
+    );
+    check(
+      "…and keeps the rendering that was already there",
+      (await page.locator("[data-math-component]").count()) === listedBefore,
+    );
+    check("…and the tab stops reporting work", (await page.locator('[data-testid="tab-math"][data-busy]').count()) === 0);
+  } else {
+    // A cache hit answers before anything could look; nothing to cancel.
+    skip("cancelling a render (it finished before it could be caught)");
+  }
 
   // ── The config editor must not revert what the files panel wrote ────────
   //

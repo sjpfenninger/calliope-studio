@@ -245,6 +245,80 @@ await guard(browser, consoleErrors, async () => {
     );
 
     // -----------------------------------------------------------------------
+    // The same section, edited as text.
+    //
+    // A *clean* section tab in the Source view is a file-writing path nobody
+    // drove: the block above only ever reaches it with the form dirty, where
+    // it is read-only and asserts a banner. Here Monaco holds the section
+    // itself, an edit typed into it is saved with the same shortcut, and the
+    // form on the other side of the switch has to come back agreeing with the
+    // file — the two views are two editors over one buffer, and a save from
+    // either has to leave the other telling the truth.
+    // -----------------------------------------------------------------------
+
+    await mode("source").click();
+    check(
+      "a clean section opens for editing rather than read-only",
+      await until(async () => (await testId("locked-banner").count()) === 0),
+    );
+    check(
+      "and Monaco holds the section",
+      await until(async () => (await page.locator(".view-lines").count()) > 0),
+    );
+    // This buffer is the section's *data* re-serialised, and the save PUTs
+    // that data — so a comment typed here reaches nothing and the file's own
+    // key order survives whatever order the buffer is in. The file tab beside
+    // it saves its bytes verbatim, which is the opposite expectation, so the
+    // difference is stated on screen rather than left to be discovered.
+    check(
+      "and says that comments and ordering are not saved from it",
+      (await testId("section-raw-notice").count()) === 1,
+    );
+
+    // A value, edited as text. Double-click selects the token in Monaco, so
+    // this needs no cursor arithmetic and no platform-specific jump binding.
+    // A *comment* would prove nothing here: this view holds the section rather
+    // than the file, and the save sends its parsed data, so a comment typed
+    // into it has nowhere on the server to go.
+    const CAPACITY = "flow_cap_max";
+    const wasCapacity = parse(await files.read(TECHS_FILE)).techs.ccgt[CAPACITY];
+    await page
+      .locator(".view-lines")
+      .getByText(String(wasCapacity), { exact: true })
+      .first()
+      .dblclick();
+    await page.keyboard.type(String(wasCapacity + 1));
+    check("typing into the source marks the tab unsaved", (await dirtyDots()) === 1);
+
+    // The shortcut, not the toolbar button: the toolbar belongs to the form,
+    // which is not on screen, so Cmd+S is the only save this view offers.
+    await calls.settle(() => page.keyboard.press(`${MOD}+s`), { timeout: 30000 });
+    const edited = parse(await files.read(TECHS_FILE)).techs;
+    check(
+      "saving from the source writes the value it was given",
+      edited.ccgt[CAPACITY] === wasCapacity + 1,
+      `${wasCapacity} → ${edited.ccgt[CAPACITY]}`,
+    );
+    check(
+      "…and leaves every other technology where it was",
+      Object.keys(edited).join(",") === techKeysBefore,
+      Object.keys(edited).join(","),
+    );
+    check("…and the tab is clean again", (await dirtyDots()) === 0);
+
+    await mode("form").click();
+    await row("ccgt").waitFor({ timeout: 20000 });
+    // The value is in a field, so `innerText` cannot see it.
+    const shown = await row("ccgt")
+      .locator("input")
+      .evaluateAll((fields) => fields.map((field) => field.value));
+    check(
+      "the form comes back reading what the source wrote",
+      shown.includes(String(wasCapacity + 1)),
+      shown.join(","),
+    );
+
+    // -----------------------------------------------------------------------
     // Nodes: Cmd+S from inside the field, then a rename that must not unmount.
     // -----------------------------------------------------------------------
 

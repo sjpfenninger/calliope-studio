@@ -537,9 +537,15 @@ function flushRowsFor(entry: FieldEntry) {
 
         <!-- A mapping is a group of rows, not one control, so it gets a heading
              and its own rows in the same gutter rather than a label beside it. -->
+        <!-- The only testid in this component, and it earns its place: a
+             mapping's rows are otherwise reachable only by placeholder, which
+             is not unique — several sections have them — so a check aiming at
+             one group silently edited another's last row. -->
         <div
           v-else-if="entry.widget === 'keyValue' || entry.widget === 'keyValueRange'"
           class="flex flex-col gap-1"
+          data-testid="schema-rows"
+          :data-key="entry.key"
         >
           <div class="flex items-center justify-between">
             <InfoTip :label="entry.description ?? ''" side="right">

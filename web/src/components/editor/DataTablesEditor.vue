@@ -34,7 +34,7 @@ import { formatCount } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { useFocusNew } from "./focusNew";
 
-import { rowKey } from "@/lib/entries";
+import { rememberName, renamesFor, rowKey } from "@/lib/entries";
 import { resolveDataPath } from "@/lib/modelPaths";
 import { useCsvGrid } from "@/composables/useCsvGrid";
 import { useConfirmStore } from "@/stores/confirm";
@@ -261,8 +261,14 @@ watch(
 
 const formDirty = ref(false);
 
-/** Which keys each table had on load, so a null placeholder is not deleted. */
-const loadedKeys = ref<Record<string, Set<string>>>({});
+/**
+ * Which keys each table had on load, so a null placeholder is not deleted.
+ *
+ * Keyed on the row, not its name: a rename is the one edit that changes the
+ * name, and keyed on the name this answered "nothing" for a renamed table, so
+ * the save after a rename stripped the placeholder the set exists to keep.
+ */
+const loadedKeys = new WeakMap<DataTableEntry, ReadonlySet<string>>();
 const EMPTY_KEYS: ReadonlySet<string> = new Set();
 
 function touchForm() {
@@ -281,7 +287,7 @@ function buildPayload(): Record<string, any> {
     // placeholder parses to null, and stripping it deleted the line — and its
     // comment — out of a save that touched a different field entirely. A key
     // that was there on load stays there.
-    const wasPresent = loadedKeys.value[e.name] ?? EMPTY_KEYS;
+    const wasPresent = loadedKeys.get(e) ?? EMPTY_KEYS;
     const payload: Record<string, any> = {};
     for (const [k, v] of Object.entries(e.data)) {
       if ((v !== null && v !== undefined) || wasPresent.has(k)) payload[k] = v;
@@ -326,12 +332,12 @@ const {
       name,
       data: raw ?? {},
     }));
-    loadedKeys.value = Object.fromEntries(
-      Object.entries(data).map(([name, raw]) => [
-        name,
-        new Set(Object.keys((raw as Record<string, unknown>) ?? {})),
-      ]),
-    );
+    // Through `entries.value`, so the keys are the proxies the template and
+    // `buildPayload` reach the rows by.
+    for (const entry of entries.value) {
+      rememberName(entry, entry.name);
+      loadedKeys.set(entry, new Set(Object.keys(entry.data)));
+    }
     formDirty.value = false;
   },
   build: buildPayload,
@@ -360,8 +366,16 @@ const {
    * optimisation, and is what `save-check` asserts.
    */
   shouldWrite: () => formDirty.value,
+  renames: () => renamesFor(entries.value),
   after(written) {
-    if (written) formDirty.value = false;
+    if (written) {
+      formDirty.value = false;
+      // The file now says each row's current name, so a later rename is
+      // measured from that.
+      for (const entry of entries.value) {
+        if (entry.name) rememberName(entry, entry.name);
+      }
+    }
   },
 });
 

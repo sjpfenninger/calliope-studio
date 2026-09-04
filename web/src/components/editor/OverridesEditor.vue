@@ -127,7 +127,7 @@ const {
         revision,
       ),
   },
-  apply(data) {
+  async apply(data) {
     entries.value = Object.entries(data as Record<string, Setting[]>).map(
       ([name, settings]) => ({
         name,
@@ -135,6 +135,11 @@ const {
       }),
     );
     openRows.value = entries.value.map(rowKey);
+    // The path suggestions read the tree, and only the explorer used to load
+    // it — so an overrides tab in front on a URL that opens on Files or Runs
+    // suggested the five config paths and nothing of the model's own. Cheap:
+    // the store returns immediately once loaded, and the explorer usually has.
+    await componentTree.load(props.versionId);
   },
   // A path that cannot exist — `config.init.name.deeper`, where `name` holds a
   // string — comes back as a 400 saying so, and nothing was written.

@@ -95,6 +95,13 @@ export interface SectionEditorOptions {
   /** Component state → the section to write. */
   build: () => SectionData;
   /**
+   * `{new: old}` for every entry renamed since the load, sent beside the
+   * section so the server moves the key in place. Without it a rename is a
+   * deletion and an addition: the entry lands at the end of the file and its
+   * comments go with the deleted key. See `lib/entries.ts::renamesFor`.
+   */
+  renames?: () => Record<string, string>;
+  /**
    * Written before the section is. For the one editor that owns a CSV as well,
    * where the cell edits are the expensive half and so go first.
    */
@@ -132,6 +139,7 @@ export interface SectionEditorOptions {
       path: string,
       data: SectionData,
       revision: string | null,
+      renames: Record<string, string>,
     ) => Promise<string | null>;
   };
 }
@@ -163,8 +171,13 @@ export function useSectionEditor(options: SectionEditorOptions) {
       readYamlSection(versionId, path, options.section));
   const write =
     options.transport?.write ??
-    ((versionId: string, path: string, data: SectionData, revision: string | null) =>
-      putYamlSection(versionId, path, options.section, data, revision));
+    ((
+      versionId: string,
+      path: string,
+      data: SectionData,
+      revision: string | null,
+      renames: Record<string, string>,
+    ) => putYamlSection(versionId, path, options.section, data, revision, renames));
 
   const ids = () => ({
     versionId: toValue(options.versionId),
@@ -258,7 +271,13 @@ export function useSectionEditor(options: SectionEditorOptions) {
       await options.beforeWrite?.();
       if (options.shouldWrite?.() ?? true) {
         written = options.build();
-        const revision = await write(versionId, path, written, cache.revisionOf(path));
+        const revision = await write(
+          versionId,
+          path,
+          written,
+          cache.revisionOf(path),
+          options.renames?.() ?? {},
+        );
         cache.set(versionId, path, options.section, written);
         cache.setRevision(path, revision);
         cache.noteFileWritten(path);

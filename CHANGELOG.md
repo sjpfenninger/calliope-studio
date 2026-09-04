@@ -21,6 +21,7 @@ Fixes:
 - Removing a technology, node, link, data table, scenario or override asks first
 - Sidebar width, the nodes/links List/Map choice and the link template are remembered
 - Time series zoom survives other plot option selections
+- Renaming a technology, link, node, data table or scenario doesn't move it in the file
 - Various other UI fixes
 - Better UI testing, browser checks included in frontend test coverage
 

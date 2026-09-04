@@ -148,7 +148,25 @@ describe("useSectionEditor", () => {
     await flushPromises();
     await editor.save();
 
-    expect(api.put).toHaveBeenCalledWith("v1", "a.yaml", "techs", { built: true }, "r1");
+    expect(api.put).toHaveBeenCalledWith("v1", "a.yaml", "techs", { built: true }, "r1", {});
+    wrapper.unmount();
+  });
+
+  it("sends the editor's renames beside the section", async () => {
+    // A rename that travels as a plain section is a deletion and an addition
+    // to the server: the entry lands at the end of the file without its
+    // comments. The editor says what was renamed; the composable's only job is
+    // to pass it on, and to send nothing when there is nothing.
+    api.get.mockResolvedValue(read({}, "r1"));
+    api.put.mockResolvedValue("r2");
+
+    const { editor, wrapper } = harness({ renames: () => ({ gas: "ccgt" }) });
+    await flushPromises();
+    await editor.save();
+
+    expect(api.put).toHaveBeenCalledWith("v1", "a.yaml", "techs", { built: true }, "r1", {
+      gas: "ccgt",
+    });
     wrapper.unmount();
   });
 

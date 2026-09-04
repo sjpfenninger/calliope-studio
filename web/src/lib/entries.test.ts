@@ -9,6 +9,9 @@ import {
   rawToNode,
   parseScalar,
   rawToTech,
+  loadedName,
+  rememberName,
+  renamesFor,
   rowKey,
   techToRaw,
 } from "./entries";
@@ -306,5 +309,58 @@ describe("rowKey", () => {
     const captured = list[0];
     list[0].name = "renamed";
     expect(rowKey(captured)).toBe(rowKey(list[0]));
+  });
+});
+
+describe("renamesFor", () => {
+  // What the server is told beside the section. A rename it is not told about
+  // is a deletion and an addition: the entry goes to the end of the file and
+  // its comments go with the deleted key.
+  function loaded(...names: string[]) {
+    const rows = reactive(names.map((name) => ({ name })));
+    for (const row of rows) rememberName(row, row.name);
+    return rows;
+  }
+
+  it("reports nothing for rows still called what they were loaded as", () => {
+    expect(renamesFor(loaded("ccgt", "battery"))).toEqual({});
+  });
+
+  it("maps a new name to the one it was loaded under", () => {
+    const rows = loaded("ccgt", "battery");
+    rows[0]!.name = "gas";
+    expect(renamesFor(rows)).toEqual({ gas: "ccgt" });
+    expect(loadedName(rows[0]!)).toBe("ccgt");
+  });
+
+  it("reports a swap as two renames", () => {
+    const rows = loaded("ccgt", "battery");
+    rows[0]!.name = "battery";
+    rows[1]!.name = "ccgt";
+    expect(renamesFor(rows)).toEqual({ battery: "ccgt", ccgt: "battery" });
+  });
+
+  it("treats a row added this session as an addition, not a rename", () => {
+    const rows = loaded("ccgt");
+    rows.push({ name: "solar" });
+    expect(renamesFor(rows)).toEqual({});
+  });
+
+  it("says nothing about a row renamed to nothing, or back to its own name", () => {
+    // A blank name is a row the payload drops, not a rename; a name typed
+    // back to what it was is no change at all.
+    const rows = loaded("ccgt", "battery");
+    rows[0]!.name = "";
+    rows[1]!.name = "cell";
+    rows[1]!.name = "battery";
+    expect(renamesFor(rows)).toEqual({});
+  });
+
+  it("measures a later rename from the name the last save wrote", () => {
+    const rows = loaded("ccgt");
+    rows[0]!.name = "gas";
+    rememberName(rows[0]!, rows[0]!.name);
+    rows[0]!.name = "gas_turbine";
+    expect(renamesFor(rows)).toEqual({ gas_turbine: "gas" });
   });
 });

@@ -59,6 +59,8 @@ import {
 import {
   linkToRaw,
   rawToLink,
+  rememberName,
+  renamesFor,
   rowKey,
   type LinkEntry,
 } from "@/lib/entries";
@@ -270,7 +272,7 @@ function buildPayload(): Record<string, RawTech> {
   for (const entry of entries.value) {
     if (entry.name) edited[entry.name] = linkToRaw(entry, templatesData.value);
   }
-  return mergeIntoSection(originalSection.value, edited, owned);
+  return mergeIntoSection(originalSection.value, edited, owned, renamesFor(entries.value));
 }
 
 const {
@@ -299,6 +301,7 @@ const {
     entries.value = Object.entries(originalSection.value)
       .filter(([name]) => ownedHere.value.has(name))
       .map(([name, raw]) => rawToLink(name, raw));
+    for (const entry of entries.value) rememberName(entry, entry.name);
     openRows.value = entries.value.map(rowKey);
     // The entries are new objects, so a selection held against the old ones is
     // none of them; re-resolve it by name, which is all a reload can do.
@@ -308,13 +311,18 @@ const {
     await componentTreeStore.load(props.versionId);
   },
   build: buildPayload,
+  renames: () => renamesFor(entries.value),
   async after(written) {
     // The merged whole becomes the new baseline: TechsEditor owns the rest of
     // this section, and the next save has to merge against what was written.
+    // The file now says each row's current name, so a later rename is measured
+    // from that.
     if (written) {
       originalSection.value = written as Record<string, RawTech>;
       for (const entry of entries.value) {
-        if (entry.name) ownedHere.value.add(entry.name);
+        if (!entry.name) continue;
+        ownedHere.value.add(entry.name);
+        rememberName(entry, entry.name);
       }
     }
     // Adding or removing a link changes the explorer and the map.

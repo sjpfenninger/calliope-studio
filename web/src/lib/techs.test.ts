@@ -105,6 +105,44 @@ describe("mergeIntoSection", () => {
     );
     expect(Object.keys(merged)).toEqual(["ccgt", "a_to_b", "battery", "solar"]);
   });
+
+  it("keeps a renamed entry in its slot", () => {
+    // Without the renames a rename is a deletion and an addition, and the
+    // entry moves to the end — which is then the baseline the next save
+    // merges against, so the file and the form agreed on an order the user
+    // never asked for.
+    const merged = mergeIntoSection(
+      original,
+      { gas: { base_tech: "supply", flow_cap_max: 100 }, battery: { base_tech: "storage" } },
+      isNotLink,
+      { gas: "ccgt" },
+    );
+    expect(Object.keys(merged)).toEqual(["gas", "a_to_b", "battery"]);
+    expect(merged.gas).toEqual(original.ccgt);
+  });
+
+  it("keeps both entries of a swap in place", () => {
+    const merged = mergeIntoSection(
+      original,
+      { battery: original.ccgt, ccgt: original.battery },
+      isNotLink,
+      { battery: "ccgt", ccgt: "battery" },
+    );
+    expect(Object.keys(merged)).toEqual(["battery", "a_to_b", "ccgt"]);
+    expect(merged.battery).toEqual(original.ccgt);
+    expect(merged.ccgt).toEqual(original.battery);
+  });
+
+  it("lets a new entry take a name a rename freed", () => {
+    const merged = mergeIntoSection(
+      original,
+      { gas: original.ccgt, battery: original.battery, ccgt: { base_tech: "demand" } },
+      isNotLink,
+      { gas: "ccgt" },
+    );
+    expect(Object.keys(merged)).toEqual(["gas", "a_to_b", "battery", "ccgt"]);
+    expect(merged.ccgt).toEqual({ base_tech: "demand" });
+  });
 });
 
 /**

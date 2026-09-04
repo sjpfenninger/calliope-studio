@@ -257,3 +257,44 @@ export function rowKey(row: object): string {
   }
   return key;
 }
+
+/**
+ * The name a row was loaded under, so a save can say what was renamed.
+ *
+ * A rename used to reach the server as a delete and an add, which put the
+ * entry at the end of its section and lost every comment in its block, since
+ * the server rebuilds an unknown key from plain JSON. It now travels as
+ * `{new: old}` beside the section, and the row is the only thing that knows
+ * both names. A `WeakMap` for the reason `rowKey` is one: the serialisers must
+ * not see it, and a removed row takes its entry with it. Keyed on the row as
+ * the editor reaches it through `entries.value` — one reactive proxy per
+ * object, the rule `rowKey` already rests on — and refreshed after a save,
+ * because the file then says the new name.
+ */
+const loadedNames = new WeakMap<object, string>();
+
+export function rememberName(row: object, name: string): void {
+  loadedNames.set(row, name);
+}
+
+export function loadedName(row: object): string | undefined {
+  return loadedNames.get(row);
+}
+
+/**
+ * `{new: old}` for every row whose name has changed since it was loaded.
+ *
+ * A row added this session has no loaded name and is an addition, not a
+ * rename. A row renamed onto a name another entry still holds is reported all
+ * the same: the server refuses the collision, which beats the silent overwrite
+ * a plain section write would be.
+ */
+export function renamesFor(rows: readonly { name: string }[]): Record<string, string> {
+  const renames: Record<string, string> = {};
+  for (const row of rows) {
+    const was = loadedNames.get(row);
+    if (was === undefined || was === row.name || !row.name) continue;
+    renames[row.name] = was;
+  }
+  return renames;
+}

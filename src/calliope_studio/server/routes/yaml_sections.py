@@ -8,7 +8,7 @@ else in the file survive untouched.
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from calliope_studio.modeldef.entities import harmonise_coordinates
 from calliope_studio.modeldef.paths import content_revision
@@ -35,6 +35,9 @@ class SectionBody(BaseModel):
     data: Any
     #: The file's revision when the section was read; see `deps.check_revision`.
     revision: str | None = None
+    #: New key → the old key it replaces, so a renamed entry keeps its place and
+    #: its comments instead of being deleted and appended; see `yaml_io`.
+    renames: dict[str, str] = Field(default_factory=dict)
 
 
 @router.get("/versions/{id}/yaml-section/{file_path:path}")
@@ -79,12 +82,19 @@ def put_section(
             path,
             section,
             body.data,
+            renames=body.renames,
             after_merge=harmonise_coordinates if section == "nodes" else None,
         )
     except SectionNotFound:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Section '{section}' not found.",
+        ) from None
+    except ValueError as exc:
+        # A rename onto a name still in use, or of one that is not there. Nothing
+        # was written: the renames are checked before the merge touches the file.
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
         ) from None
     # The definition has changed, so what it *means* has too. Started here rather
     # than left to the next request for it, so the read is already under way while

@@ -95,12 +95,36 @@ describe("ScenariosEditor", () => {
       overrides: { entries: [{ name: "a", file: "scenarios.yaml" }] },
     });
     api.readYamlSection.mockResolvedValue(section({ s: ["a", "zzz"] }));
-    // The explorer loads the tree; the editor reads whatever it has.
-    await useComponentTreeStore().load("v1");
     const mounted = await mountEditor(ScenariosEditor, { section: "scenarios" });
     const rows = mounted.find("scenario").findAll("li");
     expect(rows[0]!.text()).not.toContain("unknown");
     expect(rows[1]!.text()).toContain("unknown");
+  });
+
+  it("loads the tree itself, so a tab in front on a cold open still flags", async () => {
+    // Only the explorer loaded the tree, and the explorer is the Model
+    // section's: a scenarios tab in front on a URL that opens on Files or Runs
+    // flagged nothing and had nothing to offer in its picker, with no sign
+    // that anything was missing.
+    api.getComponentTree.mockResolvedValue({
+      overrides: { entries: [{ name: "a", file: "scenarios.yaml" }] },
+    });
+    api.readYamlSection.mockResolvedValue(section({ s: ["zzz"] }));
+    expect(useComponentTreeStore().tree).toBeNull();
+    const mounted = await mountEditor(ScenariosEditor, { section: "scenarios" });
+    expect(api.getComponentTree).toHaveBeenCalledWith("v1");
+    expect(mounted.find("scenario").text()).toContain("unknown");
+  });
+
+  it("sends a renamed scenario's old name beside the section", async () => {
+    api.readYamlSection.mockResolvedValue(section({ s: ["a"], t: ["b"] }));
+    const mounted = await mountEditor(ScenariosEditor, { section: "scenarios" });
+    await mounted.findAll("scenario")[0]!.find('input[type="text"]').setValue("summer");
+    await mounted.find("save").trigger("click");
+    await flushPromises();
+    const [, , , payload, , renames] = api.putYamlSection.mock.calls[0]!;
+    expect(Object.keys(payload)).toEqual(["summer", "t"]);
+    expect(renames).toEqual({ summer: "s" });
   });
 
   it("drops a scenario with no name from the payload", async () => {

@@ -84,6 +84,28 @@ describe("TechsEditor", () => {
     expect(useTabsStore().get(mounted.tabId)?.isDirty).toBe(false);
   });
 
+  it("keeps a renamed technology in its slot and says what it was called", async () => {
+    // A rename used to reach the file as a deletion and an addition: the entry
+    // moved to the end of the section and its comments went with the deleted
+    // key. The save names the rename, and a second one is measured from the
+    // name the first save wrote.
+    const mounted = await mountEditor(TechsEditor, { section: "techs" });
+    await mounted.find("entry-name").setValue("gas");
+    await mounted.find("save").trigger("click");
+    await flushPromises();
+    let [, , , payload, , renames] = api.putYamlSection.mock.calls[0]!;
+    expect(Object.keys(payload)).toEqual(["r1_to_r2", "gas", "r2_to_r3"]);
+    expect(payload.gas).toEqual(SECTION.ccgt);
+    expect(renames).toEqual({ gas: "ccgt" });
+
+    await mounted.find("entry-name").setValue("gas_turbine");
+    await mounted.find("save").trigger("click");
+    await flushPromises();
+    [, , , payload, , renames] = api.putYamlSection.mock.calls[1]!;
+    expect(Object.keys(payload)).toEqual(["r1_to_r2", "gas_turbine", "r2_to_r3"]);
+    expect(renames).toEqual({ gas_turbine: "gas" });
+  });
+
   it("keeps editing a row whose base_tech was just set to transmission", async () => {
     // Ownership must not be re-derived from what a save wrote. It was: after
     // this save the row on screen answered "not mine", the merge passed the

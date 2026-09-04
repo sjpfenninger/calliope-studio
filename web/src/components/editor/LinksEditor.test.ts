@@ -80,6 +80,21 @@ beforeEach(() => {
   api.readYamlSection.mockResolvedValue(section(SECTION));
 });
 
+describe("LinksEditor renames", () => {
+  it("keeps a renamed link in its slot and says what it was called", async () => {
+    // As for a technology: unnamed, a rename is a deletion and an addition,
+    // and the link lands at the end of the section without its comments.
+    useUiStore().setSectionView("links", "structured");
+    const mounted = await mountEditor(LinksEditor, { section: "techs" });
+    await mounted.findAll("link-name")[0]!.setValue("main_line");
+    await mounted.find("save").trigger("click");
+    await flushPromises();
+    const [, , , payload, , renames] = api.putYamlSection.mock.calls[0]!;
+    expect(Object.keys(payload)).toEqual(["ccgt", "main_line", "wire"]);
+    expect(renames).toEqual({ main_line: "r1_to_r2" });
+  });
+});
+
 describe("LinksEditor", () => {
   it("lists only the links, whether classified by template or by endpoints", async () => {
     // `wire` has no `base_tech` anywhere; two endpoints are what make a link.

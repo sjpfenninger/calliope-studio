@@ -65,6 +65,21 @@ beforeEach(() => {
   api.readYamlSection.mockResolvedValue(section(TWO_NODES));
 });
 
+describe("NodesEditor renames", () => {
+  it("says what a renamed node was called, so the server keeps its slot", async () => {
+    // The nodes form writes its rows in order, so the client never moved a
+    // renamed node — the server did, seeing an unknown key and appending it.
+    useUiStore().setSectionView("nodes", "structured");
+    const mounted = await mountEditor(NodesEditor, { section: "nodes" });
+    await mounted.findAll("node-name")[0]!.setValue("north");
+    await mounted.find("save").trigger("click");
+    await flushPromises();
+    const [, , , payload, , renames] = api.putYamlSection.mock.calls[0]!;
+    expect(Object.keys(payload)).toEqual(["north", "r2"]);
+    expect(renames).toEqual({ north: "r1" });
+  });
+});
+
 describe("NodesEditor", () => {
   it("tells the map which reading it shows, and what Calliope said", async () => {
     // The server keeps serving the last good resolution after a save Calliope
@@ -224,6 +239,7 @@ describe("NodesEditor", () => {
       "nodes",
       expect.anything(),
       "r1",
+      {},
     );
     expect(useTabsStore().get(mounted.tabId)?.isDirty).toBe(false);
   });

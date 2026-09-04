@@ -765,6 +765,54 @@ class TestWritePreconditions:
         assert response.status_code == 409
         assert "# outside" in path.read_text(encoding="utf-8")
 
+    def test_a_section_save_renames_a_key_in_place(self, client, ws, national_scale):
+        """A rename travels beside the section, so the entry keeps its slot.
+
+        Without `renames` the same payload is a deletion and an addition: the
+        renamed technology lands at the end of the file and its comments go
+        with the deleted key.
+        """
+        url = f"/api/versions/{ws}/yaml-section/model_config/techs.yaml"
+        body = client.get(url, params={"section": "techs"}).json()
+        keys = list(body["data"])
+        data = {
+            ("renamed" if key == keys[1] else key): value
+            for key, value in body["data"].items()
+        }
+        response = client.put(
+            url,
+            params={"section": "techs"},
+            json={
+                "data": data,
+                "revision": body["revision"],
+                "renames": {"renamed": keys[1]},
+            },
+        )
+        assert response.status_code == 200, response.text
+        after = client.get(url, params={"section": "techs"}).json()["data"]
+        assert list(after) == ["renamed" if key == keys[1] else key for key in keys]
+        assert after["renamed"] == body["data"][keys[1]]
+
+    def test_a_rename_onto_a_name_in_use_is_refused(self, client, ws, national_scale):
+        url = f"/api/versions/{ws}/yaml-section/model_config/techs.yaml"
+        body = client.get(url, params={"section": "techs"}).json()
+        keys = list(body["data"])
+        path = national_scale / "model_config" / "techs.yaml"
+        before = path.read_text(encoding="utf-8")
+
+        response = client.put(
+            url,
+            params={"section": "techs"},
+            json={
+                "data": body["data"],
+                "revision": body["revision"],
+                "renames": {keys[1]: keys[0]},
+            },
+        )
+        assert response.status_code == 400
+        assert "already exists" in response.json()["detail"]
+        assert path.read_text(encoding="utf-8") == before
+
     def test_a_stale_csv_save_is_refused(self, client, ws, national_scale):
         url = f"/api/versions/{ws}/csv/data_tables/costs.csv"
         body = client.get(url).json()

@@ -56,6 +56,24 @@ beforeEach(() => {
 });
 
 describe("OverridesEditor", () => {
+  it("loads the tree itself, so a cold open still suggests the model's paths", async () => {
+    // Only the explorer loaded the tree, so an overrides tab in front on a URL
+    // that opens on Files or Runs offered the five config paths and nothing of
+    // the model's own technologies or nodes.
+    api.getComponentTree.mockResolvedValue({
+      techs: { entries: [{ name: "ccgt", file: "techs.yaml" }] },
+      nodes: { entries: [{ name: "r1", file: "nodes.yaml" }] },
+    });
+    const mounted = await mountEditor(OverridesEditor, {
+      section: "overrides",
+      filePath: "scenarios.yaml",
+    });
+    expect(api.getComponentTree).toHaveBeenCalledWith("v1");
+    const suggested = mounted.host.findAll("datalist option").map((o) => o.attributes("value"));
+    expect(suggested).toContain("techs.ccgt.");
+    expect(suggested).toContain("nodes.r1.");
+  });
+
   it("reads and writes through the overrides endpoint and never the section one", async () => {
     const mounted = await mountEditor(OverridesEditor, {
       section: "overrides",

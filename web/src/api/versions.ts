@@ -122,17 +122,23 @@ export async function getYamlSection(
   return (await readYamlSection(versionId, path, section)).data;
 }
 
-/** Returns the file's revision after the write, for the next save to carry. */
+/**
+ * Returns the file's revision after the write, for the next save to carry.
+ *
+ * `renames` is `{new: old}` for every entry the form renamed, so the server
+ * moves the key in place rather than deleting one and appending another.
+ */
 export async function putYamlSection(
   versionId: string,
   path: string,
   section: string,
   data: SectionData,
   revision: string | null = null,
+  renames: Record<string, string> = {},
 ): Promise<string | null> {
   const res = await client.put<{ ok: boolean; revision?: string | null }>(
     `/api/versions/${seg(versionId)}/yaml-section/${filePath(path)}`,
-    { data, revision },
+    { data, revision, renames },
     { params: { section } },
   );
   return res?.data?.revision ?? null;

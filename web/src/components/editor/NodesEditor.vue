@@ -51,6 +51,8 @@ import {
 import {
   nodeToRaw,
   rawToNode,
+  rememberName,
+  renamesFor,
   rowKey,
   type NodeEntry,
 } from "@/lib/entries";
@@ -260,6 +262,7 @@ const {
     entries.value = Object.entries(data).map(([name, raw]) =>
       rawToNode(name, raw as Record<string, any> | null),
     );
+    for (const entry of entries.value) rememberName(entry, entry.name);
     openRows.value = entries.value.map(rowKey);
     // The entries are new objects, so a selection made against the old ones is
     // no longer any of them; re-resolve it by name, which is all a reload can.
@@ -272,7 +275,15 @@ const {
     await componentTreeStore.load(props.versionId);
   },
   build: buildPayload,
-  async after() {
+  renames: () => renamesFor(entries.value),
+  async after(written) {
+    // The file now says each row's current name, so a later rename is measured
+    // from that.
+    if (written) {
+      for (const entry of entries.value) {
+        if (entry.name) rememberName(entry, entry.name);
+      }
+    }
     // A node added, removed or renamed changes the explorer, and moves the links
     // the server draws between them.
     await componentTreeStore.refresh(props.versionId);

@@ -547,6 +547,122 @@ class TestFileFidelity:
         assert list(load(path)["nodes"]) == [1, 2]
 
 
+class TestRenames:
+    """A renamed key keeps its place, its node and its comments.
+
+    A rename used to arrive as a deletion and an addition: the entry went to
+    the end of the section, its block was rebuilt from plain JSON — every
+    comment and number spelling inside it gone — and the comment above the
+    *next* key, which ruamel hangs on this entry's last scalar, was stranded
+    above whatever moved up. Nothing in the file said a rename had happened;
+    the diff read as a reorder with vandalism. The client now names the
+    rename, and the server moves the key in place.
+    """
+
+    TEXT = (
+        "techs:\n"
+        "  # about ccgt\n"
+        "  ccgt:  # eol\n"
+        "    x: 1e6   # spelled\n"
+        "  # about battery\n"
+        "\n"
+        "  battery:  # batt eol\n"
+        "    y: 0.10\n"
+        "    # inner comment\n"
+        "    z: 2\n"
+        "  # about solar\n"
+        "  solar:\n"
+        "    z: 3\n"
+    )
+
+    def _renamed(self, tmp_path: Path, renames: dict[str, str], edit=None) -> str:
+        """Writes TEXT, renames through the JSON hop as the client would."""
+        path = tmp_path / "t.yaml"
+        path.write_text(self.TEXT, encoding="utf-8")
+        original = _over_the_wire(path, "techs")
+        renamed_to = {old: new for new, old in renames.items()}
+        data = {renamed_to.get(key, key): value for key, value in original.items()}
+        if edit is not None:
+            edit(data)
+        write_section(path, "techs", data, renames=renames)
+        return path.read_text(encoding="utf-8")
+
+    def test_a_renamed_key_keeps_its_place_and_its_comments(self, tmp_path: Path):
+        text = self._renamed(tmp_path, {"batt": "battery"})
+        assert text == self.TEXT.replace(
+            "  battery:  # batt eol", "  batt:  # batt eol"
+        )
+
+    def test_the_first_and_the_last_key_rename_the_same_way(self, tmp_path: Path):
+        # The comment before the first key lives on the parent map rather than
+        # on the key, and the last key has no next entry to lend a comment to.
+        text = self._renamed(tmp_path, {"gas": "ccgt", "pv": "solar"})
+        assert text == self.TEXT.replace("  ccgt:  # eol", "  gas:  # eol").replace(
+            "  solar:\n", "  pv:\n"
+        )
+
+    def test_a_rename_and_an_edit_land_in_the_same_node(self, tmp_path: Path):
+        def edit(data):
+            data["batt"]["y"] = 0.5
+
+        text = self._renamed(tmp_path, {"batt": "battery"}, edit)
+        assert text == self.TEXT.replace(
+            "  battery:  # batt eol", "  batt:  # batt eol"
+        ).replace("y: 0.10", "y: 0.5")
+
+    def test_a_swap_keeps_both_nodes(self, tmp_path: Path):
+        # Applied one at a time, the second rename would delete the first's
+        # result: `insert` replaces a key of the same name without a word.
+        text = self._renamed(tmp_path, {"solar": "ccgt", "ccgt": "solar"})
+        assert text == self.TEXT.replace("  ccgt:  # eol", "  solar:  # eol").replace(
+            "  solar:\n", "  ccgt:\n"
+        )
+
+    def test_a_chain_of_renames_is_one_step_each(self, tmp_path: Path):
+        text = self._renamed(tmp_path, {"battery": "ccgt", "cell": "battery"})
+        assert text == self.TEXT.replace("  ccgt:  # eol", "  battery:  # eol").replace(
+            "  battery:  # batt eol", "  cell:  # batt eol"
+        )
+
+    def test_an_integer_key_is_renamed_through_its_spelling(self, tmp_path: Path):
+        path = tmp_path / "n.yaml"
+        original = "nodes:\n  1:  # north\n    latitude: 1.0\n  2:\n    latitude: 2.0\n"
+        path.write_text(original, encoding="utf-8")
+        data = _over_the_wire(path, "nodes")
+        data = {"north" if key == "1" else key: value for key, value in data.items()}
+        write_section(path, "nodes", data, renames={"north": "1"})
+        assert path.read_text(encoding="utf-8") == original.replace(
+            "  1:  # north", "  north:  # north"
+        )
+        assert list(load(path)["nodes"]) == ["north", 2]
+
+    def test_an_anchored_node_keeps_its_anchor_and_its_alias(self, tmp_path: Path):
+        path = tmp_path / "a.yaml"
+        original = "techs:\n  battery: &b\n    y: 1\n  other: *b\n"
+        path.write_text(original, encoding="utf-8")
+        data = _over_the_wire(path, "techs")
+        data = {
+            "batt" if key == "battery" else key: value for key, value in data.items()
+        }
+        write_section(path, "techs", data, renames={"batt": "battery"})
+        assert path.read_text(encoding="utf-8") == original.replace(
+            "battery: &b", "batt: &b"
+        )
+
+    def test_a_rename_of_a_missing_key_is_refused(self, tmp_path: Path):
+        # A stale rename — somebody else renamed first — must not turn into a
+        # silent delete-and-add of whatever the payload holds.
+        with pytest.raises(ValueError, match="not in this section"):
+            self._renamed(tmp_path, {"x": "nope"})
+
+    def test_a_rename_onto_a_name_in_use_is_refused(self, tmp_path: Path):
+        with pytest.raises(ValueError, match="already exists"):
+            self._renamed(tmp_path, {"solar": "ccgt"})
+
+    def test_renaming_a_key_to_itself_changes_nothing(self, tmp_path: Path):
+        assert self._renamed(tmp_path, {"ccgt": "ccgt"}) == self.TEXT
+
+
 class TestIntegralFloatsInStructures:
     """The same spelling rule inside a list and an indexed parameter."""
 

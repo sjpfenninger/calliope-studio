@@ -43,6 +43,8 @@ import { useTemplatesStore } from "@/stores/templates";
 import { mergeIntoSection, ownedNames, type RawTech } from "@/lib/techs";
 import {
   rawToTech,
+  rememberName,
+  renamesFor,
   rowKey,
   techToRaw,
   type TechEntry,
@@ -137,7 +139,7 @@ function buildPayload(): Record<string, RawTech> {
   }
   // Transmission entries belong to LinksEditor; writing only what is shown here
   // would delete every link in the file.
-  return mergeIntoSection(originalSection.value, edited, ownedHere);
+  return mergeIntoSection(originalSection.value, edited, ownedHere, renamesFor(entries.value));
 }
 
 const {
@@ -166,6 +168,7 @@ const {
     entries.value = Object.entries(originalSection.value)
       .filter(([name]) => owned.value.has(name))
       .map(([name, raw]) => rawToTech(name, raw));
+    for (const entry of entries.value) rememberName(entry, entry.name);
     openRows.value = entries.value.map(rowKey);
     await loadDataTableParams();
     // The provenance marker on each field links to the template or table that
@@ -173,6 +176,7 @@ const {
     await componentTreeStore.load(props.versionId);
   },
   build: buildPayload,
+  renames: () => renamesFor(entries.value),
   async after(written) {
     // The merged whole becomes the new baseline, or the next save would compute
     // its merge against the section as it was two saves ago.
@@ -180,9 +184,12 @@ const {
       originalSection.value = written as Record<string, RawTech>;
       // Everything on screen is ours, including a row whose `base_tech` the
       // user just set to `transmission`. It moves to LinksEditor on a reload,
-      // not underneath the person still editing it.
+      // not underneath the person still editing it. And the file now says each
+      // row's current name, so that is what a later rename is measured from.
       for (const entry of entries.value) {
-        if (entry.name) owned.value.add(entry.name);
+        if (!entry.name) continue;
+        owned.value.add(entry.name);
+        rememberName(entry, entry.name);
       }
     }
     // A tech added, removed or renamed changes the explorer, as it does for

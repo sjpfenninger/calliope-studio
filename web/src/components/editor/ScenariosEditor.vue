@@ -17,7 +17,7 @@
 import { computed, ref } from "vue";
 import LockedBanner from "@/components/app/LockedBanner.vue";
 import StateMessage from "@/components/app/StateMessage.vue";
-import { rowKey } from "@/lib/entries";
+import { rememberName, renamesFor, rowKey } from "@/lib/entries";
 import { ChevronDown, ChevronUp, Plus, TriangleAlert, Trash2, X } from "@lucide/vue";
 
 import { removalRequest, useSectionEditor } from "@/composables/useSectionEditor";
@@ -95,18 +95,32 @@ const {
   tabId: () => props.tabId,
   section: "scenarios",
   label: "scenarios",
-  apply(data) {
+  async apply(data) {
     entries.value = Object.entries(data).map(([name, value]) => ({
       name,
       // Calliope accepts a bare string as well as a list.
       overrides: Array.isArray(value) ? value.map(String) : value ? [String(value)] : [],
     }));
+    for (const entry of entries.value) rememberName(entry, entry.name);
+    // `unresolved` and the picker's options both read the tree, and only the
+    // explorer used to load it — so a scenarios tab in front on a URL that
+    // opens on Files or Runs flagged nothing and offered nothing. Cheap: the
+    // store returns immediately once loaded, and the explorer usually has.
+    await componentTree.load(props.versionId);
   },
   build: () =>
     Object.fromEntries(
       entries.value.filter((entry) => entry.name).map((entry) => [entry.name, entry.overrides]),
     ),
-  async after() {
+  renames: () => renamesFor(entries.value),
+  async after(written) {
+    // The file now says each row's current name, so a later rename is measured
+    // from that.
+    if (written) {
+      for (const entry of entries.value) {
+        if (entry.name) rememberName(entry, entry.name);
+      }
+    }
     // The explorer's `scenarios` branch shows this section, and `unresolved`
     // above reads the tree — both answer from the pre-save model until it is
     // refreshed.

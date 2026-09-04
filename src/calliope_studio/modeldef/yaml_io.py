@@ -20,7 +20,7 @@ import io
 import json
 import math
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -330,14 +330,81 @@ def _merge(
     return new
 
 
+def _rename_keys(section: CommentedMap, renames: Mapping[str, str]) -> None:
+    """Renames keys of `section` in place, each keeping its position and node.
+
+    A rename that reached `_merge` as a delete and an add lost three things at
+    once: the entry's place in the file, every comment and scalar spelling
+    inside its block (an unknown key is rebuilt from plain JSON), and the
+    comment above the *next* key — which ruamel hangs on this entry's last
+    scalar, so only keeping the position keeps it. Reusing the node at the
+    same index keeps all three. The client says which keys were renamed rather
+    than the server guessing: a deletion and an addition at one position is
+    also what a genuine delete-and-add looks like, and a guess would carry the
+    wrong comments onto the new entry.
+
+    `renames` maps the new name to the old, as JSON spells it — an integer key
+    arrives as its text and is matched the way `_merge` matches it. Two phases,
+    because `CommentedMap.insert` silently replaces an existing key of the same
+    name, so a swap applied one rename at a time loses half of itself.
+
+    Raises:
+        ValueError: If an old name is not in the section, or a new one is
+            already there and not itself being renamed away. A name freed by a
+            deletion in the same save counts as taken: from here a present key
+            and a present payload entry look the same whether the user deleted
+            one and renamed another onto it or renamed onto one still in use.
+    """
+    by_text = {_key_text(key): key for key in section}
+    keys = list(section)
+    moves: list[tuple[int, Any, str]] = []
+    for new, old_text in renames.items():
+        old = by_text.get(old_text, old_text)
+        if old not in section:
+            raise ValueError(f"Cannot rename '{old_text}': it is not in this section.")
+        if _key_text(old) == new:
+            continue
+        moves.append((keys.index(old), old, new))
+    renamed_away = {old for _, old, _ in moves}
+    for _, _, new in moves:
+        if new in section and new not in renamed_away:
+            raise ValueError(f"Cannot rename to '{new}': it already exists.")
+
+    # Everything out before anything back in: `insert` deletes an existing key
+    # of the same name, which in a swap is the other half. `__delitem__` drops
+    # the key's own comment entry with it, so that is lifted first.
+    taken = []
+    for pos, old, new in sorted(moves, key=lambda move: move[0]):
+        taken.append((pos, old, new, section[old], section.ca.items.pop(old, None)))
+    for _, old, _ in moves:
+        del section[old]
+    for pos, old, new, node, comment in taken:
+        section.insert(pos, new, node)
+        if comment is None:
+            continue
+        eol = comment[2]
+        if eol is not None:
+            # A trailing comment is emitted at the column it was read at, so a
+            # shorter name would push it right by the letters it lost.
+            shift = len(str(new)) - len(str(old))
+            eol.start_mark.column = max(eol.start_mark.column + shift, 0)
+        section.ca.items[new] = comment
+
+
 def write_section(
     path: Path,
     section: str,
     data: Any,
     *,
+    renames: Mapping[str, str] | None = None,
     after_merge: Callable[[Any], Any] | None = None,
 ) -> None:
     """Updates one top-level section, leaving the rest of the file intact.
+
+    `renames` maps a new key of the section to the old key it replaces, so a
+    renamed entry keeps its place, its comments and its spellings rather than
+    being deleted and appended; see `_rename_keys`. It is applied before the
+    merge, which then sees the new key as one it already has.
 
     `after_merge` sees the merged section — ruamel's objects, with every
     untouched scalar still spelled as the file spells it — before it is written.
@@ -348,6 +415,7 @@ def write_section(
 
     Raises:
         SectionNotFound: If the document is empty or lacks the section.
+        ValueError: If a rename names a key that is not there, or one that is.
     """
     # Bytes, not `read_text`: universal newlines would fold a CRLF file to LF
     # here while the raw file route preserves it, so which endpoint last saved
@@ -364,9 +432,12 @@ def write_section(
     if document is None or section not in document:
         raise SectionNotFound(section)
 
-    document[section] = _merge(
-        document[section], from_plain(data), _aliased(document[section])
-    )
+    target = document[section]
+    if renames:
+        if not isinstance(target, CommentedMap):
+            raise ValueError(f"Cannot rename keys: '{section}' is not a mapping.")
+        _rename_keys(target, renames)
+    document[section] = _merge(target, from_plain(data), _aliased(target))
     if after_merge is not None:
         after_merge(document[section])
     buffer = io.StringIO()

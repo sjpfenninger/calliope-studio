@@ -66,20 +66,29 @@ export function ownedNames(
  * that wrote only what it displayed would delete the other half. Entries this
  * editor does not own are passed through untouched, and the original key order
  * is kept so saving does not reshuffle the file.
+ *
+ * `renames` is `{new: old}`, as the save sends it to the server. A renamed
+ * entry takes its old slot under its new name; without that it read as a
+ * deletion and an addition, and landed at the end — which is also where the
+ * next save's baseline would then have it, so the client and the file agreed
+ * on an order the user never asked for.
  */
 export function mergeIntoSection(
   original: Record<string, RawTech>,
   edited: Record<string, RawTech>,
   owned: (name: string) => boolean,
+  renames: Record<string, string> = {},
 ): Record<string, RawTech> {
   const merged: Record<string, RawTech> = {};
+  const renamedTo = new Map(Object.entries(renames).map(([now, was]) => [was, now]));
 
   for (const [name, raw] of Object.entries(original)) {
     if (!owned(name)) {
       merged[name] = raw;
-    } else if (name in edited) {
-      merged[name] = edited[name];
+      continue;
     }
+    const now = renamedTo.get(name) ?? name;
+    if (now in edited && !(now in merged)) merged[now] = edited[now];
     // An owned entry missing from `edited` was deleted in the editor.
   }
 

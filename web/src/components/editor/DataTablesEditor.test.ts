@@ -166,9 +166,27 @@ describe("DataTablesEditor", () => {
         costs_renamed: { table: "../data/costs.csv", rows: "techs" },
       },
       "r1",
+      { costs_renamed: "costs" },
     );
     expect(api.putCsv).not.toHaveBeenCalled();
     expect(useTabsStore().get(mounted.tabId)?.isDirty).toBe(false);
+  });
+
+  it("keeps a null placeholder through a rename of its own table", async () => {
+    // The keys a table had on load were remembered under its *name*, so the
+    // one edit that changes the name — a rename — made the lookup answer
+    // "nothing", and the save after it stripped the bare `add_dims:` line and
+    // its comment out of the renamed table. The row is what was there on load.
+    const mounted = await open();
+    await nameInput(mounted, 0).setValue("demand_renamed");
+    await mounted.find("save").trigger("click");
+    await flushPromises();
+    const [, , , payload, , renames] = api.putYamlSection.mock.calls[0]!;
+    expect(payload).toEqual({
+      demand_renamed: { table: "../data/demand.csv", rows: "timesteps", add_dims: null },
+      costs: { table: "../data/costs.csv", rows: "techs" },
+    });
+    expect(renames).toEqual({ demand_renamed: "demand" });
   });
 
   it("writes an edited CSV before the YAML, and only the half that changed", async () => {

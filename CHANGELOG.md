@@ -6,8 +6,9 @@ New features:
 
 - Model and scenario comparison view
 - Improved config model and schema widgets
-- Tabs visibly show if they are running a background task
+- Tabs show when they are running a background task
 - Hovering on a per-node "Totals" bar highlights the node in the map view
+- Report problem size in run logs
 
 Fixes:
 

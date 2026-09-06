@@ -12,12 +12,13 @@ import shutil
 import subprocess
 import sys
 import time
+from types import SimpleNamespace
 from unittest import mock
 
 import pytest
 
 from calliope_studio.runs import manager as manager_module
-from calliope_studio.runs import protocol
+from calliope_studio.runs import protocol, worker
 from calliope_studio.runs.manager import RunManager, RunRecord
 
 TERMINAL = {"success", "infeasible", "failed", "cancelled"}
@@ -125,6 +126,36 @@ class TestWorkspaceIsUntouchedUntilYouRun:
         assert sorted(path.name for path in national_scale.iterdir()) == before
         assert not (national_scale / "calliope-studio").exists()
         assert not (national_scale / ".calligraph").exists()
+
+
+class TestRecordDiagnostics:
+    """What a run says about how it was solved has to be true of the run.
+
+    Only Calliope's pyomo backend reads `config.solve.solver`; the gurobi and
+    highs backends are the solver and consult nothing but `solver_options`. The
+    schema still defaults `solver` to `cbc`, so recording it for every run
+    labelled a Gurobi solve "cbc" in the run header — a solver that never ran.
+    """
+
+    @staticmethod
+    def _model(backend: str) -> SimpleNamespace:
+        config = SimpleNamespace(
+            build=SimpleNamespace(backend=backend), solve=SimpleNamespace(solver="cbc")
+        )
+        return SimpleNamespace(config=config, runtime=SimpleNamespace(timings={}))
+
+    def test_pyomo_records_backend_and_solver(self):
+        outcome: dict = {}
+        worker._record_diagnostics(outcome, self._model("pyomo"), build_only=True)
+        assert outcome["backend"] == "pyomo"
+        assert outcome["solver"] == "cbc"
+
+    @pytest.mark.parametrize("backend", ["gurobi", "highs"])
+    def test_other_backends_record_no_solver(self, backend):
+        outcome: dict = {}
+        worker._record_diagnostics(outcome, self._model(backend), build_only=True)
+        assert outcome["backend"] == backend
+        assert outcome["solver"] is None
 
 
 class TestRunLifecycle:
@@ -243,7 +274,8 @@ class TestRunLifecycle:
 
         assert record["timings"], "no timings recorded"
         assert all(isinstance(value, float) for value in record["timings"].values())
-        assert record["solver"]
+        assert record["backend"] == "pyomo"
+        assert record["solver"] == "cbc"
         assert isinstance(record["objective"], float)
         assert record["duration_seconds"] > 0
 
@@ -1039,8 +1071,17 @@ class TestDeepValidation:
     """
 
     def test_valid_model_reports_no_errors(self, client, ws):
+        """And says how big the problem it built is.
+
+        The tier has already assembled the backend, so the count is free — and it
+        is the only way to ask how big a model is without waiting for a solve.
+        """
         task_id = client.post(f"/api/versions/{ws}/validate/").json()["task_id"]
-        assert wait_for_task(client, task_id) == {"errors": []}
+        result = wait_for_task(client, task_id)
+
+        assert result["errors"] == []
+        assert result["problem"]["variables"] > 0
+        assert result["problem"]["constraints"] > 0
 
     def test_semantically_broken_model_reports_errors(self, client, ws, national_scale):
         # Syntactically fine, but not a technology Calliope will accept.
@@ -1066,7 +1107,13 @@ class TestDeepValidation:
         """
         task_id = client.post(f"/api/versions/{ws}/validate/").json()["task_id"]
         assert client.post(f"/api/tasks/{task_id}/cancel/").status_code == 200
-        assert wait_for_task(client, task_id) == {"errors": []}
+        result = wait_for_task(client, task_id)
+
+        assert result["errors"] == []
+        # A kill lands wherever it lands: before the build there is no size to
+        # report, after it there is. Either is honest, and neither is a problem
+        # list — which is what this is about.
+        assert "problem" in result
 
     def test_unknown_task_is_404(self, client):
         assert client.get("/api/tasks/nope/").status_code == 404

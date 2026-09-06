@@ -83,6 +83,7 @@ class RunRecord:
     completed_at: str | None = None
     duration_seconds: float | None = None
     termination_condition: str | None = None
+    backend: str | None = None
     solver: str | None = None
     objective: float | None = None
     #: Calliope's own stage timings. Written to `outcome.json` and, until the
@@ -91,6 +92,14 @@ class RunRecord:
     error: str | None = None
     #: Only present on a run that failed; long, and pure noise otherwise.
     traceback: str | None = None
+
+    # -- how big the problem was, from problem.json ------------------------
+    #: Component counts for the problem the backend assembled; see
+    #: `runs.problem`. Written the moment the build finishes rather than at the
+    #: end, so it is populated on a run that is still solving — which is the
+    #: state it exists for. Empty for a run that never reached a build, and for
+    #: every run made before this was recorded.
+    problem: dict = field(default_factory=dict)
 
     # -- what is available to open ----------------------------------------
     has_results: bool = False
@@ -471,6 +480,9 @@ class RunManager:
             scenario=request.scenario if request else None,
             override_dict=(request.override_dict if request else None) or {},
             build_only=bool(request.build_only) if request else False,
+            # In `common`, not in the outcome branch below: a run that is still
+            # solving has a size and no outcome, and that is when it is wanted.
+            problem=protocol.read_problem(run_dir),
             has_results=(run_dir / protocol.RESULTS_FILE).is_file(),
             has_snapshot=(run_dir / protocol.SNAPSHOT_DIR).is_dir(),
             snapshot_complete=manifest.get("complete") if manifest else None,
@@ -489,6 +501,7 @@ class RunManager:
                 completed_at=outcome.get("completed_at"),
                 duration_seconds=outcome.get("duration_seconds"),
                 termination_condition=outcome.get("termination_condition"),
+                backend=outcome.get("backend"),
                 solver=outcome.get("solver"),
                 objective=outcome.get("objective"),
                 timings=outcome.get("timings") or {},

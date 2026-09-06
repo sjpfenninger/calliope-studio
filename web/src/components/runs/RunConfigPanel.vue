@@ -34,8 +34,40 @@ import { buildFileTree, type FileEntry, type FileTreeNode } from "@/lib/fileTree
 import { formatBytes, formatCount } from "@/lib/format";
 import { fileIcon } from "@/lib/icons";
 import { CODE_BLOCK, FIELD_WIDTH, WARNING_BADGE } from "@/lib/formClasses";
+import { describeProblemSize, hasProblemSize, PROBLEM_SIZE_HINT } from "@/lib/problemSize";
+import { useRunsStore } from "@/stores/runs";
 
 const props = defineProps<{ runId: string; handle: string | null }>();
+
+const runs = useRunsStore();
+
+/**
+ * How big the problem the backend assembled was.
+ *
+ * From the run record rather than from `fetchSummary`, and that is the point: it
+ * is written the moment the build finishes, so a run that was cancelled, failed
+ * in the solver or only ever built — none of which has a results handle — still
+ * has one, and those are the runs whose size someone most wants.
+ */
+const problem = computed(() => runs.get(props.runId)?.problem);
+const hasProblem = computed(() => hasProblemSize(problem.value));
+const problemSentence = computed(() => describeProblemSize(problem.value));
+
+/** The breakdown, as two labelled lists. Already largest-first from the server. */
+const problemGroups = computed(() => {
+  const components = problem.value?.components ?? {};
+  return (
+    [
+      { key: "variables", label: "Decision variables" },
+      { key: "constraints", label: "Constraints" },
+    ] as const
+  )
+    .map((group) => ({
+      ...group,
+      entries: Object.entries(components[group.key] ?? {}),
+    }))
+    .filter((group) => group.entries.length > 0);
+});
 
 /** What the snapshot captured, and what it could not. */
 interface Manifest {
@@ -152,8 +184,14 @@ const viewSegments = computed(() => [
   {
     value: "solved" as View,
     label: "As solved",
-    disabled: !props.handle,
-    tip: props.handle ? undefined : "This run has no solved model to read",
+    // The problem's size is here too, and it exists for runs with no results —
+    // a build-only run, a cancelled solve — so the handle is not the only thing
+    // this pane can be about.
+    disabled: !props.handle && !hasProblem.value,
+    tip:
+      props.handle || hasProblem.value
+        ? undefined
+        : "This run has no solved model to read",
     testid: "config-view-solved",
   },
 ]);
@@ -274,31 +312,64 @@ const viewSegments = computed(() => [
     </div>
 
     <div v-else class="min-h-0 flex-1 overflow-auto p-2" data-testid="run-summary">
-      <StateMessage v-if="summaryError" variant="inline" tone="danger">
-        {{ summaryError }}
-      </StateMessage>
-      <StateMessage v-else-if="!summary" variant="inline" loading>Reading results…</StateMessage>
+      <!-- First, because it is the one thing here that does not need a solved
+           model, and on a build-only or cancelled run it is all there is. -->
+      <template v-if="hasProblem">
+        <section class="mb-3" data-testid="run-problem-breakdown">
+          <InfoTip :label="PROBLEM_SIZE_HINT">
+            <Eyebrow class="mb-1">Problem size</Eyebrow>
+          </InfoTip>
+          <p class="text-sm">{{ problemSentence }}</p>
+        </section>
 
-      <template v-else>
-        <section v-for="section in SECTIONS" :key="section.key" class="mb-3">
-          <Eyebrow class="mb-1">
-            {{ section.label }}
-          </Eyebrow>
+        <section v-for="group in problemGroups" :key="group.key" class="mb-3">
+          <Eyebrow class="mb-1">{{ group.label }}</Eyebrow>
           <dl class="rounded-md border border-border">
             <div
-              v-for="(value, key) in summary[section.key]"
-              :key="key"
+              v-for="[name, count] in group.entries"
+              :key="name"
               class="flex gap-2 border-b border-border-subtle px-2 py-1 text-sm last:border-b-0"
             >
-              <dt :class="[FIELD_WIDTH.wide, 'truncate text-text-dim']">{{ key }}</dt>
-              <!-- design-check: allow native-title — the same string the `dd`
+              <!-- design-check: allow native-title — the same string the `dt`
                    prints, unclipped. -->
-              <dd class="min-w-0 flex-1 truncate" :title="display(value)">
-                {{ display(value) }}
-              </dd>
+              <dt :class="[FIELD_WIDTH.wide, 'truncate text-text-dim']" :title="name">
+                {{ name }}
+              </dt>
+              <dd class="min-w-0 flex-1 truncate">{{ count.toLocaleString() }}</dd>
             </div>
           </dl>
         </section>
+      </template>
+
+      <template v-if="handle">
+        <StateMessage v-if="summaryError" variant="inline" tone="danger">
+          {{ summaryError }}
+        </StateMessage>
+        <StateMessage v-else-if="!summary" variant="inline" loading>
+          Reading results…
+        </StateMessage>
+
+        <template v-else>
+          <section v-for="section in SECTIONS" :key="section.key" class="mb-3">
+            <Eyebrow class="mb-1">
+              {{ section.label }}
+            </Eyebrow>
+            <dl class="rounded-md border border-border">
+              <div
+                v-for="(value, key) in summary[section.key]"
+                :key="key"
+                class="flex gap-2 border-b border-border-subtle px-2 py-1 text-sm last:border-b-0"
+              >
+                <dt :class="[FIELD_WIDTH.wide, 'truncate text-text-dim']">{{ key }}</dt>
+                <!-- design-check: allow native-title — the same string the `dd`
+                     prints, unclipped. -->
+                <dd class="min-w-0 flex-1 truncate" :title="display(value)">
+                  {{ display(value) }}
+                </dd>
+              </div>
+            </dl>
+          </section>
+        </template>
       </template>
     </div>
   </div>

@@ -22,6 +22,7 @@ import { defineStore } from "pinia";
 import { errorDetail } from "../api/errors";
 import { cancelTask, getTask } from "../api/system";
 import { startValidation } from "../api/versions";
+import type { ProblemSize } from "../api/runs";
 
 export type ValidationTier = "syntax" | "build";
 
@@ -42,7 +43,12 @@ interface TaskEnvelope {
   task_id: string | null;
   status: "running" | "done";
   phase: ValidationTier;
-  result: { errors: ValidationProblem[] } | null;
+  result: {
+    errors: ValidationProblem[];
+    /** Only the build tier reaches a backend, so only it can report a size. A
+     * syntax failure escalates to nothing and leaves this null. */
+    problem?: ProblemSize | null;
+  } | null;
 }
 
 /**
@@ -58,6 +64,14 @@ const POLL_GROWTH = 1.6;
 
 export const useValidationStore = defineStore("validation", () => {
   const problems = ref<ValidationProblem[]>([]);
+  /**
+   * How big the problem is, when the build tier got far enough to know.
+   *
+   * The one useful thing a clean validation has to say beyond "no problems
+   * found" — the tier has already built the model, so the count is free, and it
+   * is the only way to ask how big a model is without solving it.
+   */
+  const problemSize = ref<ProblemSize | null>(null);
   const phase = ref<ValidationPhase>("idle");
   const lastValidatedAt = ref<number | null>(null);
   /** A transport failure, which is not a statement about the model. */
@@ -104,8 +118,9 @@ export const useValidationStore = defineStore("validation", () => {
     }
   }
 
-  function finish(found: ValidationProblem[]) {
+  function finish(found: ValidationProblem[], size: ProblemSize | null = null) {
     problems.value = found;
+    problemSize.value = size;
     phase.value = "done";
     lastValidatedAt.value = Date.now();
     taskId.value = null;
@@ -117,6 +132,7 @@ export const useValidationStore = defineStore("validation", () => {
     const mine = ++generation;
     stopPolling();
     problems.value = [];
+    problemSize.value = null;
     error.value = null;
     taskId.value = null;
     phase.value = "syntax";
@@ -126,7 +142,7 @@ export const useValidationStore = defineStore("validation", () => {
       if (mine !== generation) return;
 
       if (envelope.status === "done" || !envelope.task_id) {
-        finish(envelope.result?.errors ?? []);
+        finish(envelope.result?.errors ?? [], envelope.result?.problem ?? null);
         return;
       }
 
@@ -149,7 +165,7 @@ export const useValidationStore = defineStore("validation", () => {
         if (mine !== generation) return;
 
         if (res.data.status === "done") {
-          finish(res.data.result?.errors ?? []);
+          finish(res.data.result?.errors ?? [], res.data.result?.problem ?? null);
           return;
         }
         poll(id, mine, Math.min(delay * POLL_GROWTH, POLL_MAX_MS));
@@ -203,6 +219,7 @@ export const useValidationStore = defineStore("validation", () => {
     generation += 1;
     stopPolling();
     problems.value = [];
+    problemSize.value = null;
     phase.value = "idle";
     error.value = null;
     taskId.value = null;
@@ -212,6 +229,7 @@ export const useValidationStore = defineStore("validation", () => {
 
   return {
     problems,
+    problemSize,
     phase,
     lastValidatedAt,
     error,

@@ -21,6 +21,7 @@ Layout under `{workspace}/calliope-studio/runs/{run_id}/`:
     events.jsonl    the structured event stream; appended by the worker
     run.log         raw child stdout/stderr, a debugging backstop
     outcome.json    terminal status; written by the worker as its last act
+    problem.json    how big the optimisation problem is; written at build time
     results.nc      the solved model
     resolved.nc     the model as Calliope understands it, unsolved (init_only)
 
@@ -45,6 +46,14 @@ REQUEST_FILE = "request.json"
 EVENTS_FILE = "events.jsonl"
 LOG_FILE = "run.log"
 OUTCOME_FILE = "outcome.json"
+
+#: Component counts for the problem the backend assembled; see `runs.problem`.
+#:
+#: Its own file rather than a key in `outcome.json`, because that is written once
+#: the run is over and the size is wanted while a long solve is still going. The
+#: run record is re-derived from disk on every request, so a file written the
+#: moment the build finishes is visible to the next poll.
+PROBLEM_FILE = "problem.json"
 RESULTS_FILE = "results.nc"
 
 #: The model definition as Calliope resolves it, with no results in it. Written
@@ -315,6 +324,15 @@ def write_outcome(run_dir: Path, outcome: dict) -> None:
     # A partial `outcome.json` reads as absent, which is a run that is "still
     # running" for ever and that retention therefore never reclaims.
     write_json_atomic(run_dir / OUTCOME_FILE, outcome)
+
+
+def read_problem(run_dir: Path) -> dict[str, Any]:
+    """The problem's size, or empty for a run that never got as far as a build."""
+    return _read_json(run_dir / PROBLEM_FILE) or {}
+
+
+def write_problem(run_dir: Path, problem: dict) -> None:
+    write_json_atomic(run_dir / PROBLEM_FILE, problem)
 
 
 def read_snapshot_manifest(run_dir: Path) -> dict[str, Any] | None:

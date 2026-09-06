@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterator
 
-from calliope_studio.runs import process, protocol
+from calliope_studio.runs import problem, process, protocol
 from calliope_studio.runs.stages import StageEvent, StageTracker
 
 #: Solver output is only emitted when this logger is at DEBUG. Calliope routes
@@ -300,7 +300,15 @@ def _record_diagnostics(outcome: dict, model, *, build_only: bool) -> None:
         pass
 
     try:
-        outcome["solver"] = str(model.config.solve.solver)
+        # Only the pyomo backend reads `solve.solver`; gurobi and highs *are* the
+        # solver and consult nothing but `solver_options`. The schema still
+        # defaults `solver` to `cbc`, so recording it unconditionally reported
+        # cbc for a solver that never ran.
+        backend = str(model.config.build.backend)
+        outcome["backend"] = backend
+        outcome["solver"] = (
+            str(model.config.solve.solver) if backend == "pyomo" else None
+        )
     except AttributeError:
         pass
 
@@ -430,6 +438,12 @@ def _execute(
     stage("build", "start")
     model.build()
     stage("build", "done")
+
+    # Before the `build_only` branch, so the validate tier records it too: a
+    # build that is not going to be solved is exactly when somebody is asking how
+    # big the problem would be. Written now rather than folded into `outcome`,
+    # which is not on disk until the run is over.
+    protocol.write_problem(run_dir, problem.summarise(model))
 
     if request.build_only:
         # Used by the "validate" tier: assembling the problem exercises all

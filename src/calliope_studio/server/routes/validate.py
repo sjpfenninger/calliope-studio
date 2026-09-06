@@ -99,7 +99,9 @@ def task_status(task_id: str, runs: RunManager = Depends(get_runs)) -> dict:
                 "status": "done",
                 "phase": "build",
                 "result": errors_from_outcome(
-                    {"status": record.status, "error": record.error}, "model.yaml"
+                    {"status": record.status, "error": record.error},
+                    "model.yaml",
+                    protocol.read_problem(run_dir),
                 ),
             }
         return {
@@ -114,7 +116,9 @@ def task_status(task_id: str, runs: RunManager = Depends(get_runs)) -> dict:
         "task_id": task_id,
         "status": "done",
         "phase": "build",
-        "result": errors_from_outcome(outcome, request.model_file),
+        "result": errors_from_outcome(
+            outcome, request.model_file, protocol.read_problem(run_dir)
+        ),
     }
 
 

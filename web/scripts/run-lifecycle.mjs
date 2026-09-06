@@ -117,6 +117,21 @@ check(
   (await page.locator('[data-testid="run-log"] p[data-level="DEBUG"]').count()) > 2,
 );
 
+// Asserted with the log panel provably in front rather than mid-solve. The
+// worker writes the size the moment the build finishes, so it *is* on the record
+// while the solver runs — but a model this small is often finished before a
+// check could look, and `validation-check` proves the same property outright by
+// reading it off a build that is never solved at all.
+const problemSize = (await testId("run-problem-size").first().innerText()).trim();
+check(
+  "the header reports how big the problem is",
+  // Case-insensitive on the magnitude suffix: `Intl` compact notation writes
+  // "5.07K" under Node's default locale and "5.07k" under this browser's, and
+  // which one appears is the reader's locale rather than anything asserted here.
+  /^size\s*[\d.,]+[a-z]?\s*\u00d7\s*[\d.,]+[a-z]?$/i.test(problemSize),
+  problemSize,
+);
+
 const shown = () => page.locator('[data-testid="run-log"] p[data-level]').count();
 const everything = await shown();
 await testId("log-filter").selectOption("errors");

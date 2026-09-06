@@ -29,22 +29,30 @@ TIER = "build"
 CLEAN_STATUSES = ("success", "infeasible", "cancelled")
 
 
-def errors_from_outcome(outcome: dict, model_file: str) -> dict:
+def errors_from_outcome(
+    outcome: dict, model_file: str, problem: dict | None = None
+) -> dict:
     """Turns a worker outcome into the frontend's problem-list shape.
 
     Calliope aggregates its errors into one formatted multi-line string rather
     than a structured list, and does not report line numbers, so each message
     becomes a single file-level problem. Splitting the aggregate into its bullet
     points is the most we can honestly recover.
+
+    `problem` rides along because this tier has already built the model: how big
+    the optimisation problem is, without solving it, is the one useful thing a
+    clean validation has to say beyond "no problems found". It is None whenever
+    the build never happened — a syntax failure escalates to nothing.
     """
     if outcome.get("status") in CLEAN_STATUSES:
-        return {"errors": []}
+        return {"errors": [], "problem": problem or None}
 
     message = outcome.get("error") or "Validation failed."
     lines = [line.strip(" *-\t") for line in message.splitlines()]
     parts = [line for line in lines if line] or [message]
 
     return {
+        "problem": problem or None,
         "errors": [
             {
                 "file": model_file,
@@ -55,5 +63,5 @@ def errors_from_outcome(outcome: dict, model_file: str) -> dict:
                 "tier": TIER,
             }
             for part in parts
-        ]
+        ],
     }

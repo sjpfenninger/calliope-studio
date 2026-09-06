@@ -19,6 +19,26 @@ export type RunStatus =
   | "failed"
   | "cancelled";
 
+/**
+ * How big the optimisation problem the backend assembled is.
+ *
+ * Counted as Calliope built it, **before the solver's presolve** — the solver
+ * reports its own, smaller, numbers. Anything displaying these has to say which
+ * they are. Empty for a run that never reached a build.
+ *
+ * Mirrors `summarise` in src/calliope_studio/runs/problem.py.
+ */
+export interface ProblemSize {
+  variables?: number;
+  constraints?: number;
+  piecewise_constraints?: number;
+  global_expressions?: number;
+  integer_variables?: number;
+  /** `{group: {component name: count}}`, largest first, for variables and
+   * constraints only. */
+  components?: Record<string, Record<string, number>>;
+}
+
 /** One run, as `RunManager.get` derives it from the run directory. */
 export interface RunRecord {
   id: string;
@@ -35,11 +55,18 @@ export interface RunRecord {
   completed_at: string | null;
   duration_seconds: number | null;
   termination_condition: string | null;
+  /** `config.build.backend`; null on a run recorded before it was kept. */
+  backend: string | null;
+  /** `config.solve.solver`, only when the backend is pyomo; the others do not read it. */
   solver: string | null;
   objective: number | null;
   timings: Record<string, number>;
   error: string | null;
   traceback: string | null;
+
+  /** Written the moment the build finishes, so it is populated while a run is
+   * still solving — which is the state it is for. */
+  problem: ProblemSize;
 
   has_results: boolean;
   has_snapshot: boolean;

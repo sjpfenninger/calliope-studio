@@ -186,6 +186,17 @@ async function run() {
       interval: 250,
     });
     check("the restored model validates clean", true);
+    // The build tier has already assembled the problem, so it can say how big it
+    // is — which is the only way to ask that without waiting for a solve. It is
+    // also the assertion that the count survives the worker, the sidecar file
+    // and the task envelope, none of which the unit tests cross.
+    const size = await testId("validation-problem-size").innerText();
+    check(
+      "and reports how big the problem is, without having solved it",
+      // The group separator is the reader's locale's, not ours.
+      /[\d][\d.,\u00a0 ]* variables and [\d][\d.,\u00a0 ]* constraints/.test(size),
+      size,
+    );
     // Relative, as everywhere else a time is shown; the full timestamp is the
     // tooltip. A run that has just finished says so.
     check(

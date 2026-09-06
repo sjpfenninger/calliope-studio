@@ -28,6 +28,7 @@ import {
   formatObjective,
   formatTimestamp,
 } from "@/lib/format";
+import { compactProblemSize, PROBLEM_SIZE_HINT } from "@/lib/problemSize";
 import {
   CODE_BLOCK,
   CODE_WELL,
@@ -58,6 +59,7 @@ const lines = computed(() =>
 const trimmed = computed(() => runs.trimmedFor(props.runId));
 const stage = computed(() => runs.stages.get(props.runId));
 const running = computed(() => (run.value ? !isTerminal(run.value.status) : false));
+const problemSize = computed(() => compactProblemSize(run.value?.problem));
 
 /**
  * How a line is coloured.
@@ -142,7 +144,10 @@ watch(
         </option>
       </select>
 
-      <span v-if="run?.solver" class="text-2xs text-text-muted">{{ run.solver }}</span>
+      <!-- The solver is only recorded under the pyomo backend — the others
+           are the solver — so a run off pyomo shows the backend alone. -->
+      <Metric v-if="run?.backend" layout="inline" label="backend" :value="run.backend" />
+      <Metric v-if="run?.solver" layout="inline" label="solver" :value="run.solver" />
       <!-- The same `Metric` the run list uses, so the objective here and the one
            in the row that opened this tab cannot be two tones of one number. -->
       <Metric
@@ -156,6 +161,18 @@ watch(
         layout="inline"
         label="took"
         :value="formatDuration(run.duration_seconds)"
+      />
+      <!-- Written by the worker the moment the build finishes, so this appears
+           while the solve is still going — which is when it is worth having.
+           One metric rather than two: the strip is already carrying seven
+           things, and the hint is where the counts are named. -->
+      <Metric
+        v-if="problemSize"
+        data-testid="run-problem-size"
+        layout="inline"
+        label="size"
+        :value="problemSize"
+        :hint="PROBLEM_SIZE_HINT"
       />
 
       <button

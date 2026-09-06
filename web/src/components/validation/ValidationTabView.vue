@@ -23,6 +23,7 @@ import StateMessage from "@/components/app/StateMessage.vue";
 import { Badge } from "@/components/ui/badge";
 import { formatCount, formatRelativeTime, formatTimestamp } from "@/lib/format";
 import { GHOST_BUTTON, SECONDARY_BUTTON } from "@/lib/formClasses";
+import { describeProblemSize } from "@/lib/problemSize";
 import { useTabsStore } from "@/stores/tabs";
 import { useValidationStore, type ValidationProblem } from "@/stores/validation";
 
@@ -30,6 +31,7 @@ const tabs = useTabsStore();
 const validation = useValidationStore();
 
 const running = computed(() => validation.isRunning);
+const problemSize = computed(() => describeProblemSize(validation.problemSize));
 
 const status = computed(() => {
   if (validation.phase === "syntax") return "Checking syntax…";
@@ -145,6 +147,13 @@ function severityOf(problem: { severity: string }) {
       title="No problems found"
     >
       The YAML parses and Calliope built the model.
+      <!-- The build already happened, so the size costs nothing and is the only
+           way to ask how big a model is without waiting for a solve. -->
+      <template v-if="problemSize">
+        <br />
+        <span data-testid="validation-problem-size">{{ problemSize }}.</span>
+        <span class="text-text-muted"> The solver's presolve reduces both.</span>
+      </template>
     </StateMessage>
 
     <div v-else class="min-h-0 flex-1 overflow-auto" data-testid="validation-errors">

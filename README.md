@@ -91,6 +91,18 @@ Pixi is configured with a `gurobi` environment to test with Gurobi (needs a lice
 pixi run -e gurobi calliope-studio my-model   # Gurobi available as a solver
 ```
 
+### Release
+
+Pushing a `v*` tag builds the wheel and sdist and publishes them:
+
+```shell
+git tag v0.2.0 && git push --tags
+```
+
+A release tag with exactly three numeric components (`v0.2.0`) goes to PyPI. Anything else (e.g. `v0.2.0rc1` or a typo) goes to TestPyPI instead.
+
+On release, the conda-forge autotick bot should open a pull request on the [feedstock](https://github.com/conda-forge/calliope-studio-feedstock).
+
 ## Architecture
 
 The frontend is a [Vue 3](https://vuejs.org/) single-page TypeScript app served by a [FastAPI](https://fastapi.tiangolo.com/) backend.

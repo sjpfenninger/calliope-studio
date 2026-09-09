@@ -21,10 +21,13 @@
  *     run:~{handle}        a bare results file, which has no run
  *     validation           this model's validation results
  *     math                 this model's math, rendered
+ *     changes              what differs from the last commit
+ *     commit:{sha}         one commit, read-only
  *
- * `validation` and `math` carry no segment. A window holds one model version,
- * and both are about that model as a whole rather than about anything in it, so
- * there is nothing to name — which makes them the ids with an empty tail.
+ * `validation`, `math` and `changes` carry no segment. A window holds one model
+ * version, and all three are about that model as a whole rather than about
+ * anything in it, so there is nothing to name — which makes them the ids with
+ * an empty tail.
  *
  * `math` is deliberately not `math:{source}`, though the tab does filter by math
  * source. The point of the tab is to *cross-reference* — following a `Uses` link
@@ -41,7 +44,9 @@ export type TabSpec =
   | { kind: "run"; runId: string | null; handle: string | null }
   | { kind: "validation" }
   | { kind: "math" }
-  | { kind: "compare"; a: CompareRef; b: CompareRef };
+  | { kind: "compare"; a: CompareRef; b: CompareRef }
+  | { kind: "changes" }
+  | { kind: "commit"; sha: string };
 
 export type TabKind = TabSpec["kind"];
 
@@ -72,6 +77,10 @@ export function tabId(spec: TabSpec): string {
       // Each side is encoded as a whole segment: a scenario name may contain
       // anything a YAML key may, this space and `#` included.
       return `compare:${encode(formatRef(spec.a))}:${encode(formatRef(spec.b))}`;
+    case "changes":
+      return "changes";
+    case "commit":
+      return `commit:${encode(spec.sha)}`;
   }
 }
 
@@ -129,6 +138,12 @@ export function parseTabId(id: string): TabSpec | null {
       return a && b ? { kind: "compare", a, b } : null;
     }
 
+    case "changes":
+      return rest.length === 0 ? { kind: "changes" } : null;
+
+    case "commit":
+      return rest.length === 1 && rest[0] ? { kind: "commit", sha: decode(rest[0]) } : null;
+
     default:
       return null;
   }
@@ -156,3 +171,7 @@ export const mathTabId = (): string => tabId({ kind: "math" });
 
 export const compareTabId = (a: CompareRef, b: CompareRef): string =>
   tabId({ kind: "compare", a, b });
+
+export const changesTabId = (): string => tabId({ kind: "changes" });
+
+export const commitTabId = (sha: string): string => tabId({ kind: "commit", sha });

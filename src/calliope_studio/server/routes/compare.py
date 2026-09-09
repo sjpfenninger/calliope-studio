@@ -6,15 +6,20 @@ from calliope_studio.modeldef.schema import component_units
 from calliope_studio.results.diff import model_diff
 from calliope_studio.runs.manager import RunManager
 from calliope_studio.server import compare
-from calliope_studio.server.deps import get_resolver, get_runs, get_workspace
+from calliope_studio.server.deps import (
+    get_resolver,
+    get_runs,
+    get_storage,
+    get_workspace,
+)
 from calliope_studio.server.resolution import Resolver
-from calliope_studio.server.storage import Workspace
+from calliope_studio.server.storage import LocalStorage, Workspace
 
 router = APIRouter(tags=["compare"])
 
 
 def _sides(
-    a: str, b: str, workspace: Workspace, runs: RunManager
+    a: str, b: str, workspace: Workspace, runs: RunManager, storage: LocalStorage
 ) -> tuple[compare.Side, compare.Side]:
     """Both sides, or the first honest complaint about either.
 
@@ -30,7 +35,7 @@ def _sides(
     sides = []
     for ref in refs:
         try:
-            sides.append(compare.side_for(ref, workspace, runs))
+            sides.append(compare.side_for(ref, workspace, runs, storage))
         except compare.SideNotFound as problem:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail=str(problem)
@@ -48,9 +53,10 @@ def get_compare(
     b: str = Query(...),
     workspace: Workspace = Depends(get_workspace),
     runs: RunManager = Depends(get_runs),
+    storage: LocalStorage = Depends(get_storage),
 ) -> dict:
     """Which files each side refers to, and how they differ."""
-    left, right = _sides(a, b, workspace, runs)
+    left, right = _sides(a, b, workspace, runs, storage)
     files = compare.files_diff(left, right)
     return {
         "a": left.descriptor(),
@@ -70,9 +76,10 @@ def get_compare_file(
     path: str = Query(...),
     workspace: Workspace = Depends(get_workspace),
     runs: RunManager = Depends(get_runs),
+    storage: LocalStorage = Depends(get_storage),
 ) -> dict:
     """One file, as each side has it."""
-    left, right = _sides(a, b, workspace, runs)
+    left, right = _sides(a, b, workspace, runs, storage)
     try:
         return compare.file_pair(left, right, path)
     except compare.SideNotFound as problem:
@@ -88,6 +95,7 @@ def get_compare_model(
     workspace: Workspace = Depends(get_workspace),
     resolver: Resolver = Depends(get_resolver),
     runs: RunManager = Depends(get_runs),
+    storage: LocalStorage = Depends(get_storage),
 ) -> dict:
     """What the two versions mean, according to Calliope.
 
@@ -96,7 +104,7 @@ def get_compare_model(
     subprocess taking seconds, the side descriptor carries the task to poll,
     and the files half of the view is already on screen by then.
     """
-    left, right = _sides(a, b, workspace, runs)
+    left, right = _sides(a, b, workspace, runs, storage)
     models = [compare.model_for(side, workspace, resolver) for side in (left, right)]
     payload = {"a": left.descriptor(), "b": right.descriptor()}
 

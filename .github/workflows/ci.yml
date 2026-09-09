@@ -371,6 +371,18 @@ jobs:
         continue-on-error: true
         run: pixi run -- pnpm --dir web run compare-check http://127.0.0.1:8791 || { touch .check-failed/compare-check; exit 1; }
 
+      # Version tracking, on a throwaway model the check scaffolds itself: the
+      # example model is gitignored inside this repository, which is the state
+      # whose message is checked and not one anything can be committed into.
+      # The identity is what a commit made through the app needs and what a
+      # runner does not have; the server runs as this user and reads it.
+      - name: Version tracking
+        continue-on-error: true
+        run: |
+          git config --global user.name "CI"
+          git config --global user.email "ci@calliope-studio.invalid"
+          pixi run -- pnpm --dir web run vcs-check http://127.0.0.1:8791 || { touch .check-failed/vcs-check; exit 1; }
+
       # Really solves, with CBC, and drives the run tab from log to charts.
       - name: Run lifecycle
         continue-on-error: true

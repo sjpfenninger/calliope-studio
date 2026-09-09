@@ -153,6 +153,11 @@ class RunRequest:
     #: What the user called this run when they started it. `meta.json` overrides
     #: it if the run has since been renamed.
     label: str | None = None
+    #: Which commit the model was at when the run started — `sha`, `short`,
+    #: `branch`, `dirty` — or None for a folder git says nothing about. A plain
+    #: dict written by the server: `runs` knows nothing about version control,
+    #: and this is what lets a number be traced back to a commit.
+    git: dict | None = None
     #: When the run was requested. Recorded in the file rather than inferred from
     #: its mtime, which is lost the moment a workspace is copied, restored from a
     #: backup or checked out — silently reshuffling the whole run history.

@@ -77,6 +77,9 @@ class RunRecord:
     scenario: str | None = None
     override_dict: dict = field(default_factory=dict)
     build_only: bool = False
+    #: The commit the model was at — see `protocol.RunRequest.git`. None for a
+    #: folder git says nothing about, and for every run made before it was kept.
+    git: dict | None = None
 
     # -- what happened, from outcome.json ---------------------------------
     started_at: str | None = None
@@ -480,6 +483,7 @@ class RunManager:
             scenario=request.scenario if request else None,
             override_dict=(request.override_dict if request else None) or {},
             build_only=bool(request.build_only) if request else False,
+            git=(request.git if request else None) or None,
             # In `common`, not in the outcome branch below: a run that is still
             # solving has a size and no outcome, and that is when it is wanted.
             problem=protocol.read_problem(run_dir),

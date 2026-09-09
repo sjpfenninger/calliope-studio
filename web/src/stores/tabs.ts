@@ -28,6 +28,8 @@ import {
   sectionTabId,
   mathTabId,
   compareTabId,
+  changesTabId,
+  commitTabId,
   validationTabId,
   type TabKind,
   type TabSpec,
@@ -206,6 +208,27 @@ export interface MathTab extends TabCommon {
   isDirty: false;
 }
 
+/**
+ * The two version-tracking tabs: what differs from the last commit, and one
+ * commit read back. Both are git's reading of the folder rather than a
+ * buffer over it, so both are literal-typed clean like `RunTab`, and both
+ * keep their selected file on the tab because the pane is `v-if`.
+ */
+export interface ChangesTab extends TabCommon {
+  kind: "changes";
+  selectedPath: string | null;
+  isDirty: false;
+}
+
+export interface CommitTab extends TabCommon {
+  kind: "commit";
+  sha: string;
+  selectedPath: string | null;
+  isDirty: false;
+}
+
+export type RevisionTab = ChangesTab | CommitTab;
+
 export type TabEntry =
   | FileTab
   | SectionTab
@@ -213,7 +236,9 @@ export type TabEntry =
   | RunTab
   | ValidationTab
   | MathTab
-  | CompareTab;
+  | CompareTab
+  | ChangesTab
+  | CommitTab;
 
 /** The three kinds that have a buffer and can therefore be saved. */
 export type EditableTab = FileTab | SectionTab | EntryTab;
@@ -302,6 +327,10 @@ function titleFor(spec: TabSpec, hint?: string): string {
       return "Math";
     case "compare":
       return hint ?? `${describeRef(spec.a)} → ${describeRef(spec.b)}`;
+    case "changes":
+      return "Changes";
+    case "commit":
+      return hint ?? `Commit ${spec.sha.slice(0, 7)}`;
   }
 }
 
@@ -936,6 +965,59 @@ export const useTabsStore = defineStore("tabs", () => {
     if (tab?.kind === "compare") tab.selectedPath = path;
   }
 
+  /**
+   * Opens what differs from the last commit, optionally on one file.
+   *
+   * Permanent, never a preview, for the reason `openValidation` is: it is
+   * opened from the Files pane, and the next plain click in that tree would
+   * evict a preview — including the click on the file somebody opened it to
+   * read the diff of.
+   */
+  function openChanges(path: string | null = null): string {
+    const id = changesTabId();
+    const existed = openTabs.has(id);
+    if (!existed) {
+      openTabs.set(id, {
+        id,
+        kind: "changes",
+        title: titleFor({ kind: "changes" }),
+        selectedPath: path,
+        isDirty: false,
+        mounted: false,
+      });
+    } else if (path) {
+      setRevisionSelection(id, path);
+    }
+    activate(id);
+    settlePreview(id, existed, false);
+    return id;
+  }
+
+  /** Opens one commit, read-only. `hint` is its subject, for the title. */
+  function openCommit(sha: string, hint?: string): string {
+    const id = commitTabId(sha);
+    const existed = openTabs.has(id);
+    if (!existed) {
+      openTabs.set(id, {
+        id,
+        kind: "commit",
+        title: titleFor({ kind: "commit", sha }, hint),
+        sha,
+        selectedPath: null,
+        isDirty: false,
+        mounted: false,
+      });
+    }
+    activate(id);
+    settlePreview(id, existed, false);
+    return id;
+  }
+
+  function setRevisionSelection(id: string, path: string | null) {
+    const tab = openTabs.get(id);
+    if (tab?.kind === "changes" || tab?.kind === "commit") tab.selectedPath = path;
+  }
+
   function openFromId(id: string): string | null {
     const spec = parseTabId(id);
     if (!spec) return null;
@@ -954,6 +1036,10 @@ export const useTabsStore = defineStore("tabs", () => {
         return openMath();
       case "compare":
         return openCompare(spec.a, spec.b);
+      case "changes":
+        return openChanges();
+      case "commit":
+        return openCommit(spec.sha);
     }
   }
 
@@ -1269,6 +1355,9 @@ export const useTabsStore = defineStore("tabs", () => {
     setCompareSubView,
     setCompareSelection,
     openMath,
+    openChanges,
+    openCommit,
+    setRevisionSelection,
     openFromId,
     promote,
     updateRun,

@@ -44,6 +44,13 @@ const specs: TabSpec[] = [
     // A scenario may be a joined list of override names, commas and all.
     b: { kind: "workspace", scenario: "cold_fusion,high_cost" },
   },
+  { kind: "changes" },
+  { kind: "commit", sha: "3fa85f6457174562b3fc2c963f66afa6deadbeef" },
+  {
+    kind: "compare",
+    a: { kind: "commit", sha: "3fa85f64" },
+    b: { kind: "head" },
+  },
 ];
 
 describe("tabId", () => {
@@ -98,6 +105,19 @@ describe("tabId", () => {
     // and a source in the id would make every hop a new tab.
     expect(parseTabId("math")).toEqual({ kind: "math" });
     expect(parseTabId("math:base")).toBeNull();
+  });
+
+  it("parses the changes tab, the third id with no segment", () => {
+    expect(parseTabId("changes")).toEqual({ kind: "changes" });
+    expect(parseTabId("changes:x")).toBeNull();
+  });
+
+  it("names a commit by its sha and nothing else", () => {
+    // A `commit:{sha}` restored after the commit is gone must still parse: the
+    // tab degrades to a message, and it is the view's job to say so.
+    expect(parseTabId("commit:abc1234")).toEqual({ kind: "commit", sha: "abc1234" });
+    expect(parseTabId("commit:")).toBeNull();
+    expect(parseTabId("commit:a:b")).toBeNull();
   });
 
   it("keeps a run and a bare results file distinct", () => {

@@ -55,8 +55,10 @@ import ProgressHairline from "@/components/app/ProgressHairline.vue";
 import TabHistory from "./TabHistory.vue";
 import { ICON_BUTTON_XS } from "@/lib/formClasses";
 import {
+  CommitIcon,
   CompareIcon,
   fileIcon,
+  VcsIcon,
   ICON_STROKE_WIDTH_TIGHT,
   MathIcon,
   sectionIcon,
@@ -68,12 +70,14 @@ import { useMathStore } from "@/stores/math";
 import { isTerminal, useRunsStore } from "@/stores/runs";
 import { useTabsStore, type TabEntry } from "@/stores/tabs";
 import { useValidationStore } from "@/stores/validation";
+import { useVcsStore } from "@/stores/vcs";
 
 const tabs = useTabsStore();
 const runs = useRunsStore();
 const validation = useValidationStore();
 const math = useMathStore();
 const compare = useCompareStore();
+const vcs = useVcsStore();
 
 /** The shared segment shape, plus the few things only a document tab needs. */
 const TAB_CLASS = cn(
@@ -194,6 +198,8 @@ function iconFor(tab: TabEntry) {
   if (tab.kind === "validation") return ShieldCheck;
   if (tab.kind === "math") return MathIcon;
   if (tab.kind === "compare") return CompareIcon;
+  if (tab.kind === "changes") return VcsIcon;
+  if (tab.kind === "commit") return CommitIcon;
   if (tab.kind === "file") return fileIcon(tab.fileType);
   return sectionIcon(tab.section);
 }
@@ -216,6 +222,9 @@ function busy(tab: TabEntry): boolean {
   // A comparison is busy while Calliope is still reading either side — which
   // is most of the first few seconds of one against an unresolved model.
   if (tab.kind === "compare") return compare.isResolving(tab.a, tab.b);
+  // A commit or a discard in flight; git answers in milliseconds, but a hook
+  // may not, and the box is disabled for exactly that long.
+  if (tab.kind === "changes") return vcs.busy;
   return false;
 }
 

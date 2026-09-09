@@ -48,8 +48,15 @@ from calliope_studio.server.deps import (
 )
 from calliope_studio.server.resolution import RUN_WORKSPACE_PREFIX, Resolver
 from calliope_studio.server.storage import LocalStorage, Workspace
+from calliope_studio.vcs import commit as vcs_commit
+from calliope_studio.vcs import repo as vcs_repo
+from calliope_studio.vcs import status as vcs_status
+from calliope_studio.vcs.command import GitError
 
 router = APIRouter(tags=["runs"])
+
+#: What a checkpoint commit says when the user gave it no message.
+DEFAULT_CHECKPOINT_MESSAGE = "Commit before run"
 
 
 class RunOptions(BaseModel):
@@ -61,6 +68,10 @@ class RunOptions(BaseModel):
     override_dict: dict = Field(default_factory=dict)
     #: Build without solving. Exercises all of the math and needs no solver.
     build_only: bool = False
+    #: Commit the folder's uncommitted changes before freezing it, so the run
+    #: records a sha that names exactly what it solved.
+    commit_first: bool = False
+    commit_message: str = Field(default="", max_length=4000)
 
 
 class RunPatch(BaseModel):
@@ -123,6 +134,44 @@ def _freeze(workspace_path: Path):
         protocol.write_snapshot_manifest(run_dir, manifest)
 
     return prepare
+
+
+def _checkpoint(workspace: Workspace, options: RunOptions) -> dict | None:
+    """Which commit the model is at as the run starts, committing first if asked.
+
+    Composed here, beside the `prepare` closure, for the same reason: `runs`
+    may not import `vcs`, and the freeze has to be described by the request it
+    goes into. What is recorded is a plain dict the run record echoes back —
+    the sha, so a number can be traced to a commit, and whether the tree was
+    dirty when it was read, since a run of uncommitted edits is a run of
+    something no commit names.
+
+    None for a folder git says nothing about. Asking to commit first in that
+    state is a 400 rather than a silent no-op: the box was ticked and nothing
+    would have happened.
+    """
+    repo = vcs_repo.discover(workspace.path)
+    if repo is None or not repo.tracked:
+        if options.commit_first:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="This model is not tracked with git, so there is nothing to commit.",
+            )
+        return None
+    try:
+        changed = vcs_status.changes(repo)
+        if options.commit_first and changed:
+            message = options.commit_message.strip() or DEFAULT_CHECKPOINT_MESSAGE
+            vcs_commit.commit(repo, None, message)
+            changed = []
+        sha = vcs_repo.head(repo)
+    except GitError as problem:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(problem)
+        ) from problem
+    if sha is None:
+        return None
+    return {"sha": sha, "short": sha[:7], "branch": repo.branch, "dirty": bool(changed)}
 
 
 @router.get("/versions/{id}/runs/")
@@ -211,6 +260,9 @@ def create_run(
                 detail=f"No such scenario or override: {', '.join(unknown)}",
             )
 
+    # Before the freeze, so the sha recorded is the one the snapshot is of.
+    git = _checkpoint(workspace, options)
+
     # Old finished runs go before the new one starts, not after it finishes: the
     # worker is the only thing that knows a run completed, and it must not reach
     # back into the server to tidy up.
@@ -227,6 +279,7 @@ def create_run(
                 override_dict=options.override_dict,
                 build_only=options.build_only,
                 label=(options.label or "").strip() or None,
+                git=git,
             ),
             prepare=_freeze(workspace.path),
         )

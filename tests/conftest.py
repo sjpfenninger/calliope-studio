@@ -110,3 +110,31 @@ def forget_rendered_math():
     math_route._RENDERED.clear()
     yield
     math_route._RENDERED.clear()
+
+
+#: A committer for the tests that shell out to git. See `hermetic_git`.
+GIT_IDENTITY = "[user]\n\tname = Studio Test\n\temail = studio@example.com\n"
+
+
+@pytest.fixture
+def hermetic_git(tmp_path: Path, monkeypatch) -> Path:
+    """Git reads only what the test wrote, and knows who is committing.
+
+    The suite's git-shelling tests point `GIT_CONFIG_GLOBAL` and
+    `GIT_CONFIG_SYSTEM` at files of their own, so an inherited
+    `commit.gpgsign = true` with a broken helper — the hazard the retry in
+    `vcs/commit.py` exists for — cannot fail the suite on one machine only, and
+    the identity every commit needs is written here rather than assumed of the
+    CI runner, which has none.
+
+    Returns the global config file, so a test can rewrite it.
+    """
+    global_config = tmp_path / "gitconfig"
+    global_config.write_text(GIT_IDENTITY, encoding="utf-8")
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(global_config))
+    monkeypatch.setenv("GIT_CONFIG_SYSTEM", str(tmp_path / "no-system-config"))
+    # A hook or template directory from the developer's setup must not reach a
+    # repository the test creates.
+    monkeypatch.delenv("GIT_DIR", raising=False)
+    monkeypatch.delenv("GIT_WORK_TREE", raising=False)
+    return global_config

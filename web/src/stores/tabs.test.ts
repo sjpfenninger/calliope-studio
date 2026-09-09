@@ -13,6 +13,8 @@ vi.mock("../api/compare", () => ({
 import { putFile } from "../api/versions";
 
 import {
+  changesTabId,
+  commitTabId,
   entryTabId,
   fileTabId,
   mathTabId,
@@ -936,5 +938,54 @@ describe("compare tabs", () => {
     const tab = tabs.get(id);
     expect(tab?.kind).toBe("compare");
     expect(tab?.kind === "compare" && tab.b).toEqual(runRef("r1"));
+  });
+});
+
+describe("revision tabs", () => {
+  beforeEach(() => setActivePinia(createPinia()));
+
+  it("opens the changes once, on the file asked for, and is never writable", () => {
+    const tabs = useTabsStore();
+    const id = tabs.openChanges("model.yaml");
+    expect(id).toBe(changesTabId());
+    // A second open moves the selection rather than opening a second tab.
+    expect(tabs.openChanges("techs.yaml")).toBe(id);
+    expect(tabs.openTabs.size).toBe(1);
+
+    const tab = tabs.get(id)!;
+    expect(tab.kind === "changes" && tab.selectedPath).toBe("techs.yaml");
+    expect(isEditableTab(tab)).toBe(false);
+    // Git's reading of the folder is not a buffer over it. The literal
+    // `isDirty: false` makes this a compile error as well as a no-op.
+    expect(tabs.markDirty(id)).toBe(false);
+    expect(tab.isDirty).toBe(false);
+  });
+
+  it("is permanent, never a preview", () => {
+    // It is opened from the Files pane, whose next plain click would evict a
+    // preview — including the click on the file it was opened to show.
+    const tabs = useTabsStore();
+    tabs.openFile("model.yaml", { preview: true });
+    tabs.openChanges();
+    expect(tabs.previewId).toBe(fileTabId("model.yaml"));
+    expect(tabs.openTabs.size).toBe(2);
+  });
+
+  it("names a commit by its sha and titles it with the subject", () => {
+    const tabs = useTabsStore();
+    const id = tabs.openCommit("abc1234def", "Tighten techs");
+    expect(id).toBe(commitTabId("abc1234def"));
+    expect(tabs.get(id)?.title).toBe("Tighten techs");
+    expect(tabs.openCommit("abc1234def")).toBe(id);
+    expect(tabs.openTabs.size).toBe(1);
+  });
+
+  it("re-creates both from their ids alone", () => {
+    // What a `?tab=` deep link and a restored session both do. A commit that
+    // is no longer in the repository still parses; the view says so.
+    const tabs = useTabsStore();
+    expect(tabs.openFromId("changes")).toBe(changesTabId());
+    expect(tabs.openFromId(commitTabId("beef"))).toBe(commitTabId("beef"));
+    expect(tabs.get(commitTabId("beef"))?.title).toBe("Commit beef");
   });
 });

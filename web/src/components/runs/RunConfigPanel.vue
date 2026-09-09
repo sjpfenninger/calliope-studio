@@ -32,14 +32,32 @@ import { getSnapshot, getSnapshotCsv, getSnapshotFile, listSnapshotFiles } from 
 import { fetchSummary } from "@/api/results";
 import { buildFileTree, type FileEntry, type FileTreeNode } from "@/lib/fileTree";
 import { formatBytes, formatCount } from "@/lib/format";
-import { fileIcon } from "@/lib/icons";
-import { CODE_BLOCK, FIELD_WIDTH, WARNING_BADGE } from "@/lib/formClasses";
+import { CommitIcon, fileIcon } from "@/lib/icons";
+import { CODE_BLOCK, FIELD_WIDTH, TEXT_BUTTON_SM, WARNING_BADGE } from "@/lib/formClasses";
 import { describeProblemSize, hasProblemSize, PROBLEM_SIZE_HINT } from "@/lib/problemSize";
 import { useRunsStore } from "@/stores/runs";
+import { useTabsStore } from "@/stores/tabs";
 
 const props = defineProps<{ runId: string; handle: string | null }>();
 
 const runs = useRunsStore();
+const tabs = useTabsStore();
+
+/**
+ * Which commit the model was at when the run started.
+ *
+ * The one place the model half of the app meets git, and the point of the
+ * feature: a number traced to a commit. `dirty` is said out loud, because a
+ * sha over uncommitted edits names something near what ran, not exactly it.
+ */
+const git = computed(() => runs.get(props.runId)?.git ?? null);
+const gitTip = computed(() => {
+  if (!git.value) return "";
+  const where = `commit ${git.value.short}${git.value.branch ? ` on ${git.value.branch}` : ""}`;
+  return git.value.dirty
+    ? `Started from ${where}, with uncommitted edits: the commit is near what ran, not exactly it. Click to read the commit.`
+    : `Started from ${where}. Click to read the commit.`;
+});
 
 /**
  * How big the problem the backend assembled was.
@@ -211,6 +229,23 @@ const viewSegments = computed(() => [
       <Segmented v-model="view" :items="viewSegments" mode="nav" seam="none" size="fill" />
 
       <div class="flex-1" />
+
+      <InfoTip v-if="git" :label="gitTip">
+        <button
+          type="button"
+          data-testid="run-commit"
+          :data-sha="git.sha"
+          :data-dirty="git.dirty"
+          :class="TEXT_BUTTON_SM"
+          class="inline-flex items-center gap-1"
+          @click="tabs.openCommit(git.sha)"
+        >
+          <CommitIcon class="size-3" />
+          <span class="tabular-nums">{{ git.short }}</span>
+          <span v-if="git.branch">· {{ git.branch }}</span>
+          <span v-if="git.dirty" class="text-warning-text">· uncommitted edits</span>
+        </button>
+      </InfoTip>
 
       <!-- A model reaching outside its own folder cannot be fully frozen, and
            such a run falls back to solving the live workspace. Saying so here is

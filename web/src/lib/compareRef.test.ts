@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  commitRef,
   describeRef,
   formatRef,
+  headRef,
   parseRef,
   refKey,
   runRef,
@@ -25,6 +27,8 @@ const SPELLINGS: Array<[string, CompareRef]> = [
   // comma is an ordinary character here and nothing may split on it.
   ["workspace@cold_fusion,high_cost", { kind: "workspace", scenario: "cold_fusion,high_cost" }],
   ["run.3fa85f64-5717-4562-b3fc-2c963f66afa6", { kind: "run", runId: "3fa85f64-5717-4562-b3fc-2c963f66afa6" }],
+  ["head", { kind: "head" }],
+  ["commit.3fa85f64", { kind: "commit", sha: "3fa85f64" }],
 ];
 
 describe("compareRef", () => {
@@ -38,7 +42,11 @@ describe("compareRef", () => {
     ["run", "a run with no id"],
     ["run.", "a run with an empty id"],
     ["workspace.thing", "a workspace with an id"],
-    ["commit.abc123", "a kind this version does not know"],
+    ["commit.", "a commit with no sha"],
+    ["commit.xyz", "a commit id that is not hex"],
+    ["head.x", "head with an id"],
+    ["head@high_cost", "a commit given a scenario"],
+    ["tag.v1", "a kind this version does not know"],
     ["run.abc@high_cost", "a run given a scenario it did not solve"],
     ["run:abc", "a colon, which a tab id splits on"],
     ["workspace@a:b", "a colon inside a scenario"],
@@ -68,5 +76,12 @@ describe("compareRef", () => {
     expect(describeRef(workspaceRef("high_cost"))).toBe("Model @high_cost");
     expect(describeRef(runRef("3fa85f64-5717"))).toBe("Run 3fa85f64");
     expect(describeRef(runRef("3fa85f64-5717"), "Tuesday")).toBe("Tuesday");
+    expect(describeRef(headRef())).toBe("Last commit");
+    expect(describeRef(headRef(), "abc1234")).toBe("Commit abc1234");
+    expect(describeRef(commitRef("3fa85f6457"))).toBe("Commit 3fa85f6");
+  });
+
+  it("leaves a commit's scenario alone, as it does a run's", () => {
+    expect(withScenario(commitRef("abc1"), "high_cost")).toEqual(commitRef("abc1"));
   });
 });

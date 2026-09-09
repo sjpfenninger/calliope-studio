@@ -24,7 +24,7 @@ export interface SideModel {
 /** One version of the model, as the server describes it. */
 export interface CompareSide {
   ref: string;
-  kind: "workspace" | "run";
+  kind: "workspace" | "run" | "head" | "commit";
   label: string;
   scenario: string | null;
   /** False when the scenario named is not one this model defines any more. */
@@ -37,6 +37,13 @@ export interface CompareSide {
   override_dict?: Record<string, unknown>;
   /** False when the run's frozen copy was incomplete; null when it has none. */
   snapshot_complete?: boolean | null;
+
+  /** A commit side: which commit, once the server has resolved `head`. */
+  sha?: string;
+  short?: string;
+  subject?: string;
+  author?: string;
+  date?: string;
 }
 
 export type FileChangeStatus = "added" | "removed" | "modified" | "unchanged";

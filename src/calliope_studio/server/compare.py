@@ -42,7 +42,12 @@ from calliope_studio.server.resolution import (
     Resolver,
     Variant,
 )
-from calliope_studio.server.storage import Workspace
+from calliope_studio.server.storage import LocalStorage, Workspace
+from calliope_studio.vcs import log as vcs_log
+from calliope_studio.vcs import repo as vcs_repo
+from calliope_studio.vcs import tree as vcs_tree
+from calliope_studio.vcs.command import GitError
+from calliope_studio.vcs.log import Commit
 
 #: Runs whose `results.nc` is finished and safe to read.
 TERMINAL_STATUSES = ("success", "infeasible", "failed", "cancelled")
@@ -52,6 +57,10 @@ SOURCE_UNAVAILABLE = "unavailable"
 
 #: Shown first in the file list: it is where anybody reading a model starts.
 ENTRY_POINT = "model.yaml"
+
+#: What a materialised commit's synthetic workspace id starts with; the twin of
+#: `resolution.RUN_WORKSPACE_PREFIX`, and never a real workspace's.
+COMMIT_WORKSPACE_PREFIX = "commit:"
 
 
 class BadRef(ValueError):
@@ -76,16 +85,17 @@ class SideNotFound(SideUnavailable):
 class Ref:
     """Which version of the model a side is.
 
-    Spelled `workspace`, `workspace@{scenario}` or `run.{id}`. The separators
-    are deliberate: a tab id splits on `:` (`web/src/lib/tabId.ts`), so neither
-    part of a reference may contain one, and a scenario legitimately contains
-    commas because Calliope's `scenario=` also takes a joined list of override
-    names.
+    Spelled `workspace`, `workspace@{scenario}`, `run.{id}`, `head` or
+    `commit.{sha}`. The separators are deliberate: a tab id splits on `:`
+    (`web/src/lib/tabId.ts`), so neither part of a reference may contain one,
+    and a scenario legitimately contains commas because Calliope's `scenario=`
+    also takes a joined list of override names.
     """
 
     kind: str
     run_id: str | None = None
     scenario: str | None = None
+    sha: str | None = None
 
 
 def parse_ref(text: str) -> Ref:
@@ -113,6 +123,20 @@ def parse_ref(text: str) -> Ref:
             # as though it had.
             raise BadRef("A run is already a scenario; it cannot take another.")
         return Ref("run", run_id=run_id)
+    if kind in ("head", "commit"):
+        # A commit is a folder as it was, read as written: like a run, it
+        # takes no scenario, so the two sides of a diff differ in one thing.
+        if scenario:
+            raise BadRef("A commit cannot be read under a scenario.")
+        if kind == "head":
+            if run_id:
+                raise BadRef(f"Not a reference: {text!r}")
+            return Ref("head")
+        if not run_id:
+            raise BadRef("A commit reference needs a sha.")
+        if not vcs_repo.SHA_RE.match(run_id):
+            raise BadRef(f"Not a commit id: {run_id!r}")
+        return Ref("commit", sha=run_id)
     raise BadRef(f"Not a reference: {text!r}")
 
 
@@ -120,6 +144,10 @@ def format_ref(ref: Ref) -> str:
     """The spelling `parse_ref` reads. The twin of `lib/compareRef.ts`."""
     if ref.kind == "run":
         return f"run.{ref.run_id}"
+    if ref.kind == "head":
+        return "head"
+    if ref.kind == "commit":
+        return f"commit.{ref.sha}"
     return f"workspace@{ref.scenario}" if ref.scenario else "workspace"
 
 
@@ -133,6 +161,8 @@ class Side:
     files: list[dict]
     variant: Variant
     run: RunRecord | None = None
+    #: The commit a `head` or `commit` side was read from.
+    commit: Commit | None = None
     snapshot_complete: bool | None = None
     #: Whether the scenario this side names is one the model defines. False is
     #: reported rather than refused: a scenario renamed since a run was solved
@@ -163,11 +193,30 @@ class Side:
                 override_dict=self.run.override_dict,
                 snapshot_complete=self.snapshot_complete,
             )
+        if self.commit is not None:
+            payload.update(
+                sha=self.commit.sha,
+                short=self.commit.short,
+                subject=self.commit.subject,
+                author=self.commit.author,
+                date=self.commit.date,
+            )
         return payload
 
 
-def side_for(ref: Ref, workspace: Workspace, runs: RunManager) -> Side:
-    """The side a reference names, or `SideUnavailable` saying why not."""
+def side_for(
+    ref: Ref,
+    workspace: Workspace,
+    runs: RunManager,
+    storage: LocalStorage | None = None,
+) -> Side:
+    """The side a reference names, or `SideUnavailable` saying why not.
+
+    `storage` is where a commit is materialised; a caller without one cannot
+    offer commits, and says so rather than failing later.
+    """
+    if ref.kind in ("head", "commit"):
+        return _commit_side(ref, workspace, storage)
     if ref.kind == "workspace":
         known = not ref.scenario or ref.scenario in _scenario_names(workspace.path)
         return Side(
@@ -194,6 +243,43 @@ def side_for(ref: Ref, workspace: Workspace, runs: RunManager) -> Side:
         variant=(record.scenario, dict(record.override_dict or {})),
         run=record,
         snapshot_complete=record.snapshot_complete,
+    )
+
+
+def _commit_side(ref: Ref, workspace: Workspace, storage: LocalStorage | None) -> Side:
+    """A commit, materialised so it can be read like any other folder.
+
+    `head` is resolved to a sha here and is then a commit like any other; the
+    reference is kept as given so the descriptor echoes what was asked. The
+    tree is an ordinary model folder from then on — `_workspace_files` lists
+    what the model *at that commit* refers to, and the resolver reads it as a
+    synthetic workspace — which is what makes the Model half of a comparison
+    work for a commit with nothing further.
+    """
+    if storage is None:
+        raise SideUnavailable("Commits cannot be compared here.")
+    repo = vcs_repo.discover(workspace.path)
+    if repo is None or not repo.tracked:
+        raise SideUnavailable("This model is not tracked with git.")
+    sha = vcs_repo.head(repo) if ref.kind == "head" else ref.sha
+    if sha is None:
+        raise SideUnavailable("This repository has no commits yet.")
+    info = vcs_log.commit_info(repo, sha)
+    if info is None:
+        raise SideNotFound(f"Commit {sha} was not found.")
+    root = storage.vcs_tree_dir(workspace, info.sha)
+    try:
+        vcs_tree.materialise(repo, info.sha, root)
+    except GitError as problem:
+        raise SideUnavailable(f"Commit {info.short} could not be read: {problem}")
+    storage.prune_vcs_trees(workspace)
+    return Side(
+        ref=ref,
+        label=info.short,
+        root=root,
+        files=_workspace_files(root),
+        variant=(None, {}),
+        commit=info,
     )
 
 
@@ -409,13 +495,16 @@ def _as_workspace(side: Side, workspace: Workspace) -> Workspace:
     collide with a real workspace's, and its fingerprint never changes, so the
     entry is built once and then simply hit.
     """
-    if side.run is None:
+    if side.run is not None:
+        prefix = f"{RUN_WORKSPACE_PREFIX}{side.run.id}"
+    elif side.commit is not None:
+        # Namespaced by workspace as well as sha: two models in one repository
+        # share commits and must not share a tree rooted at the wrong folder.
+        prefix = f"{COMMIT_WORKSPACE_PREFIX}{workspace.id}:{side.commit.sha}"
+    else:
         return workspace
     return Workspace(
-        id=f"{RUN_WORKSPACE_PREFIX}{side.run.id}",
-        path=side.root,
-        name=side.label,
-        opened_at=datetime.now(timezone.utc),
+        id=prefix, path=side.root, name=side.label, opened_at=datetime.now(timezone.utc)
     )
 
 

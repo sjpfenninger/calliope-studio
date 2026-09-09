@@ -34,6 +34,7 @@ import { useSchemaKindsStore } from "@/stores/schemaKinds";
 import { useTabsStore } from "@/stores/tabs";
 import { useUiStore } from "@/stores/ui";
 import { useValidationStore } from "@/stores/validation";
+import { useVcsStore } from "@/stores/vcs";
 
 const route = useRoute();
 const router = useRouter();
@@ -45,6 +46,7 @@ const validation = useValidationStore();
 const math = useMathStore();
 const explorer = useExplorerStore();
 const compare = useCompareStore();
+const vcs = useVcsStore();
 const ui = useUiStore();
 
 const projectId = computed(() => (route.params.projectId as string) ?? null);
@@ -94,6 +96,9 @@ watch(
     // shown the previous model's diff until the new one arrived — and its
     // poll chains would have gone on asking about the old version.
     compare.reset();
+    // Git's reading of the new folder, for the file tree's markers and the
+    // footer. `load` drops the previous model's on its own.
+    void vcs.load(nextVersion);
     // Which schema describes which of this model's files. Fetched per model
     // because it depends on the `import:` graph, and before any editor opens so
     // that the first file to be shown is validated against the right one.

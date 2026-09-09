@@ -20,6 +20,7 @@ from calliope_studio.server.routes import (
     schema,
     structure,
     validate,
+    vcs,
     yaml_sections,
 )
 
@@ -39,6 +40,7 @@ for module in (
     results,
     schema,
     compare,
+    vcs,
 ):
     api_router.include_router(module.router)
 

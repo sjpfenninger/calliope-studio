@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.0 (Unreleased)
+
+New features:
+
+- Version tracking with git (includes viewing what changed, viewing diffs, committing, browsing history, record which commit a run starts from). Git-related features are only visible and enabled if git is installed on the system.
+
 ## 0.2.0 (2026-09-07)
 
 New features:

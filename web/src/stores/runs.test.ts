@@ -67,6 +67,7 @@ function record(overrides: Partial<RunRecord> = {}): RunRecord {
     scenario: null,
     override_dict: {},
     build_only: false,
+    git: null,
     started_at: null,
     completed_at: null,
     duration_seconds: null,

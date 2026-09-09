@@ -25,6 +25,8 @@ export interface Health {
     run: boolean;
     runs: boolean;
     snapshot: boolean;
+    /** A folder to track and a git to track it with. */
+    vcs: boolean;
   }>;
   workspace: string | null;
   workspace_id: string | null;

@@ -1,16 +1,16 @@
 """Guards for the layered architecture's import rules.
 
-Three rules:
+Four rules:
 
-- `results`, `modeldef` and `runs` must stay importable without a web framework,
+- `results`, `modeldef`, `runs` and `vcs` must stay importable without a web framework,
   so that they remain usable from a notebook and cannot grow HTTP concerns.
   Only `calliope_studio.server` may import `fastapi`.
 - No layer may import a plotting library. The server exposes data, never
   figures; all charts are built in the frontend. Reintroducing a Python-side
   plotting library would also reintroduce the duplicated theme definitions that
   v0.2.0 had to keep in sync by hand.
-- The three domain layers may not import *each other*. `server` may import all
-  three and is the only place allowed to compose them.
+- The four domain layers may not import *each other*. `server` may import all
+  four and is the only place allowed to compose them.
 - `results` may not import **Calliope** at all. That is stronger than the rules
   above and is what makes the layer version-tolerant: `calliope.read_netcdf`
   builds a `Model`, and a `Model` insists on math the installed version
@@ -26,7 +26,7 @@ import sys
 SRC = pathlib.Path(__file__).parent.parent / "src" / "calliope_studio"
 
 #: Layers that must not depend on the web framework.
-DOMAIN_LAYERS = ("results", "modeldef", "runs")
+DOMAIN_LAYERS = ("results", "modeldef", "runs", "vcs")
 
 WEB_FRAMEWORKS = ("fastapi", "starlette", "uvicorn")
 
@@ -148,7 +148,8 @@ class TestImportRules:
         """Catches transitive imports that the source-level scan cannot see."""
         code = (
             "import sys; "
-            "import calliope_studio.results, calliope_studio.modeldef, calliope_studio.runs; "
+            "import calliope_studio.results, calliope_studio.modeldef, "
+            "calliope_studio.runs, calliope_studio.vcs; "
             f"banned = set({WEB_FRAMEWORKS!r}) & set(sys.modules); "
             "assert not banned, f'web framework imported: {banned}'"
         )

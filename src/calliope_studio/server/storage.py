@@ -91,6 +91,14 @@ MATH_CACHE_DIRNAME = "math-cache"
 #: Calliope 0.7 is in.
 MATH_CACHE_RETENTION = 64
 
+#: Commits materialised for comparison, per workspace. See `vcs.tree`.
+VCS_TREES_DIRNAME = "vcs-trees"
+
+#: How many of them to keep per workspace. A tree is the model folder's text —
+#: kilobytes to a few megabytes — and the comparisons anybody makes are against
+#: the last handful of commits.
+VCS_TREE_RETENTION = 16
+
 #: State directories used under earlier names, oldest first. Read once, to seed a
 #: fresh one; see `carry_over_registry`.
 LEGACY_STATE_DIR_NAMES = ("calligraph",)
@@ -505,6 +513,39 @@ class LocalStorage:
         write; asking where it is must not bring it into existence.
         """
         return self.registry_path.parent / MATH_CACHE_DIRNAME
+
+    def vcs_tree_dir(self, workspace: Workspace, sha: str) -> Path:
+        """Where a commit of this workspace is materialised for comparison.
+
+        Beside the math cache and for the same reasons: derived data the user
+        never asked for, kept between sessions because a commit is immutable
+        and re-extracting it on every comparison would be pure waste. Keyed by
+        workspace so two models sharing a repository cannot hand each other a
+        tree rooted at the wrong folder. Created by the first write.
+        """
+        return self.registry_path.parent / VCS_TREES_DIRNAME / workspace.id / sha
+
+    # Quoted: `list` is the method above in this class body, not the builtin.
+    def prune_vcs_trees(
+        self, workspace: Workspace, keep: int = VCS_TREE_RETENTION
+    ) -> "list[str]":
+        """Removes this workspace's oldest materialised commits beyond `keep`.
+
+        By modification time, so the commit just compared is the newest and
+        survives. A tree removed here that is asked for again is simply
+        rebuilt at the same path, which is what keeps the resolver's entry for
+        it — keyed by sha, with a fingerprint that cannot change — valid.
+        """
+        root = self.registry_path.parent / VCS_TREES_DIRNAME / workspace.id
+        if not root.is_dir():
+            return []
+        trees = [path for path in root.iterdir() if path.is_dir()]
+        trees.sort(key=_mtime_or_zero, reverse=True)
+        removed = []
+        for path in trees[keep:]:
+            shutil.rmtree(path, ignore_errors=True)
+            removed.append(path.name)
+        return removed
 
     def _prune_scratch(self, kind: str, keep: int) -> None:
         """Removes finished attempts of one kind beyond the newest `keep`.

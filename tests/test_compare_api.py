@@ -27,6 +27,11 @@ from calliope_studio.server.compare import (
     parse_ref,
 )
 from calliope_studio.server.routes.compare import _reason
+from calliope_studio.vcs import commit as vcs_commit
+from calliope_studio.vcs import init as vcs_init
+from calliope_studio.vcs import repo as vcs_repo
+from calliope_studio.vcs import tree as vcs_tree
+from calliope_studio.vcs.command import git_available
 
 
 def make_run(model: Path, *, scenario=None, label=None, snapshot=True) -> str:
@@ -77,13 +82,27 @@ class TestReferences:
             "workspace@high_cost",
             "workspace@cold_fusion,high_cost",
             "run.3fa85f64-5717-4562-b3fc-2c963f66afa6",
+            "head",
+            "commit.3fa85f64",
         ],
     )
     def test_a_reference_round_trips(self, text):
         assert format_ref(parse_ref(text)) == text
 
     @pytest.mark.parametrize(
-        "text", ["", "run.", "run", "commit.abc", "workspace.thing", "nonsense"]
+        "text",
+        [
+            "",
+            "run.",
+            "run",
+            "commit.",
+            "commit.xyz",
+            "head.x",
+            "head@high_cost",
+            "workspace.thing",
+            "tag.v1",
+            "nonsense",
+        ],
     )
     def test_an_unreadable_reference_is_refused_rather_than_guessed(self, text):
         with pytest.raises(BadRef):
@@ -435,3 +454,91 @@ class TestReason:
     def test_two_resolvable_sides_have_no_reason(self):
         a = self._side(source="resolved")
         assert _reason(a, a) is None
+
+
+@pytest.mark.skipif(not git_available(), reason="git is not installed")
+class TestCommitSides:
+    """A commit as a side: the same view, one arm further along.
+
+    A commit is materialised into an ordinary model folder, so both halves of
+    a comparison work on it with nothing further — which is the case worth
+    pinning, since the Model half is what no other tool offers for history.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _git(self, hermetic_git):
+        return hermetic_git
+
+    @pytest.fixture
+    def tracked(self, national_scale):
+        return vcs_init.init(national_scale)
+
+    def test_head_against_the_working_tree_sees_an_edit(
+        self, client, ws, tracked, national_scale
+    ):
+        clean = compare(client, ws, "head", "workspace").json()
+        assert clean["identical"] is True
+        assert clean["a"]["kind"] == "head"
+        assert clean["a"]["sha"] == vcs_repo.head(tracked)
+
+        target = national_scale / "model.yaml"
+        target.write_text(
+            target.read_text(encoding="utf-8") + "\n# edited\n", encoding="utf-8"
+        )
+        payload = compare(client, ws, "head", "workspace").json()
+        assert statuses(payload)["model.yaml"] == "modified"
+
+    def test_two_commits_and_the_file_between_them(
+        self, client, ws, tracked, national_scale
+    ):
+        first = vcs_repo.head(tracked)
+        target = national_scale / "model.yaml"
+        target.write_text("name: rewritten\n", encoding="utf-8")
+        second = vcs_commit.commit(tracked, None, "Rewrite")
+
+        payload = compare(client, ws, f"commit.{first}", f"commit.{second}").json()
+        assert statuses(payload)["model.yaml"] == "modified"
+        assert payload["b"]["subject"] == "Rewrite"
+
+        pair = compare(
+            client, ws, f"commit.{first}", f"commit.{second}", "file", path="model.yaml"
+        ).json()
+        assert pair["b"]["content"] == "name: rewritten\n"
+        assert pair["a"]["content"] != pair["b"]["content"]
+
+    def test_an_untracked_model_offers_no_commits(self, client, ws):
+        response = compare(client, ws, "head", "workspace")
+        assert response.status_code == 400
+        assert "not tracked" in response.json()["detail"]
+
+    def test_an_unknown_commit_is_a_404_and_a_bad_one_a_400(self, client, ws, tracked):
+        assert compare(client, ws, "commit.deadbeef", "workspace").status_code == 404
+        assert compare(client, ws, "commit.xyz", "workspace").status_code == 400
+        assert compare(client, ws, "head@high_cost", "workspace").status_code == 400
+
+    def test_a_commit_is_materialised_once_and_pruned_by_age(
+        self, client, ws, storage, tracked, national_scale
+    ):
+        sha = vcs_repo.head(tracked)
+        compare(client, ws, "head", "workspace")
+        workspace = storage.get(ws)
+        tree = storage.vcs_tree_dir(workspace, sha)
+        assert (tree / "model.yaml").is_file()
+        assert (tree / vcs_tree.MARKER).read_text(encoding="utf-8") == sha
+
+        stamp = (tree / vcs_tree.MARKER).stat().st_mtime
+        compare(client, ws, "head", "workspace")
+        assert (tree / vcs_tree.MARKER).stat().st_mtime == stamp
+
+        assert storage.prune_vcs_trees(workspace, keep=0) == [sha]
+        assert not tree.exists()
+
+    def test_the_model_half_answers_for_a_commit(self, client, ws, tracked):
+        """The resolver takes the materialised tree as a folder like any other.
+        Reading it is a subprocess, so the answer may still be pending; what
+        must not happen is a refusal."""
+        payload = compare(client, ws, "head", "workspace", "model").json()
+        assert set(payload) >= {"a", "b", "available", "pending"}
+        assert payload["a"]["kind"] == "head"
+        if not payload["available"]:
+            assert payload["pending"] or payload["reason"]

@@ -20,6 +20,7 @@ from typing import Literal
 from calliope_studio.modeldef.imports import find_model_yaml
 from calliope_studio.runs import protocol
 from calliope_studio.server.storage import workspace_id
+from calliope_studio.vcs.command import git_available
 
 
 class NotSomethingToOpen(ValueError):
@@ -127,4 +128,13 @@ def _results_target(results_file: Path) -> Target:
 
 
 def _capabilities(*, editable: bool) -> dict:
-    return {"edit": editable, "run": editable, "runs": editable, "snapshot": editable}
+    return {
+        "edit": editable,
+        "run": editable,
+        "runs": editable,
+        "snapshot": editable,
+        # Version tracking needs a folder to track and a git to track it with.
+        # Absent rather than broken on a machine without the binary: the
+        # frontend draws no git chrome at all when this is false.
+        "vcs": editable and git_available(),
+    }

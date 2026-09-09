@@ -32,6 +32,7 @@ const SPLITTER_KEY = `${KEY_PREFIX}splitter.sizes`;
 const DATA_TABLE_SPLIT_KEY = `${KEY_PREFIX}dataTable.split`;
 const MAP_SPLIT_KEY = `${KEY_PREFIX}map.split`;
 const COMPARE_SPLIT_KEY = `${KEY_PREFIX}compare.split`;
+const REVISION_SPLIT_KEY = `${KEY_PREFIX}revision.split`;
 const RESULTS_LAYOUT_KEY = `${KEY_PREFIX}results.layout`;
 const RESULTS_GEOMETRY_KEY = `${KEY_PREFIX}results.geometry`;
 const CONFIG_ADVANCED_KEY = `${KEY_PREFIX}config.advanced`;
@@ -58,6 +59,9 @@ const DEFAULT_MAP_SPLIT = [72, 28];
 
 /** The changed-file list against the diff editor. */
 const DEFAULT_COMPARE_SPLIT = [25, 75];
+
+/** The same shape for the changes and commit tabs, remembered on its own. */
+const DEFAULT_REVISION_SPLIT = [25, 75];
 
 const DARK_QUERY = "(prefers-color-scheme: dark)";
 
@@ -241,6 +245,28 @@ export const useUiStore = defineStore("ui", () => {
   function setCompareSplit(sizes: number[]) {
     compareSplit.value = sizes;
     writeStorage(COMPARE_SPLIT_KEY, JSON.stringify(sizes));
+  }
+
+  const revisionSplit = ref<number[]>(readRevisionSplit());
+
+  function readRevisionSplit(): number[] {
+    try {
+      const stored = localStorage.getItem(REVISION_SPLIT_KEY);
+      if (!stored) return [...DEFAULT_REVISION_SPLIT];
+      const parsed = JSON.parse(stored) as unknown;
+      return Array.isArray(parsed) &&
+        parsed.length === DEFAULT_REVISION_SPLIT.length &&
+        parsed.every((size) => typeof size === "number" && Number.isFinite(size))
+        ? (parsed as number[])
+        : [...DEFAULT_REVISION_SPLIT];
+    } catch {
+      return [...DEFAULT_REVISION_SPLIT];
+    }
+  }
+
+  function setRevisionSplit(sizes: number[]) {
+    revisionSplit.value = sizes;
+    writeStorage(REVISION_SPLIT_KEY, JSON.stringify(sizes));
   }
 
   // ── The results view's layouts ───────────────────────────────────────────
@@ -505,6 +531,8 @@ export const useUiStore = defineStore("ui", () => {
     mapSplit,
     compareSplit,
     setCompareSplit,
+    revisionSplit,
+    setRevisionSplit,
     setMapSplit,
     resultsLayout,
     setResultsLayout,

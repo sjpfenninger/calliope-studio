@@ -107,12 +107,13 @@ On release, the conda-forge autotick bot should open a pull request on the [feed
 
 The frontend is a [Vue 3](https://vuejs.org/) single-page TypeScript app served by a [FastAPI](https://fastapi.tiangolo.com/) backend.
 
-The backend consists of four Python packages with a one-way import rule: `server` may import the others, while they import neither `server` nor each other:
+The backend consists of five Python packages with a one-way import rule: `server` may import the others, while they import neither `server` nor each other:
 
 - `server`: FastAPI app and HTTP routes
 - `modeldef`: YAML and CSV model definitions on disk
 - `runs`: Builds and solves models in a separate process
 - `results`: Reads `.nc` files and streams them as [Apache Arrow](https://arrow.apache.org/) batches for charts and tables
+- `vcs`: Version tracking, through the system `git`
 
 ## License
 

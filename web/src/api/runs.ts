@@ -39,6 +39,20 @@ export interface ProblemSize {
   components?: Record<string, Record<string, number>>;
 }
 
+/**
+ * Which commit the model was at when the run started.
+ *
+ * `dirty` means the tree held uncommitted edits when it was read, so the sha
+ * names something near what ran rather than exactly it. Mirrors
+ * `_checkpoint` in src/calliope_studio/server/routes/runs.py.
+ */
+export interface RunGit {
+  sha: string;
+  short: string;
+  branch: string | null;
+  dirty: boolean;
+}
+
 /** One run, as `RunManager.get` derives it from the run directory. */
 export interface RunRecord {
   id: string;
@@ -50,6 +64,8 @@ export interface RunRecord {
   scenario: string | null;
   override_dict: Record<string, unknown>;
   build_only: boolean;
+  /** Null for a folder git says nothing about, and for runs made before it was kept. */
+  git: RunGit | null;
 
   started_at: string | null;
   completed_at: string | null;

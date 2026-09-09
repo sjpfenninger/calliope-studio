@@ -54,7 +54,12 @@ const sides = computed(() => state.value.files ?? state.value.model);
 /** What each side is called, before and after the server has answered. */
 function labelOf(ref: CompareRef, which: "a" | "b"): string {
   const described = sides.value?.[which];
-  return describeRef(ref, described?.kind === "run" ? described.label : undefined);
+  // A workspace names itself; a run or a commit is called what the server
+  // calls it once it has answered — a label, a short sha.
+  return describeRef(
+    ref,
+    described && described.kind !== "workspace" ? described.label : undefined,
+  );
 }
 
 function sideOf(which: "a" | "b") {

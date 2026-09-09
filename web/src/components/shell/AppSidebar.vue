@@ -11,6 +11,7 @@ import PanelFooter from "@/components/app/PanelFooter.vue";
 import ProjectSwitcher from "./ProjectSwitcher.vue";
 import SidebarNav from "./SidebarNav.vue";
 import ThemeToggle from "@/components/layout/ThemeToggle.vue";
+import GitStatusBar from "@/components/vcs/GitStatusBar.vue";
 import { useProjectStore } from "@/stores/project";
 
 const props = defineProps<{
@@ -49,7 +50,13 @@ const editable = computed(() => props.versionId !== null);
       <RouterView />
     </div>
 
-    <PanelFooter class="justify-end">
+    <!-- The status bar: which branch, how much has changed. Git state is read
+         at a glance and describes the folder, so it sits with the footer's
+         chrome rather than among the sections above, which choose what the
+         panel shows. -->
+    <PanelFooter>
+      <GitStatusBar v-if="editable" />
+      <div class="flex-1" />
       <ThemeToggle />
     </PanelFooter>
   </aside>

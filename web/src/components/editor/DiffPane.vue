@@ -44,6 +44,7 @@ const container = ref<HTMLElement | null>(null);
 let editor: monaco.editor.IStandaloneDiffEditor | null = null;
 let models: monaco.editor.ITextModel[] = [];
 let observer: ResizeObserver | null = null;
+let reveal: monaco.IDisposable | null = null;
 
 /**
  * Monaco's own language ids, not this app's file kinds.
@@ -83,6 +84,18 @@ function build() {
   models = [original, modified];
 
   editor.setModel({ original, modified });
+
+  // Open on the first change, not on line 1. The diff is computed off the
+  // main thread, so this waits for it — once per build, since a later update
+  // is the user scrolling. Without it a hundred-line file whose one change
+  // is at line 90 looks exactly like a file with no changes: Monaco paints
+  // decorations only for lines in the viewport, and nothing scrolls there.
+  reveal?.dispose();
+  reveal = editor.onDidUpdateDiff(() => {
+    reveal?.dispose();
+    reveal = null;
+    editor?.revealFirstDiff();
+  });
 }
 
 onMounted(() => {
@@ -121,6 +134,8 @@ watch(
 onBeforeUnmount(() => {
   observer?.disconnect();
   observer = null;
+  reveal?.dispose();
+  reveal = null;
   editor?.dispose();
   editor = null;
   // After the editor, which still references them until it is gone.

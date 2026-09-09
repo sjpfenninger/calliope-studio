@@ -35,6 +35,9 @@ export interface RunOptions {
   scenario?: string | null;
   override_dict?: Record<string, unknown>;
   build_only?: boolean;
+  /** Commit the folder's uncommitted changes before the model is frozen. */
+  commit_first?: boolean;
+  commit_message?: string;
 }
 
 /** One name `scenario=` accepts, and enough to say what it is. */

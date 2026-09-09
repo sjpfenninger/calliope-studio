@@ -41,6 +41,7 @@ import FileViewer from "@/components/editor/FileViewer.vue";
 import MarkdownView from "@/components/editor/MarkdownView.vue";
 import MonacoYamlEditor from "@/components/editor/MonacoYamlEditor.vue";
 import CompareTabView from "@/components/compare/CompareTabView.vue";
+import RevisionView from "@/components/vcs/RevisionView.vue";
 import RunTabView from "@/components/runs/RunTabView.vue";
 import ValidationTabView from "@/components/validation/ValidationTabView.vue";
 import MathTabView from "@/components/math/MathTabView.vue";
@@ -188,6 +189,15 @@ function structuredVisible(tab: SectionTab | EntryTab): boolean {
            remount costs one request for the file on screen. -->
       <CompareTabView
         v-if="active?.kind === 'compare'"
+        :tab="active"
+        class="absolute inset-0 flex"
+      />
+
+      <!-- `v-if` for the same reason: git's reading of the folder is held by
+           the vcs store, its diff models are transient, and a remount costs one
+           request for the file on screen. -->
+      <RevisionView
+        v-if="active?.kind === 'changes' || active?.kind === 'commit'"
         :tab="active"
         class="absolute inset-0 flex"
       />

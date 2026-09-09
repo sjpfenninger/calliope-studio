@@ -29,6 +29,7 @@ import { Check, GitCompare, HardDrive, Play, RefreshCw } from "@lucide/vue";
 import RunListItem from "@/components/runs/RunListItem.vue";
 import RunStatusPill from "@/components/runs/RunStatusPill.vue";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -54,9 +55,11 @@ import { cn } from "@/lib/utils";
 import { useConfirmStore } from "@/stores/confirm";
 import { RETENTION_CHOICES, useRunsStore, type RunRecord } from "@/stores/runs";
 import { useTabsStore } from "@/stores/tabs";
+import { useVcsStore } from "@/stores/vcs";
 
 const runs = useRunsStore();
 const tabs = useTabsStore();
+const vcs = useVcsStore();
 
 const starting = ref(false);
 
@@ -129,7 +132,12 @@ async function start() {
       // Passed from here rather than read inside `startRun`: a later "run this
       // again" on a history item has its own scenario to send, and a store field
       // quietly overriding an argument is hard to see from the call.
-      const record = await runs.startRun(tabs.versionId!, { scenario: runs.scenario });
+      const record = await runs.startRun(tabs.versionId!, {
+        scenario: runs.scenario,
+        // Only when git will answer for the folder: asked of an untracked one
+        // the server refuses, which is right, and the box is not shown there.
+        commit_first: vcs.ready && vcs.commitBeforeRun,
+      });
       // Opens on the log, because there are no results to show yet.
       tabs.openRun({ id: record.id, label: record.label });
     });
@@ -327,6 +335,33 @@ function setRetention(keep: number | null) {
           </SelectGroup>
         </SelectContent>
       </Select>
+    </PanelHeader>
+
+    <!-- The run checkpoint: the one place the model half of the app meets git.
+         Its own strip, like the scenario's, and only for a folder git answers
+         for — the choice means nothing anywhere else. -->
+    <PanelHeader v-if="vcs.ready" data-testid="checkpoint-strip">
+      <InfoTip
+        label="Commits every uncommitted change before the model is frozen, so the run records a commit that names exactly what it solved."
+      >
+        <label class="flex min-w-0 items-center gap-1.5 text-sm text-text-dim">
+          <Checkbox
+            :model-value="vcs.commitBeforeRun"
+            data-testid="commit-before-run"
+            @update:model-value="vcs.commitBeforeRun = $event === true"
+          />
+          <span class="truncate">Commit changes first</span>
+        </label>
+      </InfoTip>
+      <div class="flex-1" />
+      <Badge
+        v-if="vcs.changedCount"
+        variant="outline"
+        :class="WARNING_BADGE"
+        data-testid="checkpoint-count"
+      >
+        {{ formatCount(vcs.changedCount, "file") }} changed
+      </Badge>
     </PanelHeader>
 
     <div class="min-h-0 flex-1 overflow-auto" data-testid="run-list">

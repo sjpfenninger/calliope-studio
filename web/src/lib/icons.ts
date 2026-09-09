@@ -7,7 +7,10 @@ import {
   FileCode2,
   FileText,
   Folder,
+  GitBranch,
+  GitCommitHorizontal,
   GitCompare,
+  History,
   Image,
   List,
   Map,
@@ -70,7 +73,10 @@ export function fileIcon(type: string): LucideIcon {
 
 export {
   BarChart3 as RunIcon,
+  GitBranch as VcsIcon,
+  GitCommitHorizontal as CommitIcon,
   GitCompare as CompareIcon,
+  History as HistoryIcon,
   Map as MapIcon,
   Sigma as MathIcon,
 };

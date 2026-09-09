@@ -23,6 +23,7 @@ import StateMessage from "@/components/app/StateMessage.vue";
 import TooltipButton from "@/components/app/TooltipButton.vue";
 import TreeSearch from "@/components/app/TreeSearch.vue";
 import NewFileDialog from "@/components/editor/NewFileDialog.vue";
+import VcsSidebar from "@/components/vcs/VcsSidebar.vue";
 import { useTreeSearch } from "@/composables/useTreeSearch";
 import { GHOST_BUTTON } from "@/lib/formClasses";
 import { fileIcon } from "@/lib/icons";
@@ -30,13 +31,16 @@ import { allPaths, type FileTreeNode } from "@/lib/fileTree";
 import { openIntent } from "@/lib/openIntent";
 import { fileTabId } from "@/lib/tabId";
 import { ancestorKeys } from "@/lib/treeFilter";
+import { MARK } from "@/lib/vcsStatus";
 import { useExplorerStore } from "@/stores/explorer";
 import { useTabsStore } from "@/stores/tabs";
+import { useVcsStore } from "@/stores/vcs";
 import { useVersionStore } from "@/stores/version";
 
 const tabs = useTabsStore();
 const version = useVersionStore();
 const explorer = useExplorerStore();
+const vcs = useVcsStore();
 
 const nodes = computed(() => version.fileTree);
 
@@ -217,14 +221,42 @@ function open(node: FileTreeNode, event: MouseEvent | KeyboardEvent) {
       class="min-h-0 flex-1"
       @select="(node, event) => open(node as FileTreeNode, event)"
     >
+      <!-- Two marks for two facts. The dot means "not written to disk"; the
+           letter means "differs from the last commit". A file can be either,
+           both or neither, so they never share one glyph. -->
       <template #trailing="{ item }">
-        <InfoTip
-          v-if="tabs.get(fileTabId((item as FileTreeNode).key))?.isDirty"
-          label="Unsaved changes"
-        >
-          <span class="ml-auto size-1.5 shrink-0 rounded-full bg-primary" />
-        </InfoTip>
+        <span class="ml-auto flex shrink-0 items-center gap-1">
+          <InfoTip
+            v-if="tabs.get(fileTabId((item as FileTreeNode).key))?.isDirty"
+            label="Unsaved changes"
+          >
+            <span class="size-1.5 shrink-0 rounded-full bg-primary" />
+          </InfoTip>
+          <InfoTip
+            v-if="(item as FileTreeNode).leaf && vcs.changeFor((item as FileTreeNode).key)"
+            :label="MARK[vcs.changeFor((item as FileTreeNode).key)!.state].label"
+          >
+            <span
+              class="w-3 text-center text-2xs"
+              :class="MARK[vcs.changeFor((item as FileTreeNode).key)!.state].tone"
+              data-testid="vcs-mark"
+              :data-state="vcs.changeFor((item as FileTreeNode).key)!.state"
+            >
+              {{ MARK[vcs.changeFor((item as FileTreeNode).key)!.state].letter }}
+            </span>
+          </InfoTip>
+          <!-- A folder counts what is under it, since its rows may be folded. -->
+          <span
+            v-else-if="!(item as FileTreeNode).leaf && vcs.countUnder((item as FileTreeNode).key)"
+            class="text-2xs tabular-nums text-text-muted"
+            data-testid="vcs-dir-count"
+          >
+            {{ vcs.countUnder((item as FileTreeNode).key) }}
+          </span>
+        </span>
       </template>
     </Tree>
+
+    <VcsSidebar />
   </div>
 </template>

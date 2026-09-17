@@ -13,10 +13,10 @@ import { useUnitsStore } from "../stores/units";
  * of appearing all at once at the end.
  *
  * It is also where the display unit is applied, because it is the one place
- * every frame in the application passes through — the results panel makes five
+ * every frame in the application passes through — the results panel makes six
  * here and the table one, and chart, table, CSV and map all read what they
  * return. Applied here rather than sent with the query, so changing "energy" to
- * GWh rescales six figures without a single request to the server.
+ * GWh rescales seven figures without a single request to the server.
  */
 export function useResultFrame(
   handle: Ref<string | null>,

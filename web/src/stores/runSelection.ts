@@ -9,6 +9,8 @@ import {
   type Link,
   type ResultQuery,
 } from "../api/results";
+import type { Extent, ZoomWindow } from "../lib/chartZoom";
+import { dayStart } from "../lib/dateWindow";
 import { compareNames } from "../lib/fileTree";
 import type { GeoPayload } from "../lib/mapGeo";
 
@@ -84,8 +86,15 @@ const OTHER_TECHS = "other";
 /** Sections shown first in the filter sidebar; the rest follow alphabetically. */
 const DIMENSION_ORDER = ["carriers", "nodes", "techs", TRANSMISSION, "costs"];
 
+/**
+ * The pandas offset alias behind each resolution.
+ *
+ * Every alias stamps a period with its *start*, so that on the time axis a
+ * bar sits on the tick that names it. Monthly used to be `1ME`, which stamps
+ * January at the 31st: the bar landed beside "Feb" and December's had no tick.
+ */
 export const RESOLUTIONS: Record<string, string | null> = {
-  Monthly: "1ME",
+  Monthly: "1MS",
   Weekly: "7D",
   Daily: "1D",
   "Original resolution": null,
@@ -174,6 +183,24 @@ function defineRunSelection(handle: string) {
      */
     const sumBy = ref<SumBy>("nodes");
     const timeRange = ref<[string, string] | null>(null);
+    /**
+     * The window the time-series chart is zoomed to, in epoch milliseconds.
+     *
+     * Held here rather than in the chart so that the from/to boxes beside it
+     * and the slider under it are two views of one thing, and so it outlives
+     * the chart being folded away and drawn again. Not `timeRange`, which is
+     * what the *server* is asked to slice: this narrows what is looked at, not
+     * what is fetched, so the whole year stays under the slider to pan across.
+     */
+    const zoomWindow = ref<ZoomWindow | null>(null);
+    /**
+     * A second time-series variable drawn as a line over the main chart, on an
+     * axis of its own — a shadow price over a dispatch stack is the case it
+     * exists for. Optional, so `null` is "no overlay" rather than a default:
+     * a chart with a second axis nobody asked for is a chart with a mystery
+     * line on it.
+     */
+    const overlayVariable = ref<string | null>(null);
 
     /**
      * How the static chart aggregates.
@@ -385,6 +412,9 @@ function defineRunSelection(handle: string) {
         "static",
       );
       variableTable.value = pickVariable(variables.all, variableTable.value, "all");
+      // Off rather than re-pointed, for the same reason as the map's colour and
+      // pie channels below: an overlay is opt-in.
+      overlayVariable.value = keepVariable(variables.timeseries, overlayVariable.value);
 
       // The map only offers variables that carry node data, which the catalogue
       // has always computed and nothing used. A channel pointing at something the
@@ -635,6 +665,28 @@ function defineRunSelection(handle: string) {
       };
     });
 
+    /**
+     * The overlay's query: the same look at the same hours as the main chart,
+     * only the variable — and therefore what the sum can apply to — differing.
+     *
+     * Nothing under a duration curve, whose x is rank rather than time: each
+     * series is sorted on its own there, so a second variable's hour 1 would
+     * share nothing with the first's, and drawing them on one axis would put a
+     * meaningless picture on the chart.
+     */
+    const overlayQuery = computed<ResultQuery | null>(() => {
+      if (!overlayVariable.value || plotType.value === "Duration") return null;
+      const sum = effectiveSum(overlayVariable.value, sumBy.value);
+      return {
+        variable: overlayVariable.value,
+        selectors: effectiveSelectors.value,
+        resample: RESOLUTIONS[resolution.value] ?? null,
+        time_range: timeRange.value,
+        order: "time",
+        ...(sum === "none" ? {} : { sum_by: sum }),
+      };
+    });
+
     const staticQuery = computed<ResultQuery | null>(() => {
       if (!variableStatic.value) return null;
       const sum = effectiveSum(variableStatic.value, staticSumBy.value);
@@ -711,6 +763,25 @@ function defineRunSelection(handle: string) {
       mapVariables.value.pie ? null : mapQueryFor("color"),
     );
 
+    /**
+     * The first and last instant the model has, from the catalogue.
+     *
+     * What the from/to boxes bound themselves by, and what a typed window is
+     * clipped to before any frame has arrived to measure. The catalogue writes
+     * the instants as `YYYY-MM-DD HH:MM:SS`, naive, and they are UTC as
+     * everywhere else a timestep is read.
+     */
+    const timeExtent = computed<Extent | null>(() => {
+      const extent = catalog.value?.time_extent;
+      if (!extent) return null;
+      const [first, last] = extent.map((text) => Date.parse(`${text.replace(" ", "T")}Z`));
+      if (first === undefined || last === undefined) return null;
+      if (!Number.isFinite(first) || !Number.isFinite(last) || last <= first) return null;
+      // Rounded down to the day it starts on, so a model beginning mid-day
+      // still offers that day.
+      return [dayStart(new Date(first).toISOString().slice(0, 10)) ?? first, last];
+    });
+
     /** Which chart type the timeseries pane should draw. */
     const timeseriesKind = computed<"bar" | "line" | "area">(() => {
       if (plotType.value === "Bar") return "bar";
@@ -756,11 +827,15 @@ function defineRunSelection(handle: string) {
       effectiveTableSum,
       effectiveTableResolution,
       mapVariables,
+      overlayVariable,
       timeRange,
+      zoomWindow,
+      timeExtent,
       mapNodes,
       hoveredNode,
       effectiveSelectors,
       timeseriesQuery,
+      overlayQuery,
       staticQuery,
       tableQuery,
       mapSizeQuery,

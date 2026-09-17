@@ -201,7 +201,7 @@ class TestColorsMatch:
 
 class TestTimeseriesMatch:
     @pytest.mark.parametrize("variable", ["flow*", "flow_out"])
-    @pytest.mark.parametrize("resample", [None, "1D", "1ME"])
+    @pytest.mark.parametrize("resample", [None, "1D", "1MS", "1ME"])
     @pytest.mark.parametrize("sum_by", ["nodes", "techs"])
     def test_reductions_agree(self, both, variable, resample, sum_by):
         old, new = both

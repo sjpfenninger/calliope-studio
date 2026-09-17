@@ -20,7 +20,12 @@ of them is not a model that can be built:
    including inside `overrides:`;
 3. `config.init.math_paths`, which nothing else in this package looks at —
    `urban_scale` refers to `additional_math.yaml` this way, and it is invisible
-   to the import graph.
+   to the import graph. Inside `overrides:` as well.
+
+Routes 2 and 3 are read through `overrides.expanded`, because Calliope accepts
+`data_tables.demand.table: x` as one dotted key and means the nested form by it.
+A reader walking the raw mapping saw nothing there, and the run solved from a
+snapshot without the CSV.
 
 If a run history ever grows large enough to matter, the fix is content-addressed
 storage — `calliope-studio/blobs/{sha256}` with hardlinks into each snapshot — so that
@@ -35,6 +40,7 @@ from typing import Any
 
 from calliope_studio.modeldef.data_tables import collect_data_tables
 from calliope_studio.modeldef.imports import find_model_yaml, reachable_files
+from calliope_studio.modeldef.overrides import bodies, expanded
 from calliope_studio.modeldef.paths import EXCLUDED_NAMES, file_type
 from calliope_studio.modeldef.yaml_io import load_quietly
 
@@ -85,6 +91,9 @@ def math_path_entries(document: Any) -> dict[str, str]:
     about the *key*, since `config.init.extra_math` names math by key and not by
     path. The keys used to be discarded here, so nothing could answer it.
     """
+    # Through `expanded`, so `config.init.math_paths.extra: x` written as one
+    # dotted key — which Calliope reads as the nested form — is found too.
+    document = expanded(document)
     config = document.get("config") if isinstance(document, dict) else None
     init = config.get("init") if isinstance(config, dict) else None
     paths = init.get("math_paths") if isinstance(init, dict) else None
@@ -96,6 +105,20 @@ def math_path_entries(document: Any) -> dict[str, str]:
 def math_paths(document: Any) -> list[str]:
     """Just the paths from `math_path_entries`, for callers that copy files."""
     return list(math_path_entries(document).values())
+
+
+def all_math_paths(document: Any) -> list[str]:
+    """Every math file a document names, inside its overrides too.
+
+    A math file that only a scenario enables is still a file the frozen model
+    has to have, and the schema it is validated against is still the math one
+    — so both the snapshot and `filekinds` read through this rather than each
+    walking the overrides on its own. Deduplicated, first mention first, which
+    keeps a snapshot's file list stable.
+    """
+    return list(
+        dict.fromkeys(name for body in bodies(document) for name in math_paths(body))
+    )
 
 
 def resolve_math_path(root: Path, name: str) -> Path:
@@ -180,7 +203,7 @@ def walk_references(workspace: Path) -> list[Reference]:
             continue
         for name in _import_entries(document):
             references.append(Reference(path, path.parent / name, "import", name))
-        for name in math_paths(document):
+        for name in all_math_paths(document):
             references.append(
                 Reference(path, resolve_math_path(root, name), "math", name)
             )

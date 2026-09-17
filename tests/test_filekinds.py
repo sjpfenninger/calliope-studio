@@ -36,6 +36,22 @@ class TestClassify:
         assert kinds["additional_math.yaml"] == MATH
         assert kinds["model.yaml"] == MODEL
 
+    def test_math_named_only_inside_an_override_is_math(self, national_scale):
+        """The snapshot copies such a file as math; the editor has to agree.
+
+        A math file that only a scenario enables is validated against the math
+        schema like any other, or else the two readers of one definition say
+        different things about one file.
+        """
+        (national_scale / "extra_math.yaml").write_text("constraints: {}\n")
+        with (national_scale / "model.yaml").open("a") as f:
+            f.write(
+                "\noverrides:\n  extra:\n"
+                "    config.init.math_paths.extra: extra_math.yaml\n"
+            )
+
+        assert classify(national_scale)["extra_math.yaml"] == MATH
+
     def test_an_unreferenced_file_is_unknown(self, national_scale):
         """The normal state of a file being drafted, and not an error.
 

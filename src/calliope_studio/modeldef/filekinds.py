@@ -13,7 +13,8 @@ guessed at again here:
 
 - `import:` chains reach the model definition, via `imports.reachable_files`;
 - `config.init.math_paths` names math, and is invisible to the import graph.
-  `urban_scale` refers to `additional_math.yaml` this way and no other.
+  `urban_scale` refers to `additional_math.yaml` this way and no other. Inside
+  an override as well: a file only a scenario enables is still math.
 
 Data tables need no kind of their own. `data_tables[*].table` points at CSVs, and
 the `data_tables:` *section* is already a property of the model-definition
@@ -28,7 +29,7 @@ from pathlib import Path
 
 from calliope_studio.modeldef.imports import find_model_yaml, reachable_files
 from calliope_studio.modeldef.paths import yaml_files
-from calliope_studio.modeldef.snapshot import math_paths, resolve_math_path
+from calliope_studio.modeldef.snapshot import all_math_paths, resolve_math_path
 from calliope_studio.modeldef.yaml_io import load_quietly
 
 #: A file the model definition reaches through `import:`, including the entry
@@ -72,7 +73,7 @@ def classify(base: Path) -> dict[str, str]:
         document = load_quietly(path)
         if not isinstance(document, dict):
             continue
-        for name in math_paths(document):
+        for name in all_math_paths(document):
             target = resolve_math_path(root, name)
             if target.is_file() and target.is_relative_to(root):
                 kinds[_relative(target, root)] = MATH

@@ -72,6 +72,70 @@ def flatten(mapping: Any, prefix: str = "") -> dict[str, Any]:
     return flat
 
 
+def expanded(mapping: Any) -> Any:
+    """The same settings, with every dotted key unfolded into nesting.
+
+    The inverse of `flatten`, and the one honest way to *read* an override:
+    Calliope's `AttrDict` unfolds `data_tables.demand.table: x` into three levels
+    on load, so a reader that walks the raw mapping and looks for a nested
+    `data_tables:` sees nothing where Calliope sees a table. That is how a run
+    snapshot came to miss the CSV an override named — the model built from the
+    live workspace and failed from the frozen copy — and every other structural
+    reader (`math_path_entries`, `collect_data_tables`) has the same blind spot
+    unless it reads through this.
+
+    Because `flatten` stops at a value — an indexed parameter, a data table — a
+    table config comes back as the one mapping it is, whichever way the file
+    spelled the path to it. Two spellings of the same leaf merge, later wins,
+    which is what Calliope does too.
+
+    Non-mappings pass through, so a caller can hand it whatever `load_quietly`
+    returned. Never used for *writing*: `set_path` resolves against the file's
+    own spelling for that.
+    """
+    if not isinstance(mapping, dict):
+        return mapping
+    nested: dict[str, Any] = {}
+    for path, value in flatten(mapping).items():
+        parts = [part for part in path.split(".") if part]
+        container = nested
+        for part in parts[:-1]:
+            existing = container.get(part)
+            # Any mapping is descended into, a value-mapping included: the
+            # `{table: x}` that `data_tables.extra.table` just made is where
+            # `data_tables.extra.rows` belongs, not something to replace.
+            if not isinstance(existing, dict):
+                existing = container[part] = {}
+            container = existing
+        leaf = parts[-1]
+        # A mapping arriving where a mapping already is: merge rather than
+        # replace, so `data_tables.demand: {rows: …}` and
+        # `data_tables.demand.table: …` written side by side both survive.
+        if isinstance(value, dict) and isinstance(container.get(leaf), dict):
+            container[leaf] = {**container[leaf], **value}
+        else:
+            container[leaf] = value
+    return nested
+
+
+def bodies(document: Any) -> list[Any]:
+    """The document and every override body in it, for a reader of both.
+
+    A data table or a math file that only an override names is still a file
+    the model refers to, so every structural reader walks the overrides as
+    well as the top level — and every one of them wrote
+    `(document.get("overrides") or {}).values()` by hand, which raises on an
+    `overrides:` written as a list, the state of a file mid-edit. Guarded once
+    here; a malformed section contributes nothing rather than a traceback.
+    """
+    if not isinstance(document, dict):
+        return []
+    overrides = document.get("overrides")
+    if not isinstance(overrides, dict):
+        return [document]
+    return [document, *overrides.values()]
+
+
 def _split_at_existing(container: Any, parts: list[str]) -> tuple[Any, int]:
     """Descends as far as the document already goes.
 

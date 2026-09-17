@@ -60,6 +60,10 @@ const timeseriesFrame = useResultFrame(
   handle,
   computed(() => store.timeseriesQuery),
 );
+const overlayFrame = useResultFrame(
+  handle,
+  computed(() => store.overlayQuery),
+);
 const staticFrame = useResultFrame(
   handle,
   computed(() => store.staticQuery),
@@ -213,6 +217,10 @@ onMounted(() => store.load());
                     :loading="timeseriesFrame.loading.value"
                     :error="timeseriesFrame.error.value"
                     :unit="timeseriesFrame.unit.value"
+                    :overlay-frame="overlayFrame.frame.value"
+                    :overlay-loading="overlayFrame.loading.value"
+                    :overlay-error="overlayFrame.error.value"
+                    :overlay-unit="overlayFrame.unit.value"
                   />
                   <ResizableHandle
                     with-handle

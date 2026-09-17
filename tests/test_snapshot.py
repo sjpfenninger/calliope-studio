@@ -87,6 +87,60 @@ class TestCompleteness:
         _, paths = captured(national_scale, tmp_path / "snapshot")
         assert any("cluster_days" in path for path in paths)
 
+    def test_a_data_table_named_by_a_dotted_override_key_is_captured(
+        self, national_scale, tmp_path
+    ):
+        """`data_tables.extra.table: x` is one key to YAML and three levels to Calliope.
+
+        The collector walked the raw mapping and found no `data_tables:` there, so
+        the CSV was left out of the snapshot: the model built from the live
+        workspace and failed from the frozen copy.
+        """
+        (national_scale / "data_tables" / "extra.csv").write_text("timesteps,x\n")
+        with (national_scale / "model.yaml").open("a") as f:
+            f.write(
+                "\noverrides:\n  extra:\n"
+                "    data_tables.extra.table: data_tables/extra.csv\n"
+                "    data_tables.extra.rows: timesteps\n"
+            )
+
+        manifest, paths = captured(national_scale, tmp_path / "snapshot")
+
+        assert "data_tables/extra.csv" in paths
+        assert manifest["complete"] is True
+
+    def test_a_math_file_named_inside_an_override_is_captured(
+        self, national_scale, tmp_path
+    ):
+        """Math that only a scenario enables is still a file the frozen model needs."""
+        (national_scale / "extra_math.yaml").write_text("constraints: {}\n")
+        with (national_scale / "model.yaml").open("a") as f:
+            f.write(
+                "\noverrides:\n  extra:\n"
+                "    config.init.math_paths.extra: extra_math.yaml\n"
+            )
+
+        manifest, paths = captured(national_scale, tmp_path / "snapshot")
+
+        assert "extra_math.yaml" in paths
+        assert manifest["complete"] is True
+
+    def test_a_malformed_overrides_section_does_not_stop_the_capture(
+        self, national_scale, tmp_path
+    ):
+        """`overrides: [a, b]` is a file mid-edit, and the snapshot has to survive it.
+
+        The readers of the section walked `.values()` on whatever was there, so
+        a list raised at run start rather than being reported as nothing.
+        """
+        with (national_scale / "model.yaml").open("a") as f:
+            f.write("\noverrides: [a, b]\n")
+
+        manifest, paths = captured(national_scale, tmp_path / "snapshot")
+
+        assert "model.yaml" in paths
+        assert manifest["complete"] is True
+
     @pytest.mark.parametrize("model", ["national_scale", "urban_scale"])
     def test_the_snapshot_is_a_model_calliope_can_read(self, model, request, tmp_path):
         """The contract that makes solving from a snapshot safe.

@@ -71,6 +71,26 @@ const props = withDefaults(
      */
     precision?: number | null;
     /**
+     * A second frame drawn as lines on a right-hand axis of its own.
+     *
+     * Its unit is as separate as its axis: a shadow price over a dispatch
+     * stack is the case, and the two share nothing but the hours. Ignored on
+     * a category axis — the caller's query is already null there, and a rank
+     * axis has no hour for a second series to land on.
+     */
+    overlayFrame?: ResultFrame | null;
+    overlayUnit?: DisplayUnit | null;
+    /**
+     * The zoom window, when the caller holds it.
+     *
+     * Undefined leaves the chart to keep its own, as the totals chart does. A
+     * caller that passes it — the time-series figure, whose from/to boxes are
+     * another view of the same window — gets every drag back through
+     * `update:window`, and a value it sets is applied through the `dataZoom`
+     * action, so the slider, the reset button and the boxes never disagree.
+     */
+    window?: ZoomWindow | null;
+    /**
      * Registers the ECharts instance at `window.__cgCharts[name]`.
      *
      * The second sanctioned testing seam, after ModelMap's `__cgMap`, and for
@@ -81,7 +101,16 @@ const props = withDefaults(
      */
     name?: string | null;
   }>(),
-  { labels: () => ({}), indexColors: null, unit: null, precision: null, name: null },
+  {
+    labels: () => ({}),
+    indexColors: null,
+    unit: null,
+    precision: null,
+    overlayFrame: null,
+    overlayUnit: null,
+    window: undefined,
+    name: null,
+  },
 );
 
 const emit = defineEmits<{
@@ -98,9 +127,41 @@ const emit = defineEmits<{
    * timestep is not a thing anything else can point at.
    */
   hoverIndex: [value: string | null];
+  /** The window after a drag, a reset or a frame that dropped it; see `window`. */
+  "update:window": [value: ZoomWindow | null];
 }>();
 
+const sameWindow = (a: ZoomWindow | null, b: ZoomWindow | null) =>
+  a === b || (a !== null && b !== null && a.startValue === b.startValue && a.endValue === b.endValue);
+
+/** Tells the caller where the window is, when it changed and someone is listening. */
+function reportWindow() {
+  if (props.window === undefined || sameWindow(props.window, zoomWindow)) return;
+  emit("update:window", zoomWindow);
+}
+
 const unit = computed(() => props.unit ?? NO_UNIT);
+const overlayUnit = computed(() => props.overlayUnit ?? NO_UNIT);
+
+/** The overlay, when there is one with something in it. */
+const overlay = computed(() =>
+  props.overlayFrame && props.overlayFrame.series.length > 0 ? props.overlayFrame : null,
+);
+
+/** Line dashes for overlay series the server gave no colour, so two are two. */
+const OVERLAY_DASHES = ["solid", "dashed", "dotted"] as const;
+
+/**
+ * The overlay's own colour when it has none.
+ *
+ * A technology's series arrives coloured; a shadow price, a capacity factor or
+ * a demand does not, and ECharts would hand it the next entry of the theme's
+ * ramp — a blue, over bars that are very likely blue. The foreground text
+ * colour is the one colour guaranteed to read over any stack in either theme.
+ */
+function overlayInk(): string {
+  return resolvedColor("--cg-text", "#1f1f1f");
+}
 
 /** The last value emitted, because the axis pointer fires on every mousemove. */
 let lastHover: string | null = null;
@@ -192,6 +253,38 @@ function timeStep(values: unknown[]): number {
   return Number.isFinite(smallest) ? smallest : 0;
 }
 
+/**
+ * What a time axis tick says, per calendar unit.
+ *
+ * These are ECharts' own templates except for the year, which it spells as a
+ * bare `{yyyy}`. A tick's unit is the coarsest one it is a boundary of, so on a
+ * monthly chart the January tick is a *year* tick and read "2020" beside
+ * "Feb", "Mar", …: the one bar whose month it did not name was the first.
+ * "Jan 2020" names the month and keeps the year where a multi-year model or a
+ * zoom across New Year needs it.
+ *
+ * All seven units are listed rather than the one that differs, and each has
+ * its bold second level, because naming any unit at all makes ECharts stop
+ * adding `{primary|…}` to the defaults for every other unit — which is what
+ * bolds the "Jun" tick among a daily chart's "29", "30", "31", "1".
+ */
+const TIME_TEMPLATES: Record<string, string> = {
+  year: "{MMM} {yyyy}",
+  month: "{MMM}",
+  day: "{d}",
+  hour: "{HH}:{mm}",
+  minute: "{HH}:{mm}",
+  second: "{HH}:{mm}:{ss}",
+  millisecond: "{HH}:{mm}:{ss} {SSS}",
+};
+
+const TIME_AXIS_FORMATTER = Object.fromEntries(
+  Object.entries(TIME_TEMPLATES).map(([unit, template]) => [
+    unit,
+    [template, `{primary|${template}}`],
+  ]),
+);
+
 function buildOption(frame: ResultFrame, zoom: ZoomWindow | null): echarts.EChartsOption {
   const axis = axisValues(frame);
   const onTime = isTimeIndex(frame);
@@ -200,12 +293,31 @@ function buildOption(frame: ResultFrame, zoom: ZoomWindow | null): echarts.EChar
   // replace — see `render`.
   const carried = zoom && onTime ? { startValue: zoom.startValue, endValue: zoom.endValue } : {};
   const stacked = props.kind !== "line";
-  const totalPoints = frame.index.length * Math.max(frame.series.length, 1);
+  // Only over a time axis: the query is null on a duration curve already, and
+  // a category axis has nothing for a second frame's index to line up with.
+  const over = onTime ? overlay.value : null;
+  const overAxis = over ? axisValues(over) : [];
+  const totalPoints =
+    frame.index.length * Math.max(frame.series.length, 1) +
+    (over ? over.index.length * over.series.length : 0);
   const byIndex = props.indexColors;
   // Colour means the axis now, so a one-entry legend could only mislead: its
   // swatch would be a single colour standing beside bars of several. The series
   // name still reaches the reader through the tooltip.
   const withLegend = !byIndex;
+
+  // The tick label and the tooltip line, per axis: each carries its own unit.
+  const tickFormatter = (props.precision === null
+    ? null
+    : (value: number) => formatValue(value, props.precision)) as
+    | ((value: number) => string)
+    | undefined;
+  const valueFormatter = (label: string) => (value: unknown) => {
+    if (value == null) return "—";
+    const text = formatValue(value as number, props.precision);
+    if (!text) return "—";
+    return label ? `${text} ${label}` : text;
+  };
 
   const toPoint = (value: number, position: number) => {
     const y = Number.isNaN(value) ? null : value;
@@ -221,12 +333,19 @@ function buildOption(frame: ResultFrame, zoom: ZoomWindow | null): echarts.EChar
 
   return {
     animation: totalPoints < LARGE_SERIES_THRESHOLD,
+    // Ticks, axis labels and the tooltip's axis value in UTC. A timestep is a
+    // naive model time that Arrow carries as a UTC instant, and every other
+    // reader — the table, the CSV, the from/to boxes — already reads it back
+    // with UTC getters (see lib/frameIndex.ts). ECharts' time axis defaults to
+    // local time, which drew a 13:00 timestep at 15:00 for a reader in Zürich
+    // and at 14:00 for one in London.
+    useUTC: true,
     // See charts/layout.ts: the bottom is derived from the slider and legend
     // rather than being a fourth number that has to agree with them.
     grid: {
       left: GRID_LEFT,
       right: GRID_RIGHT,
-      top: gridTop(Boolean(unit.value.label)),
+      top: gridTop(Boolean(unit.value.label) || Boolean(over && overlayUnit.value.label)),
       bottom: gridBottom(withLegend),
       containLabel: true,
     },
@@ -242,18 +361,17 @@ function buildOption(frame: ResultFrame, zoom: ZoomWindow | null): echarts.EChar
       // eight numbers of seventeen digits each. The unit is appended when there
       // is one, which is the one thing the axis label cannot do — a reader
       // hovering a stack has no unit anywhere near them.
-      valueFormatter: (value: unknown) => {
-        if (value == null) return "—";
-        const text = formatValue(value as number, props.precision);
-        if (!text) return "—";
-        return unit.value.label ? `${text} ${unit.value.label}` : text;
-      },
+      valueFormatter: valueFormatter(unit.value.label),
     },
     legend: withLegend
       ? { type: "scroll", bottom: 0, height: LEGEND_H }
       : { show: false },
     xAxis: onTime
-      ? { type: "time", minInterval: timeStep(axis), axisLabel: { hideOverlap: true } }
+      ? {
+          type: "time",
+          minInterval: timeStep(axis),
+          axisLabel: { hideOverlap: true, formatter: TIME_AXIS_FORMATTER },
+        }
       : {
           type: "category",
           data: axis,
@@ -266,56 +384,104 @@ function buildOption(frame: ResultFrame, zoom: ZoomWindow | null): echarts.EChar
     // qualifies the tick numbers, so it has to sit where they are. Above the
     // axis rather than rotated beside it, which costs 16px once instead of
     // eating into the plot width on every chart.
-    yAxis: {
-      type: "value",
-      // Always present, `null` when there is nothing to apply — never omitted.
-      // A merged option never *removes* a key, so an omitted formatter would
-      // stay installed after the field was cleared, and the ticks would keep
-      // showing a precision the user had just taken away. ECharts falls back to
-      // its own label for anything that is neither a function nor a template
-      // string, so `null` is how a formatter is withdrawn.
-      axisLabel: {
+    yAxis: [
+      {
+        type: "value",
+        // Always present, `null` when there is nothing to apply — never omitted.
+        // A merged option never *removes* a key, so an omitted formatter would
+        // stay installed after the field was cleared, and the ticks would keep
+        // showing a precision the user had just taken away. ECharts falls back to
+        // its own label for anything that is neither a function nor a template
+        // string, so `null` is how a formatter is withdrawn.
+        //
         // Cast because the types say `string | function | undefined`, and
         // `undefined` is not the same thing: a merged option ignores it, where
         // `null` reaches ECharts and fails its `isString`/`isFunction` checks,
         // which is precisely the fall-through to the built-in label.
-        formatter: (props.precision === null
-          ? null
-          : (value: number) => formatValue(value, props.precision)) as
-          | ((value: number) => string)
-          | undefined,
+        axisLabel: { formatter: tickFormatter },
+        ...(unit.value.label
+          ? { name: unit.value.label, nameLocation: "end", nameGap: 8 }
+          : {}),
       },
-      ...(unit.value.label
-        ? { name: unit.value.label, nameLocation: "end", nameGap: 8 }
-        : {}),
-    },
+      // The overlay's axis, on the right. Its gridlines stay off: two sets of
+      // lines at unrelated intervals is a grid nobody can read. Adding or
+      // removing this axis is one of the shape changes `render` replaces on.
+      ...(over
+        ? [
+            {
+              type: "value" as const,
+              position: "right" as const,
+              axisLabel: { formatter: tickFormatter },
+              splitLine: { show: false },
+              // Headroom, so a line sitting at its own maximum — a price that
+              // is one plant's marginal cost for days on end — is drawn as a
+              // line across the chart rather than along its top edge.
+              boundaryGap: [0, "10%"] as [number, string],
+              ...(overlayUnit.value.label
+                ? { name: overlayUnit.value.label, nameLocation: "end" as const, nameGap: 8 }
+                : {}),
+            },
+          ]
+        : []),
+    ],
     dataZoom: [
       { type: "inside", throttle: 50, ...carried },
       { type: "slider", height: ZOOM_H, bottom: zoomBottom(withLegend), ...carried },
     ],
-    series: frame.series.map((series) => ({
-      // `tooltip.trigger: "axis"` renders this too, so the short name reaches the
-      // tooltip with no formatter.
-      name: nameOf(frame, series),
-      type: props.kind === "bar" ? "bar" : "line",
-      stack: stacked ? "total" : undefined,
-      areaStyle: props.kind === "area" ? {} : undefined,
-      symbol: "none",
-      itemStyle: {
-        ...(series.color ? { color: series.color } : {}),
-        // Every segment of a bar takes its *category's* colour when colour maps
-        // to the axis, so without a hairline between them a stack of three
-        // carriers would read as one solid bar.
-        ...(props.indexColors && frame.series.length > 1
-          ? { borderColor: separator(), borderWidth: 1 }
-          : {}),
-      },
-      large: series.values.length > LARGE_SERIES_THRESHOLD,
-      largeThreshold: LARGE_SERIES_THRESHOLD,
-      progressive: 4000,
-      progressiveThreshold: LARGE_SERIES_THRESHOLD,
-      data: Array.from(series.values, toPoint),
-    })),
+    series: [
+      ...frame.series.map((series) => ({
+        // `tooltip.trigger: "axis"` renders this too, so the short name reaches
+        // the tooltip with no formatter.
+        name: nameOf(frame, series),
+        type: props.kind === "bar" ? ("bar" as const) : ("line" as const),
+        stack: stacked ? "total" : undefined,
+        areaStyle: props.kind === "area" ? {} : undefined,
+        symbol: "none" as const,
+        itemStyle: {
+          ...(series.color ? { color: series.color } : {}),
+          // Every segment of a bar takes its *category's* colour when colour maps
+          // to the axis, so without a hairline between them a stack of three
+          // carriers would read as one solid bar.
+          ...(props.indexColors && frame.series.length > 1
+            ? { borderColor: separator(), borderWidth: 1 }
+            : {}),
+        },
+        large: series.values.length > LARGE_SERIES_THRESHOLD,
+        largeThreshold: LARGE_SERIES_THRESHOLD,
+        progressive: 4000,
+        progressiveThreshold: LARGE_SERIES_THRESHOLD,
+        data: Array.from(series.values, toPoint),
+      })),
+      ...(over
+        ? over.series.map((series, position) => ({
+            // Prefixed with the variable, since the legend and tooltip would
+            // otherwise show `power` beside five technologies and say nothing
+            // about which variable the line is.
+            name: `${over.variable} | ${nameOf(over, series)}`,
+            type: "line" as const,
+            yAxisIndex: 1,
+            symbol: "none" as const,
+            // Above the bars, whose stack it is read against.
+            z: 10,
+            lineStyle: {
+              width: 2,
+              type: series.color
+                ? ("solid" as const)
+                : OVERLAY_DASHES[position % OVERLAY_DASHES.length],
+            },
+            itemStyle: { color: series.color ?? overlayInk() },
+            tooltip: { valueFormatter: valueFormatter(overlayUnit.value.label) },
+            large: series.values.length > LARGE_SERIES_THRESHOLD,
+            largeThreshold: LARGE_SERIES_THRESHOLD,
+            progressive: 4000,
+            progressiveThreshold: LARGE_SERIES_THRESHOLD,
+            data: Array.from(series.values, (value, index) => [
+              overAxis[index],
+              Number.isNaN(value) ? null : value,
+            ]),
+          }))
+        : []),
+    ],
   };
 }
 
@@ -395,38 +561,93 @@ function render() {
     // old numbers. That failure looks exactly like the setting doing nothing.
     unit.value.label,
     unit.value.factor,
+    // The overlay, on the same terms: its series and its axis are things a
+    // merge would never take away, and its factor is the same silent rescale.
+    overlay.value?.variable ?? "",
+    overlay.value?.series.map((series) => nameOf(overlay.value!, series)).join("\u001f") ?? "",
+    overlayUnit.value.label,
+    overlayUnit.value.factor,
   ].join("|");
   const replace = shape !== lastShape;
   lastShape = shape;
 
   // A replace used to cost the reader their zoom, because a fresh option
   // starts at the whole range — so comparing two variables over one week meant
-  // zooming into that week twice. Now the window rides on the replace, and only
-  // on the replace: a merge already keeps whatever is set, since ECharts leaves
-  // the range alone when the new option names none, and a batch arriving
-  // mid-zoom must not put the window back where it was. Only onto a time axis,
-  // too: a duration curve's x is rank, not time, so the window is dropped on
-  // the way to one and on the way back. A frame that does not reach the window
-  // is clamped to its edge by ECharts, which is rare — every variable of one
-  // model shares its timesteps — and is what was asked for.
+  // zooming into that week twice. Now the window rides on the replace. Only
+  // onto a time axis: a duration curve's x is rank, not time, so the window is
+  // dropped on the way to one and on the way back.
   const onTime = isTimeIndex(props.frame);
   if (!onTime) zoomWindow = null;
+  // A chart drawn fresh under a caller that already holds a window — the
+  // figure folded away and opened again — starts where the caller says.
+  else if (zoomWindow === null && props.window) zoomWindow = props.window;
   // Measured from the frame as drawn, which mid-stream is the part that has
-  // arrived: a zoom made then is read against a short axis, and may sit a
-  // little off once the rest lands. Nothing waits on a stream for that.
+  // arrived.
   lastExtent = onTime ? timeExtent(props.frame) : null;
-  // Clipped to the new axis rather than handed over as it was: a window that
+  // Clipped to the axis rather than handed over as it was: a window that
   // misses the axis entirely — a monthly frame after a zoom into one day of
   // an hourly one — left ECharts clamped to an edge with the reset button
   // still showing.
-  const carried = replace ? clipWindow(zoomWindow, lastExtent) : null;
+  //
+  // But the axis mid-stream is the part of the frame that has arrived, and a
+  // year of hours arrives in three batches. Clipping to the first one and
+  // keeping *that* as the window is how a zoom into August, carried across a
+  // variable change, came back ending on 19 June — the last hour of the first
+  // batch — and stayed there, since a merge leaves the range alone when the
+  // option names none. So while the frame is streaming, `zoomWindow` stays
+  // what the reader asked for, and every batch re-applies it clipped to the
+  // axis as it now stands: the window grows with the data. `settleWindow`
+  // then judges it once against the whole frame. A drag mid-stream still
+  // wins, because the `datazoom` handler rewrites the intent before the next
+  // batch re-applies it.
+  const streaming = Boolean(props.loading);
+  const carried = replace || streaming ? clipWindow(zoomWindow, lastExtent) : null;
 
   chart.value.setOption(buildOption(props.frame, carried), {
     notMerge: replace,
     lazyUpdate: true,
   });
   // No event follows a range set by option, so the button has to be told.
-  if (replace) zoomed.value = carried !== null;
+  if (replace || streaming) zoomed.value = carried !== null;
+  // Nor does one follow a window dropped on the way to a category axis, or
+  // one clipped away by an axis it does not reach; the boxes have to hear.
+  // Not mid-stream, where the clip is against a partial axis and would be
+  // reported as the reader's own choice.
+  if (replace && !streaming) {
+    zoomWindow = carried;
+    reportWindow();
+  }
+}
+
+/**
+ * The window judged against the frame once all of it is here.
+ *
+ * What `render` defers while a frame streams: a window that reaches past the
+ * complete axis is clipped to it, one that misses it is dropped, and either
+ * way the boxes hear the outcome. Through the action, as a drag would do it,
+ * so the `datazoom` it raises does the bookkeeping — and only when the range
+ * on the chart is not already the answer, since the action fires the event
+ * whether or not anything moved.
+ */
+function settleWindow() {
+  if (!chart.value || !props.frame || !isTimeIndex(props.frame)) return;
+  const carried = clipWindow(zoomWindow, lastExtent);
+  const applied = (chart.value.getOption().dataZoom as ZoomWindow[] | undefined)?.[0];
+  if (carried === null) {
+    if (zoomed.value) chart.value.dispatchAction({ type: "dataZoom", start: 0, end: 100 });
+    else if (zoomWindow !== null) {
+      zoomWindow = null;
+      reportWindow();
+    }
+    return;
+  }
+  if (applied && sameWindow(applied, carried) && sameWindow(zoomWindow, carried)) return;
+  chart.value.dispatchAction({
+    type: "dataZoom",
+    dataZoomIndex: 0,
+    startValue: carried.startValue,
+    endValue: carried.endValue,
+  });
 }
 
 /** The pixel where the plot area, and so the slider under it, begins. */
@@ -495,6 +716,7 @@ function mount() {
     // button on any.
     zoomWindow = lastExtent ? windowFromEvent(params, lastExtent) : null;
     zoomed.value = isZoomed(params, lastExtent);
+    reportWindow();
   });
   // On every frame drawn rather than on `finished`, which waits out the series
   // animation: a zoom changes which y labels are visible, and so how wide the
@@ -540,7 +762,43 @@ onBeforeUnmount(() => {
 
 watch(() => props.frame, render);
 watch(() => props.kind, render);
+// The last batch renders before the composable turns `loading` off, so this
+// is the first moment the whole frame can be measured.
+watch(
+  () => props.loading,
+  (now, before) => {
+    if (before && !now) settleWindow();
+  },
+);
+// Applied through the action, as `resetZoom` is: the `datazoom` it raises is
+// what moves the slider, the button and `zoomWindow` together. Only on a time
+// axis with something drawn — anywhere else there is no axis to zoom, and the
+// window is seeded from the prop at the next replace instead.
+watch(
+  () => props.window,
+  (next) => {
+    if (next === undefined || !chart.value || lastExtent === null) return;
+    if (sameWindow(next, zoomWindow)) return;
+    if (next === null) {
+      chart.value.dispatchAction({ type: "dataZoom", start: 0, end: 100 });
+      return;
+    }
+    const clipped = clipWindow(next, lastExtent);
+    if (clipped === null) {
+      chart.value.dispatchAction({ type: "dataZoom", start: 0, end: 100 });
+      return;
+    }
+    chart.value.dispatchAction({
+      type: "dataZoom",
+      dataZoomIndex: 0,
+      startValue: clipped.startValue,
+      endValue: clipped.endValue,
+    });
+  },
+);
 watch(unit, render);
+watch(overlay, render);
+watch(overlayUnit, render);
 // Deliberately *not* in `lastShape`: a precision change swaps two formatter
 // functions and nothing else, which a merge absorbs. A replace here would
 // rebuild every series on every keystroke in the field, for two formatters.

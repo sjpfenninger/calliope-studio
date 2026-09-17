@@ -784,10 +784,98 @@ describe("useRunSelection", () => {
       const store = useRunSelection("h1");
       await store.load();
       store.resolution = "Monthly";
-      expect(store.timeseriesQuery?.resample).toBe("1ME");
+      expect(store.timeseriesQuery?.resample).toBe("1MS");
 
       store.resolution = "Original resolution";
       expect(store.timeseriesQuery?.resample).toBeNull();
+    });
+
+    describe("the zoom window", () => {
+      it("starts unzoomed, and reads the model's span from the catalogue as days", async () => {
+        const store = useRunSelection("h1");
+        await store.load();
+        expect(store.zoomWindow).toBeNull();
+        expect(store.timeExtent).toBeNull();
+
+        catalogFor.mockResolvedValue(
+          catalog({ time_extent: ["2020-01-01 00:00:00", "2020-12-31 23:00:00"] }),
+        );
+        await store.load(true);
+        expect(store.timeExtent).toEqual([Date.UTC(2020, 0, 1), Date.UTC(2020, 11, 31, 23)]);
+      });
+
+      it("rounds a span that starts mid-day down to its day", async () => {
+        catalogFor.mockResolvedValue(
+          catalog({ time_extent: ["2020-06-01 12:00:00", "2020-06-30 23:00:00"] }),
+        );
+        const store = useRunSelection("h1");
+        await store.load();
+        expect(store.timeExtent?.[0]).toBe(Date.UTC(2020, 5, 1));
+      });
+    });
+
+    describe("the overlay", () => {
+      it("is off until asked for, and then mirrors the main query on its own variable", async () => {
+        const store = useRunSelection("h1");
+        await store.load();
+        expect(store.overlayQuery).toBeNull();
+
+        store.resolution = "Monthly";
+        store.timeRange = ["2005-01-01", "2005-01-02"];
+        store.overlayVariable = "storage";
+        expect(store.overlayQuery).toEqual({
+          variable: "storage",
+          selectors: store.effectiveSelectors,
+          resample: "1MS",
+          time_range: ["2005-01-01", "2005-01-02"],
+          order: "time",
+          sum_by: "nodes",
+        });
+      });
+
+      it("sums by what its own variable can honour, not what the main one can", async () => {
+        const store = useRunSelection("h1");
+        await store.load();
+        store.sumBy = "techs";
+        store.overlayVariable = "timestep_resolution";
+        // The main chart sums techs; the overlay has none, so it sends no sum.
+        expect(store.timeseriesQuery?.sum_by).toBe("techs");
+        expect(store.overlayQuery).not.toHaveProperty("sum_by");
+      });
+
+      it("is not drawn on a duration curve, but comes back with the time axis", async () => {
+        const store = useRunSelection("h1");
+        await store.load();
+        store.overlayVariable = "storage";
+        store.plotType = "Duration";
+        expect(store.overlayQuery).toBeNull();
+        expect(store.overlayVariable).toBe("storage");
+
+        store.plotType = "Bar";
+        expect(store.overlayQuery?.variable).toBe("storage");
+      });
+
+      it("switches off rather than re-pointing when the catalogue drops its variable", async () => {
+        const store = useRunSelection("h1");
+        await store.load();
+        store.overlayVariable = "storage";
+
+        catalogFor.mockResolvedValue(
+          catalog({
+            variables: {
+              all: ["flow*"],
+              timeseries: ["flow*"],
+              static: ["flow_cap"],
+              static_nodes: ["flow_cap"],
+              static_links: [],
+              dims: { "flow*": ["nodes", "techs", "carriers", "timesteps"], flow_cap: ["nodes", "techs"] },
+            },
+          }),
+        );
+        await store.load(true);
+        expect(store.variableTimeseries).toBe("flow*");
+        expect(store.overlayVariable).toBeNull();
+      });
     });
   });
 
@@ -865,7 +953,7 @@ describe("useRunSelection", () => {
       store.variableTable = "flow*";
 
       expect(store.resampleLock("flow*")).toBe("");
-      expect(store.tableQuery?.resample).toBe("1ME");
+      expect(store.tableQuery?.resample).toBe("1MS");
     });
 
     it("drops a sum the variable cannot honour, and gives it back", async () => {

@@ -16,7 +16,9 @@ import pytest
 
 from calliope_studio.modeldef.imports import component_tree
 from calliope_studio.modeldef.overrides import (
+    bodies,
     describe,
+    expanded,
     flatten,
     is_value,
     set_path,
@@ -78,6 +80,77 @@ class TestFlatten:
     @pytest.mark.parametrize("value", [1, "x", None, [1, 2], {}, {"data": 1}])
     def test_is_value_agrees_with_flatten(self, value):
         assert is_value(value) is (flatten({"k": value}) == {"k": value})
+
+
+class TestExpanded:
+    """The inverse of `flatten`: every spelling of a path reads as the nested form."""
+
+    NESTED = {"data_tables": {"demand": {"table": "d.csv", "rows": "timesteps"}}}
+
+    def test_nested_input_comes_back_nested(self):
+        assert expanded(self.NESTED) == self.NESTED
+
+    def test_a_dotted_key_unfolds(self):
+        """The spelling that a run snapshot used to miss the CSV of."""
+        assert expanded({"data_tables.demand.table": "d.csv"}) == {
+            "data_tables": {"demand": {"table": "d.csv"}}
+        }
+
+    def test_mixed_spellings_of_one_table_merge(self):
+        assert expanded(
+            {
+                "data_tables.demand": {"rows": "timesteps"},
+                "data_tables.demand.table": "d.csv",
+            }
+        ) == {"data_tables": {"demand": {"rows": "timesteps", "table": "d.csv"}}}
+
+    def test_a_data_table_stays_one_mapping(self):
+        """`flatten` stops at `table`, so the config is never torn into leaves."""
+        assert (
+            expanded(self.NESTED)["data_tables"]["demand"]
+            == self.NESTED["data_tables"]["demand"]
+        )
+
+    def test_lists_and_scalars_pass_through(self):
+        assert expanded({"config.init.subset.timesteps": ["2005-01", "2005-01"]}) == {
+            "config": {"init": {"subset": {"timesteps": ["2005-01", "2005-01"]}}}
+        }
+        assert expanded("not a mapping") == "not a mapping"
+        assert expanded(None) is None
+
+    def test_agrees_with_flatten(self):
+        mixed = {
+            "config.init": {"mode": "base"},
+            "config": {"solve": {"solver": "cbc"}},
+        }
+        assert flatten(expanded(mixed)) == flatten(mixed)
+
+
+class TestBodies:
+    """The document and its overrides, and nothing from a section that is not one."""
+
+    def test_the_document_comes_first_then_each_override(self):
+        document = {"techs": {}, "overrides": {"a": {"x": 1}, "b": {"y": 2}}}
+        assert bodies(document) == [document, {"x": 1}, {"y": 2}]
+
+    def test_no_overrides_is_just_the_document(self):
+        assert bodies({"techs": {}}) == [{"techs": {}}]
+
+    @pytest.mark.parametrize("malformed", [["a", "b"], "a", 3, None])
+    def test_a_malformed_section_contributes_nothing_rather_than_raising(
+        self, malformed
+    ):
+        """The state of a file mid-edit, and it used to be an AttributeError.
+
+        Every reader spelled `(document.get("overrides") or {}).values()` by
+        hand, so a snapshot at run start crashed on `overrides: [a, b]`.
+        """
+        document = {"techs": {}, "overrides": malformed}
+        assert bodies(document) == [document]
+
+    def test_a_non_mapping_document_has_no_bodies(self):
+        assert bodies(None) == []
+        assert bodies("text") == []
 
 
 class TestSetPathDoesNotReshape:

@@ -319,7 +319,11 @@ if (full) {
   const sumBefore = await onButton("sum-by");
   if (sumLabel && sumBefore) {
     await settle(() => testId("sum-by").getByText(sumLabel, { exact: true }).click());
-    check("the zoom survives a sum-by change", holds(await stable(timeWindow)), sumLabel);
+    // The whole window, not the first batch's worth of it: a year arrives in
+    // several batches and the replace happens on the first, whose axis ends
+    // months before the window does.
+    const afterSum = await stable(timeWindow);
+    check("the zoom survives a sum-by change", holds(afterSum), `${sumLabel}: ${JSON.stringify(afterSum)} for ${JSON.stringify(week)}`);
     await settle(() => testId("sum-by").getByText(sumBefore, { exact: true }).click());
   } else {
     skip("the zoom across a sum-by change (only one aggregation offered)");
@@ -333,7 +337,8 @@ if (full) {
   const other = names.find((name) => name && name !== variableBefore);
   if (other) {
     await pickOpen(other);
-    check("the zoom survives a variable change", holds(await stable(timeWindow)), other);
+    const afterVariable = await stable(timeWindow);
+    check("the zoom survives a variable change", holds(afterVariable), `${other}: ${JSON.stringify(afterVariable)} for ${JSON.stringify(week)}`);
     await testId("timeseries-variable").click();
     await pickOpen(variableBefore);
   } else {
@@ -412,8 +417,165 @@ if (full) {
 } else {
   skip("the time-series zoom (no time axis drawn)");
 }
+
+// The from/to boxes: the same window the slider moves, as days. A `from`
+// alone picks the week starting there; both are read back through the option
+// since the slider is painted, not in the DOM. Still at the original
+// resolution: a typed window is clipped to the axis as drawn, and a Daily
+// axis ends at the last day's *start*, so a day typed against it clips to
+// nothing.
+const boxes = async () => ({
+  from: await testId("date-from").inputValue(),
+  to: await testId("date-to").inputValue(),
+});
+const windowValues = () =>
+  page.evaluate(() => {
+    const zoom = window.__cgCharts.timeseries.getOption().dataZoom[0];
+    return { start: zoom.startValue, end: zoom.endValue };
+  });
+const dateFrom = testId("date-from");
+const DAY = 86_400_000;
+const dayText = (ms) => new Date(ms).toISOString().slice(0, 10);
+const boxesOffered =
+  (await dateFrom.count()) > 0 && (await dateFrom.getAttribute("aria-disabled")) !== "true";
+// The model's own span, read off the box bounds. The example models are two
+// and five days long, so a week from any day but the first runs past the
+// data and the `to` box reads as the *last* day rather than the seventh —
+// which is the case worth checking, since a year-long model makes the clip
+// invisible.
+const first = boxesOffered ? Date.parse(`${await dateFrom.getAttribute("min")}T00:00:00Z`) : NaN;
+const last = boxesOffered ? Date.parse(`${await dateFrom.getAttribute("max")}T00:00:00Z`) : NaN;
+if (!boxesOffered) {
+  skip("the from/to boxes (none offered, or no time axis)");
+} else if (!(last >= first + DAY)) {
+  skip("the from/to boxes (the model is shorter than two days)");
+} else {
+  // The second day, not the first: a week from the first day of a short
+  // model covers all of it, and a window over everything is no window.
+  const from = dayText(first + DAY);
+  const weekEnd = dayText(Math.min(first + 7 * DAY, last));
+  const fullExtent = await timeWindow();
+  await settle(async () => {
+    await dateFrom.fill(from);
+    await dateFrom.dispatchEvent("change");
+  });
+  const typed = await stable(boxes);
+  check("a from day fills in the week that starts on it, held within the data", typed.to === weekEnd, JSON.stringify(typed));
+  const applied = await stable(windowValues);
+  // The end is the day after `to`, or the data's last instant if that comes
+  // first — `windowFromDays` clips to the extent.
+  const expectedEnd = Math.min(Date.parse(`${weekEnd}T00:00:00Z`) + DAY, fullExtent?.max ?? Infinity);
+  check(
+    "and the chart zooms to it",
+    applied.start === first + DAY && applied.end === expectedEnd,
+    JSON.stringify({ applied, expected: { start: first + DAY, end: expectedEnd } }),
+  );
+
+  // A date box reads as "" while a segment is being typed, and fires `change`
+  // on every segment. Typing the first digit into `to` used to empty `from`
+  // and drop the window; the window has to sit still until a whole day is in.
+  const dateTo = testId("date-to");
+  await dateTo.evaluate((box) => {
+    box.value = "";
+    box.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  const midEdit = await stable(boxes);
+  const held = await stable(windowValues);
+  check(
+    "a to box mid-edit leaves from and the window alone",
+    midEdit.from === from && held.start === applied.start && held.end === applied.end,
+    JSON.stringify({ midEdit, held }),
+  );
+  // Left empty and tabbed out of, the box shows the window's day again.
+  await dateTo.evaluate((box) => box.dispatchEvent(new Event("blur")));
+  const resynced = await stable(boxes);
+  check("and snaps back to the window's day on blur", resynced.to === weekEnd, JSON.stringify(resynced));
+
+  // The other way: a window set on the chart shows up in the boxes. A day
+  // and a half from the start, so it is inside even the two-day model and
+  // distinct from the week just typed.
+  const dragStart = first + 12 * 3_600_000;
+  const dragEnd = Math.min(dragStart + DAY, fullExtent?.max ?? dragStart + DAY);
+  await settle(() =>
+    page.evaluate(
+      ([s, e]) =>
+        window.__cgCharts.timeseries.dispatchAction({
+          type: "dataZoom",
+          dataZoomIndex: 0,
+          startValue: s,
+          endValue: e,
+        }),
+      [dragStart, dragEnd],
+    ),
+  );
+  const followed = await stable(boxes);
+  check(
+    "dragging the chart fills the boxes in",
+    followed.from === dayText(dragStart) && followed.to === dayText(dragEnd - 1),
+    JSON.stringify({ followed, expected: { from: dayText(dragStart), to: dayText(dragEnd - 1) } }),
+  );
+
+  if (await until(async () => (await testId("zoom-reset").count()) === 1)) {
+    await settle(() => testId("zoom-reset").click());
+    const cleared = await stable(boxes);
+    check("and a reset empties them", cleared.from === "" && cleared.to === "", JSON.stringify(cleared));
+  } else {
+    skip("the boxes emptying on reset (no reset button shown)");
+  }
+}
 if (resolutionBefore && resolutionBefore !== "Original") {
   await settle(() => testId("resolution").getByText(resolutionBefore, { exact: true }).click());
+}
+
+// The overlay: a second variable as a line on a right-hand axis of its own,
+// over whatever the main chart shows. Read back through `getOption`, since an
+// axis is a painted thing with no element to reach.
+const overlayShape = () =>
+  page.evaluate(() => {
+    const option = window.__cgCharts.timeseries.getOption();
+    return {
+      axes: option.yAxis.length,
+      lines: option.series.filter((entry) => entry.yAxisIndex === 1).length,
+      stacked: option.series.filter((entry) => entry.yAxisIndex === 1 && entry.stack).length,
+    };
+  });
+await testId("overlay-variable").click();
+const overlayOptions = page.getByRole("option");
+await overlayOptions.first().waitFor({ timeout: 3000 }).catch(() => {});
+const overlayNames = (await overlayOptions.allInnerTexts()).map((text) => text.trim());
+const overlayPick = overlayNames.find((name) => name && name !== "No overlay");
+if (overlayPick) {
+  const overlayPlotBefore = await onButton("plot-type");
+  await pickOpen(overlayPick);
+  const drawn = await stable(overlayShape);
+  check(
+    "an overlay adds a second axis and lines on it, unstacked",
+    drawn.axes === 2 && drawn.lines > 0 && drawn.stacked === 0,
+    JSON.stringify(drawn),
+  );
+
+  // Not on a duration curve: the control keeps its choice but goes quiet.
+  await settle(() => testId("plot-type").getByText("Duration", { exact: true }).click());
+  const onDuration = await stable(overlayShape);
+  check(
+    "and is not drawn on a duration curve",
+    onDuration.axes === 1 &&
+      onDuration.lines === 0 &&
+      (await testId("overlay-variable").getAttribute("aria-disabled")) === "true",
+    JSON.stringify(onDuration),
+  );
+  await settle(() =>
+    testId("plot-type").getByText(overlayPlotBefore ?? "Bar", { exact: true }).click(),
+  );
+  check("but comes back with the time axis", (await stable(overlayShape)).axes === 2);
+
+  await testId("overlay-variable").click();
+  await pickOpen("No overlay");
+  const gone = await stable(overlayShape);
+  check("switching the overlay off takes its axis away", gone.axes === 1 && gone.lines === 0);
+} else {
+  await page.keyboard.press("Escape");
+  skip("the overlay (no time-series variable offered)");
 }
 
 check("no console errors throughout", consoleErrors.length === 0);

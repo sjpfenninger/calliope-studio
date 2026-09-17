@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.1 (unreleased)
+
+New features:
+
+- Overlay a second variable as a line on top of a time series chart
+- From/to day selection boxes to zoom time series charts
+
+Fixes:
+
+- Various improvements to time series charts and labels
+- Better support for nested YAML keys when capturing run snapshots
+
 ## 0.2.0 (2026-09-07)
 
 New features:

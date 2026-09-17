@@ -36,6 +36,7 @@ from pathlib import Path
 from typing import Any
 
 from calliope_studio.modeldef.imports import find_model_yaml
+from calliope_studio.modeldef.overrides import bodies, expanded
 from calliope_studio.modeldef.paths import yaml_files
 from calliope_studio.modeldef.yaml_io import load_quietly
 
@@ -86,6 +87,11 @@ def collect_data_tables(yaml_path: Path) -> list[tuple[str, dict, Path]]:
     directory = yaml_path.parent
 
     def gather(mapping: Any) -> None:
+        # Through `expanded`, so `data_tables.demand.table: x` — one dotted key,
+        # which Calliope reads exactly as the nested form — is found too. It was
+        # not, and a run whose override named a CSV that way solved from a
+        # snapshot without that CSV in it.
+        mapping = expanded(mapping)
         if not isinstance(mapping, dict):
             return
         tables = mapping.get("data_tables")
@@ -94,9 +100,8 @@ def collect_data_tables(yaml_path: Path) -> list[tuple[str, dict, Path]]:
                 if isinstance(config, dict):
                     found.append((str(name), dict(config), directory))
 
-    gather(document)
-    for override in (document.get("overrides") or {}).values():
-        gather(override)
+    for body in bodies(document):
+        gather(body)
     return found
 
 
